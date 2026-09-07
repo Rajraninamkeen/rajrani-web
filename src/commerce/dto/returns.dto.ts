@@ -1,6 +1,15 @@
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ReturnReasonCode } from '../../generated/prisma/client';
+import { InspectionResult, ReturnReasonCode } from '../../generated/prisma/client';
+
+export class ReturnRequestItemDto {
+  @IsString()
+  orderItemId!: string;
+
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+}
 
 export class CreateReturnDto {
   @IsEnum(ReturnReasonCode)
@@ -10,6 +19,13 @@ export class CreateReturnDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  /** Which order items (and quantities) to return. Omit => return every line fully. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReturnRequestItemDto)
+  items?: ReturnRequestItemDto[];
 }
 
 export class ReturnDecisionDto {
@@ -22,11 +38,22 @@ export class ReturnDecisionDto {
   reason?: string;
 }
 
-export class InitiateRefundDto {
-  /** Optional explicit refund amount; omitted => full order grand total. */
+export class InspectionItemDto {
+  @IsString()
+  returnItemId!: string;
+
+  @IsEnum(InspectionResult)
+  result!: InspectionResult;
+
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
-  amount?: number;
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+}
+
+export class InspectionDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InspectionItemDto)
+  items!: InspectionItemDto[];
 }

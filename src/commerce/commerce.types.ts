@@ -41,6 +41,7 @@ export interface PriceBreakdown {
 }
 
 export interface OrderItemPublic {
+  orderItemId?: string;
   productId: string;
   productName: string;
   sku?: string | null;
@@ -127,5 +128,23 @@ export interface ReturnRequestPublic {
   approvedAt?: string | null;
   rejectedAt?: string | null;
   decisionReason?: string | null;
+  pickupScheduledAt?: string | null;
+  pickedUpAt?: string | null;
+  inspectedAt?: string | null;
+  approvedForRefundAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+  items: ReturnItemPublic[];
   refund?: RefundPublic | null;
+}
+
+export interface ReturnItemPublic {
+  id: string;
+  orderItemId: string;
+  productName?: string | null;
+  quantity: number;
+  conditionNotes?: string | null;
+  inspectionResult?: string | null;
+  refundAmount?: number | null;
+  replacementRequested: boolean;
 }

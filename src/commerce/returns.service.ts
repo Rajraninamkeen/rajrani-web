@@ -6,216 +6,278 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  OrderActor,
+  InspectionResult,
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
-  PaymentTransactionType,
   Prisma,
   RefundMethod,
   RefundState,
+  ReturnActorType,
+  ReturnEventType,
   ReturnStatus,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateReturnDto,
-  InitiateRefundDto,
+  InspectionDto,
   ReturnDecisionDto,
 } from './dto/returns.dto';
-import { ReturnRequestPublic } from './commerce.types';
-import { RETURN_WINDOW_DAYS } from './returns.policy';
+import {
+  RefundPublic,
+  ReturnItemPublic,
+  ReturnRequestPublic,
+} from './commerce.types';
+import { INSPECTION_PARTIAL_PASS_RATE, RETURN_WINDOW_DAYS } from './returns.policy';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const CENTS = (n: number) => Math.round(n * 100) / 100;
 
 const RND = () =>
   `${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+
+const RETURN_INCLUDE = {
+  items: {
+    include: { orderItem: true, inspection: true },
+  },
+  refund: true,
+  order: { include: { items: true } },
+} as const;
+
+type Full = any;
 
 @Injectable()
 export class ReturnsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ---------- customer ----------
+  // ================= CUSTOMER =================
 
-  /** Customer requests a return on a delivered order (whole-order return slice). */
+  /** Request an item-level return on a DELIVERED order. */
   async request(
     userId: string,
     orderId: string,
     dto: CreateReturnDto,
   ): Promise<ReturnRequestPublic> {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order || order.userId !== userId) throw new NotFoundException('Order not found');
-    if (order.status !== OrderStatus.DELIVERED) {
-      throw new BadRequestException('Only a delivered order can be returned');
-    }
-    if (order.paymentStatus === PaymentStatus.REFUNDED || order.paymentStatus === PaymentStatus.FAILED) {
-      throw new BadRequestException('This order is not eligible for a return');
-    }
-
-    // Return window: within N days of delivery (server-authoritative).
-    const deliveredAt = order.deliveredAt ?? order.updatedAt;
-    if (Date.now() - deliveredAt.getTime() > RETURN_WINDOW_DAYS * DAY_MS) {
-      throw new BadRequestException(
-        `Return window closed (${RETURN_WINDOW_DAYS} days from delivery)`,
-      );
-    }
-
-    const prior = await this.prisma.returnRequest.findFirst({
-      where: { orderId, status: { not: ReturnStatus.REJECTED } },
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
     });
-    if (prior) {
-      throw new ConflictException('A return is already open for this order');
+    if (!order || order.userId !== userId) throw new NotFoundException('Order not found');
+    this.assertReturnableOrder(order);
+
+    // Remaining returnable qty per order item across non-closed prior requests.
+    const closed: ReturnStatus[] = [ReturnStatus.REJECTED, ReturnStatus.CANCELLED];
+    const priorItems = await this.prisma.returnItem.findMany({
+      where: {
+        returnRequest: { orderId, status: { notIn: closed } },
+      },
+    });
+    const used = new Map<string, number>();
+    for (const p of priorItems) used.set(p.orderItemId, (used.get(p.orderItemId) ?? 0) + p.quantity);
+
+    // Build the item selection.
+    const picks: { orderItem: (typeof order.items)[number]; quantity: number }[] = [];
+    if (!dto.items || dto.items.length === 0) {
+      for (const oi of order.items) {
+        const remaining = oi.quantity - (used.get(oi.id) ?? 0);
+        if (remaining > 0) picks.push({ orderItem: oi, quantity: remaining });
+      }
+    } else {
+      const byId = new Map(order.items.map((o) => [o.id, o]));
+      for (const it of dto.items) {
+        const oi = byId.get(it.orderItemId);
+        if (!oi) throw new BadRequestException('One or more items are not part of this order');
+        const remaining = oi.quantity - (used.get(oi.id) ?? 0);
+        if (it.quantity > remaining) {
+          throw new BadRequestException(`Quantity exceeds the remaining returnable units for an item`);
+        }
+        picks.push({ orderItem: oi, quantity: it.quantity });
+      }
+    }
+    if (picks.length === 0) {
+      throw new BadRequestException('There is nothing left to return for this order');
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const res = await tx.order.updateMany({
-        where: { id: orderId, status: OrderStatus.DELIVERED },
-        data: { status: OrderStatus.RETURN_REQUESTED },
-      });
-      if (res.count === 0) throw new ConflictException('Order state changed; please retry');
-
-      const created = await tx.returnRequest.create({
+      const rr = await tx.returnRequest.create({
         data: {
           orderId,
           reasonCode: dto.reasonCode,
           reasonNote: dto.note,
+          items: {
+            create: picks.map((p) => ({
+              orderItemId: p.orderItem.id,
+              quantity: p.quantity,
+            })),
+          },
         },
-        include: { refund: true },
+        include: RETURN_INCLUDE,
       });
-
-      await tx.orderStatusHistory.create({
-        data: {
-          orderId,
-          fromStatus: OrderStatus.DELIVERED,
-          toStatus: OrderStatus.RETURN_REQUESTED,
-          actor: OrderActor.CUSTOMER,
-          actorId: userId,
-          reason: `Return requested (${dto.reasonCode})`,
-          metadata: { returnRequestId: created.id },
-        },
-      });
-
-      return this.toPublic(created, order.orderNumber);
+      await this.eventTx(tx, rr.id, ReturnEventType.REQUESTED, ReturnActorType.CUSTOMER, userId, `Return requested (${dto.reasonCode})`);
+      return this.toPublic(rr);
     });
   }
 
-  /** The open/active return for one of the customer's orders. */
-  async getForOrder(userId: string, orderId: string): Promise<ReturnRequestPublic | null> {
+  /** The most recent return request(s) for one of the customer's orders. */
+  async getForOrder(userId: string, orderId: string): Promise<ReturnRequestPublic[]> {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order || order.userId !== userId) throw new NotFoundException('Order not found');
-    const r = await this.prisma.returnRequest.findFirst({
+    const rows = await this.prisma.returnRequest.findMany({
       where: { orderId },
       orderBy: { createdAt: 'desc' },
-      include: { refund: true },
+      include: RETURN_INCLUDE,
     });
-    return r ? this.toPublic(r, order.orderNumber) : null;
+    return rows.map((r) => this.toPublic(r));
   }
 
-  // ---------- operator decision / refund ----------
+  // ================= OPERATOR: decision / pickup =================
 
-  /** Operator approves (→RETURNED) or rejects (→back to DELIVERED) a return. */
+  /** Approve (eligibility OK) or reject a REQUESTED return. */
   async decide(
     operatorId: string,
     returnRequestId: string,
     dto: ReturnDecisionDto,
   ): Promise<ReturnRequestPublic> {
-    const r = await this.loadOpenReturn(returnRequestId);
-    const order = r.order;
-
-    if (dto.approve) {
-      return this.prisma.$transaction(async (tx) => {
-        await this.move(tx, order.id, OrderStatus.RETURN_REQUESTED, OrderStatus.RETURNED, {
-          actor: OrderActor.CONTROL,
-          actorId: operatorId,
-          reason: dto.reason ?? 'Return approved',
-          metadata: { returnRequestId },
-        });
-        await tx.returnRequest.update({
-          where: { id: returnRequestId },
-          data: { status: ReturnStatus.APPROVED, approvedAt: new Date(), decisionBy: operatorId, decisionReason: dto.reason },
-        });
-        const updated = await tx.returnRequest.findUniqueOrThrow({
-          where: { id: returnRequestId },
-          include: { refund: true },
-        });
-        return this.toPublic(updated, order.orderNumber);
-      });
-    }
-
-    // Reject requires a reason (spec: rejection reason mandatory for decisions).
-    if (!dto.reason) {
+    const r = await this.loadStatus(returnRequestId, ReturnStatus.REQUESTED);
+    if (!dto.approve && !dto.reason) {
       throw new BadRequestException('A reason is required to reject a return');
     }
     return this.prisma.$transaction(async (tx) => {
-      await this.move(tx, order.id, OrderStatus.RETURN_REQUESTED, OrderStatus.DELIVERED, {
-        actor: OrderActor.CONTROL,
-        actorId: operatorId,
-        reason: `Return rejected: ${dto.reason}`,
-        metadata: { returnRequestId },
-      });
+      const to = dto.approve ? ReturnStatus.APPROVED : ReturnStatus.REJECTED;
       await tx.returnRequest.update({
         where: { id: returnRequestId },
-        data: { status: ReturnStatus.REJECTED, rejectedAt: new Date(), decisionBy: operatorId, decisionReason: dto.reason },
+        data: dto.approve
+          ? { status: to, approvedAt: new Date(), decisionBy: operatorId, decisionReason: dto.reason }
+          : { status: to, rejectedAt: new Date(), decisionBy: operatorId, decisionReason: dto.reason },
       });
-      const updated = await tx.returnRequest.findUniqueOrThrow({
-        where: { id: returnRequestId },
-        include: { refund: true },
-      });
-      return this.toPublic(updated, order.orderNumber);
+      await this.eventTx(
+        tx,
+        returnRequestId,
+        dto.approve ? ReturnEventType.APPROVED : ReturnEventType.REJECTED,
+        ReturnActorType.OPERATOR,
+        operatorId,
+        dto.approve ? (dto.reason ?? 'Approved') : `Rejected: ${dto.reason}`,
+      );
+      const updated = await tx.returnRequest.findUniqueOrThrow({ where: { id: returnRequestId }, include: RETURN_INCLUDE });
+      return this.toPublic(updated);
     });
   }
 
-  /** Operator initiates a refund for an approved (RETURNED) return. */
-  async initiateRefund(
-    operatorId: string,
-    returnRequestId: string,
-    dto: InitiateRefundDto,
-  ): Promise<ReturnRequestPublic> {
-    const r = await this.loadOpenReturn(returnRequestId);
-    const order = r.order;
-    if (r.status !== ReturnStatus.APPROVED) {
-      throw new ConflictException('Return must be approved before refunding');
-    }
-    if (order.status !== OrderStatus.RETURNED) {
-      throw new ConflictException('Order is not in RETURNED state');
-    }
-    if (order.paymentStatus === PaymentStatus.REFUNDED) {
-      throw new ConflictException('This order has already been refunded');
+  async schedulePickup(operatorId: string, returnRequestId: string) {
+    return this.step(
+      operatorId,
+      returnRequestId,
+      ReturnStatus.APPROVED,
+      ReturnStatus.PICKUP_SCHEDULED,
+      ReturnEventType.PICKUP_SCHEDULED,
+      { pickupScheduledAt: new Date() },
+    );
+  }
+
+  async pickedUp(operatorId: string, returnRequestId: string) {
+    return this.step(
+      operatorId,
+      returnRequestId,
+      ReturnStatus.PICKUP_SCHEDULED,
+      ReturnStatus.PICKED_UP,
+      ReturnEventType.PICKED_UP,
+      { pickedUpAt: new Date() },
+    );
+  }
+
+  /** Record inspection results for provided return items. When every item has a
+   *  result the request finalises into APPROVED_FOR_REFUND (refund amounts set). */
+  async inspect(operatorId: string, returnRequestId: string, dto: InspectionDto) {
+    const r = await this.loadStatus(returnRequestId, ReturnStatus.PICKED_UP);
+    const itemIds = new Set(dto.items.map((i) => i.returnItemId));
+    const items = r.items.filter((i: any) => itemIds.has(i.id));
+    if (items.length !== itemIds.size) {
+      throw new BadRequestException('Some return items are not part of this request');
     }
 
-    const grandTotal = order.grandTotal.toNumber();
-    const amount =
-      dto.amount !== undefined
-        ? Math.round(dto.amount * 100) / 100
-        : Math.round(grandTotal * 100) / 100;
-    if (amount > grandTotal + 0.001) {
-      throw new BadRequestException('Refund amount exceeds the order grand total');
+    const result = await this.prisma.$transaction(async (tx) => {
+      for (const insp of dto.items) {
+        await tx.returnItem.update({
+          where: { id: insp.returnItemId },
+          data: { inspectionResult: insp.result, conditionNotes: insp.notes },
+        });
+        await tx.returnInspection.upsert({
+          where: { returnItemId: insp.returnItemId },
+          create: { returnItemId: insp.returnItemId, inspectorId: operatorId, result: insp.result, conditionNotes: insp.notes },
+          update: { result: insp.result, conditionNotes: insp.notes },
+        });
+      }
+      const refreshed = await tx.returnRequest.findUniqueOrThrow({
+        where: { id: returnRequestId },
+        include: RETURN_INCLUDE,
+      });
+      const allInspected = refreshed.items.every((i: any) => i.inspectionResult);
+      let status = refreshed.status;
+      if (allInspected) {
+        status = ReturnStatus.APPROVED_FOR_REFUND;
+        for (const it of refreshed.items) {
+          const amount = this.finalizeItemRefund(it, refreshed.order);
+          await tx.returnItem.update({ where: { id: it.id }, data: { refundAmount: amount } });
+        }
+        await tx.returnRequest.update({
+          where: { id: returnRequestId },
+          data: { status, inspectedAt: new Date(), approvedForRefundAt: new Date() },
+        });
+        await this.eventTx(tx, returnRequestId, ReturnEventType.APPROVED_FOR_REFUND, ReturnActorType.OPERATOR, operatorId, 'Inspection complete');
+      } else {
+        await tx.returnRequest.update({
+          where: { id: returnRequestId },
+          data: { status: ReturnStatus.INSPECTION, inspectedAt: new Date() },
+        });
+        await this.eventTx(tx, returnRequestId, ReturnEventType.INSPECTION, ReturnActorType.OPERATOR, operatorId, 'Inspection recorded');
+      }
+      const final = await tx.returnRequest.findUniqueOrThrow({ where: { id: returnRequestId }, include: RETURN_INCLUDE });
+      return this.toPublic(final);
+    });
+    return result;
+  }
+
+  // ================= OPERATOR: refund =================
+
+  /** Create the refund for an APPROVED_FOR_REFUND request. Amount is derived
+   *  server-side from the approved return items (proportional allocation). */
+  async initiateRefund(operatorId: string, returnRequestId: string) {
+    const r = await this.loadStatus(returnRequestId, ReturnStatus.APPROVED_FOR_REFUND);
+    if (r.refund) throw new ConflictException('A refund is already initiated for this return');
+    const grandTotal = r.order.grandTotal.toNumber();
+    let amount = 0;
+    for (const it of r.items) {
+      amount = CENTS(amount + (it.refundAmount ? it.refundAmount.toNumber() : 0));
+    }
+    if (amount <= 0) {
+      throw new BadRequestException('No refundable amount remains for this return (all items FAILED inspection)');
+    }
+    // Never over-refund the order across multiple partial returns.
+    const refundedSoFar = await this.prisma.refund.aggregate({
+      where: { orderId: r.order.id, status: { in: [RefundState.PENDING, RefundState.PROCESSING, RefundState.COMPLETED] } },
+      _sum: { amount: true },
+    });
+    const already = refundedSoFar._sum.amount ? refundedSoFar._sum.amount.toNumber() : 0;
+    if (CENTS(already + amount) > CENTS(grandTotal + 0.001)) {
+      throw new BadRequestException('Refund would exceed the order grand total');
     }
 
     const method: RefundMethod =
-      order.paymentMethod === PaymentMethod.COD ? RefundMethod.COD : RefundMethod.GATEWAY;
-
-    // Link the original payment for PREPAID orders (money returns to that source).
+      r.order.paymentMethod === PaymentMethod.COD ? RefundMethod.COD : RefundMethod.GATEWAY;
     const payment =
-      order.paymentMethod === PaymentMethod.PREPAID
-        ? await this.prisma.payment.findUnique({ where: { orderId: order.id } })
+      r.order.paymentMethod === PaymentMethod.PREPAID
+        ? await this.prisma.payment.findUnique({ where: { orderId: r.order.id } })
         : null;
 
     return this.prisma.$transaction(async (tx) => {
-      await this.move(tx, order.id, OrderStatus.RETURNED, OrderStatus.REFUND_PENDING, {
-        actor: OrderActor.CONTROL,
-        actorId: operatorId,
-        reason: 'Refund initiated',
-        metadata: { returnRequestId },
-      });
-
       await tx.refund.create({
         data: {
-          orderId: order.id,
+          orderId: r.order.id,
           returnRequestId,
           paymentId: payment?.id,
           refundReference: `RFD-${RND()}`,
           amount,
-          currency: order.currency,
+          currency: r.order.currency,
           method,
           status: RefundState.PENDING,
           reason: 'customer return',
@@ -223,134 +285,136 @@ export class ReturnsService {
           idempotencyKey: `refund-${returnRequestId}`,
         },
       });
-
-      const updated = await tx.returnRequest.findUniqueOrThrow({
-        where: { id: returnRequestId },
-        include: { refund: true },
-      });
-      return this.toPublic(updated, order.orderNumber);
+      await this.eventTx(tx, returnRequestId, ReturnEventType.REFUND_INITIATED, ReturnActorType.OPERATOR, operatorId, `Refund ₹${amount.toFixed(2)} initiated`);
+      const updated = await tx.returnRequest.findUniqueOrThrow({ where: { id: returnRequestId }, include: RETURN_INCLUDE });
+      return this.toPublic(updated);
     });
   }
 
-  /**
-   * Sandbox refund completion. Backend authority only — real gateway completion
-   * would replace this with a provider call keyed by the same Refund record.
-   */
-  async completeRefund(
-    operatorId: string,
-    returnRequestId: string,
-  ): Promise<ReturnRequestPublic> {
-    const r = await this.prisma.returnRequest.findUnique({
-      where: { id: returnRequestId },
-      include: { order: true, refund: true },
-    });
-    if (!r) throw new NotFoundException('Return request not found');
+  /** Sandbox refund completion + ledger + terminal aggregate order update. */
+  async completeRefund(operatorId: string, returnRequestId: string) {
+    const r = await this.loadStatus(returnRequestId, ReturnStatus.APPROVED_FOR_REFUND);
     if (!r.refund) throw new ConflictException('No refund has been initiated for this return');
     if (r.refund.status !== RefundState.PENDING) {
       throw new ConflictException('Refund is not in a completable state');
     }
-    if (r.order.status !== OrderStatus.REFUND_PENDING) {
-      throw new ConflictException('Order is not awaiting refund');
-    }
     const refund = r.refund;
 
     return this.prisma.$transaction(async (tx) => {
-      await this.move(tx, r.order.id, OrderStatus.REFUND_PENDING, OrderStatus.REFUNDED, {
-        actor: OrderActor.CONTROL,
-        actorId: operatorId,
-        reason: 'Refund completed',
-        metadata: { returnRequestId, refundId: refund.id },
-      });
-
-      await tx.order.update({
-        where: { id: r.order.id },
-        data: { paymentStatus: PaymentStatus.REFUNDED },
-      });
-
+      const gatewayRef = `sndbox-refund-${RND()}`;
       await tx.refund.update({
         where: { id: refund.id },
+        data: { status: RefundState.COMPLETED, gatewayRef, completedAt: new Date() },
+      });
+      await tx.refundTransaction.create({
         data: {
-          status: RefundState.COMPLETED,
-          gatewayRef: `sndbox-refund-${RND()}`,
+          refundId: refund.id,
+          provider: refund.gatewayProvider ?? 'sandbox',
+          providerReference: gatewayRef,
+          amount: refund.amount,
+          status: 'SUCCESS',
           completedAt: new Date(),
         },
       });
-
-      // Finance trail on the original payment (PREPAID gateway refunds).
-      if (refund.paymentId) {
-        await tx.paymentTransaction.create({
-          data: {
-            paymentId: refund.paymentId,
-            transactionType: PaymentTransactionType.REFUND,
-            amount: refund.amount,
-            currency: refund.currency,
-            providerReference: refund.gatewayRef,
-            status: 'SUCCESS',
-            metadata: { refundId: refund.id },
-          },
-        });
-      }
-
       await tx.returnRequest.update({
         where: { id: returnRequestId },
         data: { status: ReturnStatus.COMPLETED, completedAt: new Date() },
       });
+      await this.eventTx(tx, returnRequestId, ReturnEventType.REFUND_COMPLETED, ReturnActorType.OPERATOR, operatorId, `Refund ₹${refund.amount.toNumber().toFixed(2)} completed`);
 
-      const updated = await tx.returnRequest.findUniqueOrThrow({
-        where: { id: returnRequestId },
-        include: { refund: true },
+      // Aggregate: if the order is now fully refunded mark it terminal.
+      const agg = await tx.refund.aggregate({
+        where: { orderId: r.order.id, status: RefundState.COMPLETED },
+        _sum: { amount: true },
       });
-      return this.toPublic(updated, r.order.orderNumber);
+      const completed = agg._sum.amount ? agg._sum.amount.toNumber() : 0;
+      if (completed >= r.order.grandTotal.toNumber() - 0.001) {
+        await tx.order.update({
+          where: { id: r.order.id },
+          data: { status: OrderStatus.REFUNDED, paymentStatus: PaymentStatus.REFUNDED },
+        });
+      }
+      const updated = await tx.returnRequest.findUniqueOrThrow({ where: { id: returnRequestId }, include: RETURN_INCLUDE });
+      return this.toPublic(updated);
     });
   }
 
-  // ---------- helpers ----------
+  // ================= helpers =================
 
-  private async loadOpenReturn(returnRequestId: string) {
+  private assertReturnableOrder(order: any) {
+    // Partial/item returns keep the order DELIVERED; the whole order only moves to
+    // REFUNDED at the end (full aggregate refund), so the eligibility gate is:
+    if (order.status !== OrderStatus.DELIVERED) {
+      throw new BadRequestException('Only a delivered order can be returned');
+    }
+    if (order.paymentStatus === PaymentStatus.REFUNDED) {
+      throw new BadRequestException('This order has already been fully refunded');
+    }
+    const deliveredAt = order.deliveredAt ?? order.updatedAt;
+    if (Date.now() - deliveredAt.getTime() > RETURN_WINDOW_DAYS * DAY_MS) {
+      throw new BadRequestException(`Return window closed (${RETURN_WINDOW_DAYS} days from delivery)`);
+    }
+  }
+
+  private async loadStatus(returnRequestId: string, expected: ReturnStatus): Promise<Full> {
     const r = await this.prisma.returnRequest.findUnique({
       where: { id: returnRequestId },
-      include: { order: true },
+      include: RETURN_INCLUDE,
     });
     if (!r) throw new NotFoundException('Return request not found');
-    if (r.status === ReturnStatus.COMPLETED || r.status === ReturnStatus.REJECTED) {
-      throw new ConflictException('Return is already closed');
+    if (r.status !== expected) {
+      throw new ConflictException(`Return is in state ${r.status}, expected ${expected}`);
     }
     return r;
   }
 
-  /** Guarded order status move + audited history row inside an existing tx. */
-  private async move(
-    tx: Prisma.TransactionClient,
-    orderId: string,
-    from: OrderStatus,
-    to: OrderStatus,
-    meta: {
-      actor: OrderActor;
-      actorId?: string;
-      reason?: string;
-      metadata?: Prisma.InputJsonValue;
-    },
-  ): Promise<void> {
-    const res = await tx.order.updateMany({
-      where: { id: orderId, status: from },
-      data: { status: to },
-    });
-    if (res.count === 0) throw new ConflictException('Order state changed; please retry');
-    await tx.orderStatusHistory.create({
-      data: {
-        orderId,
-        fromStatus: from,
-        toStatus: to,
-        actor: meta.actor,
-        actorId: meta.actorId,
-        reason: meta.reason,
-        metadata: (meta.metadata as Prisma.InputJsonObject) ?? undefined,
-      },
+  private async step(
+    operatorId: string,
+    id: string,
+    from: ReturnStatus,
+    to: ReturnStatus,
+    event: ReturnEventType,
+    extra: Record<string, unknown>,
+  ) {
+    await this.loadStatus(id, from);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.returnRequest.update({ where: { id }, data: { status: to, ...extra } });
+      await this.eventTx(tx, id, event, ReturnActorType.OPERATOR, operatorId, event.replace(/_/g, ' ').toLowerCase());
+      const updated = await tx.returnRequest.findUniqueOrThrow({ where: { id }, include: RETURN_INCLUDE });
+      return this.toPublic(updated);
     });
   }
 
-  private toPublic(r: any, orderNumber: string): ReturnRequestPublic {
-    const refund = r.refund
+  private eventTx(
+    tx: Prisma.TransactionClient,
+    returnRequestId: string,
+    eventType: ReturnEventType,
+    actorType: ReturnActorType,
+    actorId: string,
+    reason: string,
+  ) {
+    return tx.returnEvent.create({
+      data: { returnRequestId, eventType, actorType, actorId, reason },
+    });
+  }
+
+  /** Per-item refund = the item's share of the order grand total (allocated by
+   *  line value across all items) for the returned quantity, adjusted by the
+   *  inspection result (PASS 100% / PARTIAL_PASS policy % / FAIL 0). */
+  private finalizeItemRefund(it: Full, order: Full): number {
+    const totalLine = order.items.reduce((s: number, oi: any) => s + oi.lineTotal.toNumber(), 0);
+    const grand = order.grandTotal.toNumber();
+    const oi = it.orderItem;
+    const sharePerUnit = totalLine > 0 ? (grand * oi.lineTotal.toNumber()) / totalLine / oi.quantity : 0;
+    const alloc = CENTS(sharePerUnit * it.quantity);
+    let factor = 1;
+    if (it.inspectionResult === InspectionResult.PARTIAL_PASS) factor = INSPECTION_PARTIAL_PASS_RATE;
+    else if (it.inspectionResult === InspectionResult.FAIL) factor = 0;
+    return CENTS(alloc * factor);
+  }
+
+  private toPublic(r: Full): ReturnRequestPublic {
+    const refund: RefundPublic | null = r.refund
       ? {
           id: r.refund.id,
           refundReference: r.refund.refundReference,
@@ -363,10 +427,20 @@ export class ReturnsService {
           completedAt: r.refund.completedAt ? r.refund.completedAt.toISOString() : null,
         }
       : null;
+    const items: ReturnItemPublic[] = (r.items ?? []).map((it: any) => ({
+      id: it.id,
+      orderItemId: it.orderItemId,
+      productName: it.orderItem?.productNameSnapshot ?? null,
+      quantity: it.quantity,
+      conditionNotes: it.conditionNotes,
+      inspectionResult: it.inspectionResult,
+      refundAmount: it.refundAmount ? it.refundAmount.toNumber() : null,
+      replacementRequested: it.replacementRequested,
+    }));
     return {
       id: r.id,
       orderId: r.orderId,
-      orderNumber,
+      orderNumber: r.order?.orderNumber,
       status: r.status,
       reasonCode: r.reasonCode,
       reasonNote: r.reasonNote,
@@ -374,6 +448,13 @@ export class ReturnsService {
       approvedAt: r.approvedAt ? r.approvedAt.toISOString() : null,
       rejectedAt: r.rejectedAt ? r.rejectedAt.toISOString() : null,
       decisionReason: r.decisionReason,
+      pickupScheduledAt: r.pickupScheduledAt ? r.pickupScheduledAt.toISOString() : null,
+      pickedUpAt: r.pickedUpAt ? r.pickedUpAt.toISOString() : null,
+      inspectedAt: r.inspectedAt ? r.inspectedAt.toISOString() : null,
+      approvedForRefundAt: r.approvedForRefundAt ? r.approvedForRefundAt.toISOString() : null,
+      completedAt: r.completedAt ? r.completedAt.toISOString() : null,
+      cancelledAt: r.cancelledAt ? r.cancelledAt.toISOString() : null,
+      items,
       refund,
     };
   }

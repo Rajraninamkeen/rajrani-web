@@ -422,6 +422,8 @@ model OrderItem {
   quantity          Int
   lineTotal         Decimal @db.Decimal(12, 2)
 
+  returnItems ReturnItem[]
+
   @@index([orderId])
   @@map("order_items")
 }
@@ -562,14 +564,21 @@ model CodVerification {
   @@map("cod_verifications")
 }
 
-// --- Session 07: returns & refunds (DB-Design §§85-92) ---
-// Backend is the sole authority for refund eligibility/amount/status.
+// --- Session 07/08: returns & refunds (DB-Design §§85-92) ---
+// Item-level, full-lifecycle returns. Backend is the sole authority for refund
+// eligibility/amount/status. Refund amounts are server-allocated proportionally
+// from the order grand total and adjusted by inspection results.
 
 enum ReturnStatus {
   REQUESTED
   APPROVED
   REJECTED
+  PICKUP_SCHEDULED
+  PICKED_UP
+  INSPECTION
+  APPROVED_FOR_REFUND
   COMPLETED
+  CANCELLED
 }
 
 enum ReturnReasonCode {
@@ -584,6 +593,31 @@ enum ReturnReasonCode {
   OTHER
 }
 
+enum ReturnEventType {
+  REQUESTED
+  APPROVED
+  REJECTED
+  PICKUP_SCHEDULED
+  PICKED_UP
+  INSPECTION
+  APPROVED_FOR_REFUND
+  REFUND_INITIATED
+  REFUND_COMPLETED
+  CANCELLED
+}
+
+enum ReturnActorType {
+  CUSTOMER
+  OPERATOR
+  SYSTEM
+}
+
+enum InspectionResult {
+  PASS
+  PARTIAL_PASS
+  FAIL
+}
+
 enum RefundMethod {
   GATEWAY // PREPAID: money back to the original payment source
   COD     // cash order: refunded out-of-band (UPI/cash)
@@ -596,58 +630,138 @@ enum RefundState {
   FAILED
 }
 
-// Whole-order return request tied to the order lifecycle. Eligibility + window
-// are evaluated server-side (ReturnService). Deferred: item-level partial
-// returns, pickup scheduling, warehouse inspection.
+// A customer return request over one or more of the order's line items
+// (return_items below). Its own ReturnStatus drives the pickup/inspection/
+// refund lifecycle; ReturnEvents provide an immutable per-request audit trail.
 model ReturnRequest {
-  id               String             @id @default(cuid())
-  orderId          String
-  order            Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  status           ReturnStatus       @default(REQUESTED)
-  reasonCode       ReturnReasonCode
-  reasonNote       String?            // optional free-text elaboration
-  evidenceRequired Boolean            @default(false)
-  requestedAt      DateTime           @default(now())
-  approvedAt       DateTime?
-  rejectedAt       DateTime?
-  decisionBy       String?            // operator user id that decided
-  decisionReason   String?
-  completedAt      DateTime?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  id                    String             @id @default(cuid())
+  orderId               String
+  order                 Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status                ReturnStatus       @default(REQUESTED)
+  reasonCode            ReturnReasonCode
+  reasonNote            String?
+  evidenceRequired      Boolean            @default(false)
+  requestedAt           DateTime           @default(now())
+  approvedAt            DateTime?
+  rejectedAt            DateTime?
+  decisionBy            String?
+  decisionReason        String?
+  pickupScheduledAt     DateTime?
+  pickedUpAt            DateTime?
+  inspectedAt           DateTime?
+  approvedForRefundAt   DateTime?
+  completedAt           DateTime?
+  cancelledAt           DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
-  refund Refund?
+  items    ReturnItem[]
+  events   ReturnEvent[]
+  refund   Refund?
 
   @@index([orderId])
   @@map("return_requests")
 }
 
-// Server-authoritative refund for a return. amount <= order.grandTotal enforced
-// in service; status transitions guarded. gateway_ref + idempotency for audit.
+// One line of the return: a quantity of a single purchased order item.
+// refundAmount is finalised server-side at APPROVED_FOR_REFUND from the
+// proportional grand-total allocation adjusted by the inspection result.
+model ReturnItem {
+  id                  String            @id @default(cuid())
+  returnRequestId     String
+  returnRequest       ReturnRequest     @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  orderItemId         String
+  orderItem           OrderItem         @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  quantity            Int               // number of units being returned
+  conditionNotes      String?
+  inspectionResult    InspectionResult?
+  refundAmount        Decimal?          @db.Decimal(12, 2)
+  replacementRequested Boolean          @default(false)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  inspection ReturnInspection?
+
+  @@unique([returnRequestId, orderItemId])
+  @@map("return_items")
+}
+
+// Immutable per-request lifecycle audit (DB-Design §88).
+model ReturnEvent {
+  id               String            @id @default(cuid())
+  returnRequestId  String
+  returnRequest    ReturnRequest     @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  eventType        ReturnEventType
+  actorType        ReturnActorType
+  actorId          String?
+  reason           String?
+  metadata         Json?
+  createdAt        DateTime          @default(now())
+
+  @@index([returnRequestId])
+  @@map("return_events")
+}
+
+// Result of physically inspecting a returned line (DB-Design §89). A PARTIAL_PASS
+// or FAIL result reduces that line's refundable amount per policy.
+model ReturnInspection {
+  id                String           @id @default(cuid())
+  returnItemId      String           @unique
+  returnItem        ReturnItem       @relation(fields: [returnItemId], references: [id], onDelete: Cascade)
+  inspectorId       String?          // operator user id
+  result            InspectionResult
+  conditionNotes    String?
+  evidenceStorageId String?
+  createdAt         DateTime         @default(now())
+
+  @@map("return_inspections")
+}
+
+// Server-authoritative refund. amount is derived from approved return items and
+// is <= order.grandTotal (enforced in service). status transitions guarded.
 model Refund {
-  id               String        @id @default(cuid())
+  id               String               @id @default(cuid())
   orderId          String
-  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  returnRequestId  String        @unique
-  returnRequest    ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  order            Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  returnRequestId  String               @unique
+  returnRequest    ReturnRequest        @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
   paymentId        String?
-  payment          Payment?      @relation(fields: [paymentId], references: [id], onDelete: SetNull)
-  refundReference  String        @unique // RFD-XXXX internal reference
-  amount           Decimal       @db.Decimal(12, 2)
-  currency         String        @default("INR")
+  payment          Payment?             @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  refundReference  String               @unique // RFD-XXXX
+  amount           Decimal              @db.Decimal(12, 2)
+  currency         String               @default("INR")
   method           RefundMethod
-  status           RefundState   @default(PENDING)
-  gatewayProvider  String        @default("sandbox")
+  status           RefundState          @default(PENDING)
+  gatewayProvider  String               @default("sandbox")
   gatewayRef       String?
   reason           String?
   initiatedById    String?
-  initiatedAt      DateTime      @default(now())
+  initiatedAt      DateTime             @default(now())
   completedAt      DateTime?
   failedReason     String?
-  idempotencyKey   String?       @unique
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  idempotencyKey   String?              @unique
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  transactions RefundTransaction[]
 
   @@index([orderId])
   @@map("refunds")
+}
+
+// Ledger of each refund gateway action (DB-Design §92).
+model RefundTransaction {
+  id                String   @id @default(cuid())
+  refundId          String
+  refund            Refund   @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  provider          String   @default("sandbox")
+  providerReference String?
+  amount            Decimal  @db.Decimal(12, 2)
+  status            String   @default("PENDING") // PENDING | SUCCESS | FAILED
+  failureReason     String?
+  createdAt         DateTime @default(now())
+  completedAt       DateTime?
+
+  @@index([refundId])
+  @@map("refund_transactions")
 }

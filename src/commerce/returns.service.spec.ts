@@ -1,11 +1,13 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ReturnsService } from './returns.service';
 
-function dec(n: number) {
-  return { toNumber: () => n };
-}
+const dec = (n: number) => ({ toNumber: () => n });
 
 function order(over: Record<string, any> = {}) {
+  const items = [
+    { id: 'oiA', quantity: 1, lineTotal: dec(120), productNameSnapshot: 'Item A' },
+    { id: 'oiB', quantity: 1, lineTotal: dec(80), productNameSnapshot: 'Item B' },
+  ];
   return {
     id: 'o1',
     userId: 'u1',
@@ -14,194 +16,239 @@ function order(over: Record<string, any> = {}) {
     paymentMethod: 'PREPAID',
     paymentStatus: 'PAID',
     currency: 'INR',
-    grandTotal: dec(1000),
+    grandTotal: dec(200),
     deliveredAt: new Date(),
     updatedAt: new Date(),
+    items,
     ...over,
   };
 }
 
+// A return public object shaped for toPublic (single return line by default).
 function rr(over: Record<string, any> = {}) {
   return {
     id: 'rr1',
     orderId: 'o1',
     status: 'REQUESTED',
     reasonCode: 'DEFECTIVE',
-    reasonNote: 'broken',
+    reasonNote: null,
     requestedAt: new Date(),
     approvedAt: null,
     rejectedAt: null,
     decisionBy: null,
     decisionReason: null,
+    pickupScheduledAt: null,
+    pickedUpAt: null,
+    inspectedAt: null,
+    approvedForRefundAt: null,
+    completedAt: null,
+    cancelledAt: null,
+    order: order(),
+    items: [],
     refund: null,
     ...over,
   };
 }
 
-describe('ReturnsService', () => {
+const line = (over: Record<string, any> = {}) => ({
+  id: 'ri1',
+  returnRequestId: 'rr1',
+  orderItemId: 'oiA',
+  orderItem: order().items[0],
+  quantity: 1,
+  conditionNotes: null,
+  inspectionResult: null,
+  refundAmount: null,
+  replacementRequested: false,
+  ...over,
+});
+
+describe('ReturnsService (item-level)', () => {
   let prisma: any;
   let tx: any;
   let service: ReturnsService;
 
-  function setupTx() {
+  function freshTx() {
     tx = {
-      order: {
-        updateMany: jest.fn(async () => ({ count: 1 })),
-        update: jest.fn(),
-      },
+      order: { update: jest.fn(), updateMany: jest.fn(async () => ({ count: 1 })) },
       orderStatusHistory: { create: jest.fn() },
       returnRequest: {
-        create: jest.fn(async ({ data }: any) => rr({ status: 'REQUESTED', ...data })),
+        create: jest.fn(async ({ include }: any) => rr({})),
         update: jest.fn(),
-        findUniqueOrThrow: jest.fn(async () => rr()),
+        findUniqueOrThrow: jest.fn(async () => rr({})),
       },
-      refund: {
-        create: jest.fn(async ({ data }: any) => ({ id: 'ref1', ...data, gatewayRef: null, completedAt: null })),
-        update: jest.fn(),
-      },
-      paymentTransaction: { create: jest.fn() },
+      returnItem: { update: jest.fn() },
+      returnInspection: { upsert: jest.fn() },
+      returnEvent: { create: jest.fn() },
+      refund: { create: jest.fn(), update: jest.fn(), aggregate: jest.fn() },
+      refundTransaction: { create: jest.fn() },
+    };
+    prisma = {
+      order: { findUnique: jest.fn() },
+      returnRequest: { findUnique: jest.fn(), findMany: jest.fn() },
+      returnItem: { findMany: jest.fn() },
+      refund: { aggregate: jest.fn() },
+      payment: { findUnique: jest.fn() },
+      $transaction: jest.fn((fn: any) => fn(tx)),
     };
   }
 
   beforeEach(() => {
-    prisma = {
-      order: { findUnique: jest.fn() },
-      returnRequest: { findFirst: jest.fn(), findUnique: jest.fn() },
-      payment: { findUnique: jest.fn() },
-      $transaction: jest.fn(),
-    };
-    setupTx();
-    prisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+    freshTx();
     service = new ReturnsService(prisma);
   });
 
-  // ---------- request ----------
-  it('404 for an order that is not owned by the caller', async () => {
-    prisma.order.findUnique.mockResolvedValue(order({ userId: 'someone-else' }));
-    await expect(service.request('u1', 'o1', { reasonCode: 'DEFECTIVE' } as any)).rejects.toThrow(NotFoundException);
+  // ---- request ----
+  it('404 when order is not owned by caller', async () => {
+    prisma.order.findUnique.mockResolvedValue(order({ userId: 'else' }));
+    await expect(service.request('u1', 'o1', { reasonCode: 'DEFECTIVE', items: [{ orderItemId: 'oiA', quantity: 1 }] } as any)).rejects.toThrow(NotFoundException);
   });
-
-  it('rejects a return on an order that is not DELIVERED', async () => {
+  it('rejects a return on a non-delivered order', async () => {
     prisma.order.findUnique.mockResolvedValue(order({ status: 'SHIPPED' }));
     await expect(service.request('u1', 'o1', { reasonCode: 'DEFECTIVE' } as any)).rejects.toThrow(BadRequestException);
   });
-
-  it('rejects a return after the delivery window has closed', async () => {
-    const old = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000);
-    prisma.order.findUnique.mockResolvedValue(order({ deliveredAt: old }));
+  it('rejects a return outside the delivery window', async () => {
+    prisma.order.findUnique.mockResolvedValue(order({ deliveredAt: new Date(Date.now() - 20 * 86400000) }));
     await expect(service.request('u1', 'o1', { reasonCode: 'DEFECTIVE' } as any)).rejects.toThrow(BadRequestException);
   });
-
-  it('creates a return + moves the order to RETURN_REQUESTED with an audited CUSTOMER row', async () => {
+  it('rejects an item that is not part of the order', async () => {
     prisma.order.findUnique.mockResolvedValue(order());
-    prisma.returnRequest.findFirst.mockResolvedValue(null);
-    const res = await service.request('u1', 'o1', { reasonCode: 'DEFECTIVE', note: 'broken seal' });
+    prisma.returnItem.findMany.mockResolvedValue([]);
+    await expect(service.request('u1', 'o1', { reasonCode: 'DEFECTIVE', items: [{ orderItemId: 'zzz', quantity: 1 }] } as any)).rejects.toThrow(BadRequestException);
+  });
+  it('rejects quantity exceeding the remaining returnable units', async () => {
+    prisma.order.findUnique.mockResolvedValue(order());
+    prisma.returnItem.findMany.mockResolvedValue([{ orderItemId: 'oiA', quantity: 1 }]); // 1 already returned of 1
+    await expect(service.request('u1', 'o1', { reasonCode: 'DEFECTIVE', items: [{ orderItemId: 'oiA', quantity: 1 }] } as any)).rejects.toThrow(BadRequestException);
+  });
+  it('creates a REQUESTED return with return items + event when items omitted (full return)', async () => {
+    prisma.order.findUnique.mockResolvedValue(order());
+    prisma.returnItem.findMany.mockResolvedValue([]);
+    tx.returnRequest.create.mockResolvedValue(rr({ status: 'REQUESTED', items: [line()] }));
+    const res = await service.request('u1', 'o1', { reasonCode: 'QUALITY_ISSUE' } as any);
     expect(res.status).toBe('REQUESTED');
-    expect(tx.order.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1', status: 'DELIVERED' }, data: { status: 'RETURN_REQUESTED' } }),
-    );
-    expect(tx.returnRequest.create).toHaveBeenCalled();
-    const hist = tx.orderStatusHistory.create.mock.calls[0][0].data;
-    expect(hist).toMatchObject({ fromStatus: 'DELIVERED', toStatus: 'RETURN_REQUESTED', actor: 'CUSTOMER', actorId: 'u1' });
+    const createData = tx.returnRequest.create.mock.calls[0][0].data;
+    expect(createData.items.create).toHaveLength(2); // oiA + oiB returned fully
+    expect(createData.reasonCode).toBe('QUALITY_ISSUE');
+    expect(tx.returnEvent.create).toHaveBeenCalled();
+    expect(tx.order.updateMany).not.toHaveBeenCalled(); // order stays DELIVERED
   });
 
-  it('conflicts when a non-rejected return already exists for the order', async () => {
-    prisma.order.findUnique.mockResolvedValue(order());
-    prisma.returnRequest.findFirst.mockResolvedValue(rr());
-    await expect(service.request('u1', 'o1', { reasonCode: 'DEFECTIVE' } as any)).rejects.toThrow(ConflictException);
-  });
-
-  // ---------- decide ----------
-  it('requires a reason to reject a return', async () => {
-    prisma.returnRequest.findUnique.mockResolvedValue({ ...rr(), order: order() });
+  // ---- decide ----
+  it('requires a reason to reject', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'REQUESTED' }));
     await expect(service.decide('op1', 'rr1', { approve: false } as any)).rejects.toThrow(BadRequestException);
   });
-
-  it('approve moves the order RETURN_REQUESTED -> RETURNED (actor CONTROL)', async () => {
-    prisma.returnRequest.findUnique.mockResolvedValue({ ...rr(), order: order() });
-    const out = { ...rr(), status: 'APPROVED', approvedAt: new Date() };
-    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(out);
+  it('approves a REQUESTED return', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'REQUESTED' }));
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(rr({ status: 'APPROVED', approvedAt: new Date() }));
     const res = await service.decide('op1', 'rr1', { approve: true, reason: 'ok' });
     expect(res.status).toBe('APPROVED');
-    const hist = tx.orderStatusHistory.create.mock.calls[0][0].data;
-    expect(hist).toMatchObject({ fromStatus: 'RETURN_REQUESTED', toStatus: 'RETURNED', actor: 'CONTROL', actorId: 'op1' });
+    expect(tx.returnRequest.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'rr1' }, data: expect.objectContaining({ status: 'APPROVED' }) }));
   });
-
-  it('reject returns the order to DELIVERED', async () => {
-    prisma.returnRequest.findUnique.mockResolvedValue({ ...rr(), order: order() });
-    const out = { ...rr(), status: 'REJECTED', rejectedAt: new Date() };
-    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(out);
+  it('rejects when a reason is provided', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'REQUESTED' }));
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(rr({ status: 'REJECTED', rejectedAt: new Date() }));
     const res = await service.decide('op1', 'rr1', { approve: false, reason: 'policy' });
     expect(res.status).toBe('REJECTED');
-    const hist = tx.orderStatusHistory.create.mock.calls[0][0].data;
-    expect(hist.toStatus).toBe('DELIVERED');
   });
 
-  // ---------- refund ----------
-  it('blocks refund initiation unless the return is approved', async () => {
-    prisma.returnRequest.findUnique.mockResolvedValue({ ...rr({ status: 'REQUESTED' }), order: order() });
-    await expect(service.initiateRefund('op1', 'rr1', {})).rejects.toThrow(ConflictException);
+  // ---- pickup ----
+  it('walks APPROVED -> PICKUP_SCHEDULED -> PICKED_UP', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValueOnce(rr({ status: 'APPROVED' }))
+      .mockResolvedValueOnce(rr({ status: 'PICKUP_SCHEDULED' }));
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValueOnce(rr({ status: 'PICKUP_SCHEDULED', pickupScheduledAt: new Date() }));
+    const sched = await service.schedulePickup('op1', 'rr1');
+    expect(sched.status).toBe('PICKUP_SCHEDULED');
+
+    prisma.returnRequest.findUnique.mockResolvedValueOnce(rr({ status: 'PICKUP_SCHEDULED' }));
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValueOnce(rr({ status: 'PICKED_UP', pickedUpAt: new Date() }));
+    const up = await service.pickedUp('op1', 'rr1');
+    expect(up.status).toBe('PICKED_UP');
   });
 
-  it('rejects a refund amount that exceeds the grand total', async () => {
-    prisma.returnRequest.findUnique.mockResolvedValue({ ...rr({ status: 'APPROVED' }), order: order({ status: 'RETURNED' }) });
-    await expect(service.initiateRefund('op1', 'rr1', { amount: 99999 } as any)).rejects.toThrow(BadRequestException);
+  // ---- inspect ----
+  it('records inspection; partial results leave the request in INSPECTION', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'PICKED_UP', items: [line()] }));
+    // refreshed (after updates): still missing B -> not all inspected
+    tx.returnRequest.findUniqueOrThrow
+      .mockResolvedValueOnce(rr({ status: 'PICKED_UP', items: [line({ inspectionResult: 'PASS' })] }))
+      .mockResolvedValueOnce(rr({ status: 'INSPECTION', items: [line({ inspectionResult: 'PASS' })] }));
+    const res = await service.inspect('op1', 'rr1', { items: [{ returnItemId: 'ri1', result: 'PASS' as any, notes: 'ok' }] });
+    expect(tx.returnInspection.upsert).toHaveBeenCalled();
+    expect(res.status).toBe('INSPECTION');
   });
 
-  it('defaults a full refund, uses GATEWAY method for PREPAID, and moves order to REFUND_PENDING', async () => {
-    prisma.returnRequest.findUnique.mockResolvedValue({ ...rr({ status: 'APPROVED' }), order: order({ status: 'RETURNED' }) });
+  it('finalises to APPROVED_FOR_REFUND and sets refund amounts when every item is inspected PASS', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'PICKED_UP', items: [line(), line({ id: 'ri2', orderItemId: 'oiB', orderItem: order().items[1] })] }));
+    const both = [
+      line({ inspectionResult: 'PASS' }),
+      line({ id: 'ri2', orderItemId: 'oiB', orderItem: order().items[1], inspectionResult: 'PASS' }),
+    ];
+    tx.returnRequest.findUniqueOrThrow
+      .mockResolvedValueOnce(rr({ status: 'PICKED_UP', items: both, order: order() })) // refreshed
+      .mockResolvedValueOnce(rr({ status: 'APPROVED_FOR_REFUND', approvedForRefundAt: new Date(), items: both })); // final
+    const res = await service.inspect('op1', 'rr1', {
+      items: [
+        { returnItemId: 'ri1', result: 'PASS' as any },
+        { returnItemId: 'ri2', result: 'PASS' as any },
+      ],
+    });
+    expect(res.status).toBe('APPROVED_FOR_REFUND');
+    expect(tx.returnItem.update).toHaveBeenCalled();
+    expect(tx.returnRequest.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'APPROVED_FOR_REFUND' }) }));
+  });
+
+  it('blocks inspection unless the request is PICKED_UP', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'REQUESTED', items: [] }));
+    await expect(service.inspect('op1', 'rr1', { items: [] })).rejects.toThrow(ConflictException);
+  });
+
+  // ---- refund ----
+  it('initiates a GATEWAY refund summing approved item amounts', async () => {
+    const its = [
+      line({ inspectionResult: 'PASS', refundAmount: dec(120) }),
+      line({ id: 'ri2', orderItemId: 'oiB', orderItem: order().items[1], inspectionResult: 'PASS', refundAmount: dec(80) }),
+    ];
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'APPROVED_FOR_REFUND', order: order(), items: its }));
+    prisma.refund.aggregate.mockResolvedValue({ _sum: { amount: null } });
     prisma.payment.findUnique.mockResolvedValue({ id: 'pay1' });
-    tx.returnRequest.findUniqueOrThrow.mockResolvedValue({ ...rr({ status: 'APPROVED', refund: { id: 'ref1', amount: dec(1000), currency: 'INR', method: 'GATEWAY', status: 'PENDING', refundReference: 'RFD-x', initiatedAt: new Date() } }) });
-    const res = await service.initiateRefund('op1', 'rr1', {});
-    const refundData = tx.refund.create.mock.calls[0][0].data;
-    expect(refundData).toMatchObject({ returnRequestId: 'rr1', method: 'GATEWAY', paymentId: 'pay1', status: 'PENDING' });
-    expect(refundData.amount).toBe(1000);
-    const hist = tx.orderStatusHistory.create.mock.calls[0][0].data;
-    expect(hist).toMatchObject({ fromStatus: 'RETURNED', toStatus: 'REFUND_PENDING', actor: 'CONTROL' });
-    expect(res.refund?.method).toBe('GATEWAY');
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(rr({ status: 'APPROVED_FOR_REFUND', order: order(), items: its }));
+    const res = await service.initiateRefund('op1', 'rr1');
+    const data = tx.refund.create.mock.calls[0][0].data;
+    expect(data.method).toBe('GATEWAY');
+    expect(data.paymentId).toBe('pay1');
+    expect(data.amount).toBe(200);
+    expect(res.refund).toBeNull(); // mock did not return refund on final read
   });
 
-  it('uses COD refund method for a cash order', async () => {
-    prisma.returnRequest.findUnique.mockResolvedValue({
-      ...rr({ status: 'APPROVED' }),
-      order: order({ status: 'RETURNED', paymentMethod: 'COD', paymentStatus: 'COD_PAID' }),
-    });
-    prisma.payment.findUnique.mockResolvedValue(null);
-    await service.initiateRefund('op1', 'rr1', {});
-    const refundData = tx.refund.create.mock.calls[0][0].data;
-    expect(refundData.method).toBe('COD');
-    expect(refundData.paymentId).toBeUndefined();
+  it('rejects refund initiation when every item failed inspection (amount 0)', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'APPROVED_FOR_REFUND', order: order(), items: [line({ inspectionResult: 'FAIL', refundAmount: dec(0) })] }));
+    await expect(service.initiateRefund('op1', 'rr1')).rejects.toThrow(BadRequestException);
   });
 
-  // ---------- complete ----------
-  it('completes a pending refund: order REFUNDED + paymentStatus REFUNDED + ledger REFUND row', async () => {
-    prisma.returnRequest.findUnique.mockResolvedValue({
-      ...rr({ status: 'APPROVED' }),
-      order: order({ status: 'REFUND_PENDING' }),
-      refund: { id: 'ref1', status: 'PENDING', paymentId: 'pay1', amount: dec(1000), currency: 'INR', gatewayRef: null, completedAt: null, initiatedAt: new Date(), refundReference: 'RFD-x', method: 'GATEWAY' },
-    });
-    const done = {
-      ...rr({ status: 'COMPLETED', completedAt: new Date() }),
-      refund: { id: 'ref1', status: 'COMPLETED', amount: dec(1000), currency: 'INR', method: 'GATEWAY', refundReference: 'RFD-x', gatewayRef: 'g1', completedAt: new Date(), initiatedAt: new Date() },
-    };
-    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(done);
+  it('completes a refund: COMPLETED + refund_transactions SUCCESS + full order -> REFUNDED', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(
+      rr({ status: 'APPROVED_FOR_REFUND', order: order(),
+        items: [line({ refundAmount: dec(200) })],
+        refund: { id: 'ref1', status: 'PENDING', paymentId: null, orderId: 'o1', returnRequestId: 'rr1', refundReference: 'RFD-x', amount: dec(200), currency: 'INR', method: 'GATEWAY', gatewayRef: null, initiatedAt: new Date(), completedAt: null, gatewayProvider: 'sandbox' } }),
+    );
+    tx.refund.aggregate.mockResolvedValue({ _sum: { amount: dec(200) } }); // cumulative full
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(rr({ status: 'COMPLETED', completedAt: new Date(), items: [line()] }));
     const res = await service.completeRefund('op1', 'rr1');
     expect(res.status).toBe('COMPLETED');
-    expect(res.refund?.status).toBe('COMPLETED');
-    const moveCall = tx.order.updateMany.mock.calls[0][0];
-    expect(moveCall.where).toEqual({ id: 'o1', status: 'REFUND_PENDING' });
-    expect(moveCall.data.status).toBe('REFUNDED');
-    expect(tx.order.update).toHaveBeenCalledWith(expect.objectContaining({ data: { paymentStatus: 'REFUNDED' } }));
-    const ledger = tx.paymentTransaction.create.mock.calls[0][0].data;
-    expect(ledger).toMatchObject({ paymentId: 'pay1', transactionType: 'REFUND', status: 'SUCCESS' });
+    const txRow = tx.refundTransaction.create.mock.calls[0][0].data;
+    expect(txRow).toMatchObject({ refundId: 'ref1', status: 'SUCCESS' });
+    expect(txRow.amount.toNumber()).toBe(200);
+    expect(tx.order.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'o1' }, data: { status: 'REFUNDED', paymentStatus: 'REFUNDED' } }));
   });
 
-  it('does not let a non-pending refund be completed twice', async () => {
-    prisma.returnRequest.findUnique.mockResolvedValue({
-      ...rr(),
-      order: order({ status: 'REFUND_PENDING' }),
-      refund: { id: 'ref1', status: 'COMPLETED', paymentId: null },
-    });
+  it('does not complete a non-pending refund twice', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(
+      rr({ status: 'APPROVED_FOR_REFUND', order: order(),
+        items: [line()],
+        refund: { id: 'ref1', status: 'COMPLETED', paymentId: null, orderId: 'o1', returnRequestId: 'rr1', refundReference: 'RFD-x', amount: dec(10), currency: 'INR', method: 'GATEWAY', gatewayRef: 'g', initiatedAt: new Date(), completedAt: new Date(), gatewayProvider: 'sandbox' } }),
+    );
     await expect(service.completeRefund('op1', 'rr1')).rejects.toThrow(ConflictException);
   });
 });

@@ -429,6 +429,7 @@ export class OrderService {
       paymentStatus: o.paymentStatus,
       placedAt: o.placedAt.toISOString(),
       items: o.items.map((i) => ({
+        orderItemId: i.id,
         productId: i.productId,
         productName: i.productNameSnapshot,
         sku: i.skuSnapshot,
