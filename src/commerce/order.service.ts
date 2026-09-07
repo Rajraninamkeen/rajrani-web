@@ -27,8 +27,6 @@ const FREE_DELIVERY_ABOVE = 499;
 export interface QuoteResult {
   items: OrderItemPublic[];
   price: PriceBreakdown;
-  couponDiscount: number;
-  couponCode: string | null;
 }
 
 @Injectable()
@@ -40,10 +38,7 @@ export class OrderService {
     const cart = await this.ownActiveCart(userId, cartId);
     const quote = await this.calcQuote(this.prisma as unknown as Prisma.TransactionClient, cart);
     const coupon = couponCode ? await this.validateCoupon(couponCode, quote.price.subtotal) : undefined;
-    if (coupon) {
-      quote.couponDiscount = this.applyCoupon(coupon, quote.price.subtotal);
-      quote.couponCode = coupon.code;
-    }
+    if (coupon) this.applyCouponToQuote(coupon, quote);
     return quote;
   }
 
@@ -58,8 +53,7 @@ export class OrderService {
       if (dto.couponCode) {
         coupon = await this.validateCoupon(dto.couponCode, quote.price.subtotal);
         if (coupon) {
-          quote.couponDiscount = this.applyCoupon(coupon, quote.price.subtotal);
-          quote.couponCode = coupon.code;
+          this.applyCouponToQuote(coupon, quote);
           await tx.coupon.update({
             where: { id: coupon.id },
             data: { usageCount: { increment: 1 } },
@@ -79,10 +73,6 @@ export class OrderService {
       }
 
       const orderNumber = await this.generateOrderNumber(tx);
-      const grandTotal = this.round2(
-        quote.price.subtotal + quote.price.tax + quote.price.deliveryCharge - quote.couponDiscount,
-      );
-
       const order = await tx.order.create({
         data: {
           orderNumber,
@@ -92,9 +82,9 @@ export class OrderService {
           discountTotal: quote.price.discount,
           taxTotal: quote.price.tax,
           deliveryTotal: quote.price.deliveryCharge,
-          grandTotal,
-          couponCode: quote.couponCode,
-          couponDiscount: quote.couponDiscount,
+          grandTotal: quote.price.grandTotal,
+          couponCode: quote.price.couponCode,
+          couponDiscount: quote.price.couponDiscount,
           paymentMethod: dto.paymentMethod,
           paymentStatus:
             dto.paymentMethod === PaymentMethod.COD ? PaymentStatus.COD_PENDING : PaymentStatus.PENDING,
@@ -236,9 +226,17 @@ export class OrderService {
         couponCode: null,
         grandTotal: this.round2(subtotal + tax + deliveryCharge),
       },
-      couponDiscount: 0,
-      couponCode: null,
     };
+  }
+
+  /** Fold an applied coupon into the quote: set discount/code and recompute the payable grand total. */
+  private applyCouponToQuote(coupon: Coupon, quote: QuoteResult): void {
+    const discount = this.applyCoupon(coupon, quote.price.subtotal);
+    quote.price.couponDiscount = discount;
+    quote.price.couponCode = coupon.code;
+    quote.price.grandTotal = this.round2(
+      quote.price.subtotal + quote.price.tax + quote.price.deliveryCharge - discount,
+    );
   }
 
   private async validateCoupon(code: string, subtotal: number): Promise<Coupon | undefined> {

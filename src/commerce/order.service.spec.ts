@@ -124,4 +124,34 @@ describe('OrderService', () => {
     expect(result.price.subtotal).toBe(100);
     expect(result.price.deliveryCharge).toBe(49);
   });
+
+  it('applies a fixed coupon discount into the payable grand total', async () => {
+    const rows = [
+      { id: 'i1', quantity: 3, product: productRow({ id: 'p1', name: 'Sev', price: 100, stock: 100 }) },
+    ];
+    prisma.coupon.findUnique.mockResolvedValue({
+      id: 'c1',
+      code: 'FLAT50',
+      type: 'FIXED_AMOUNT',
+      value: dec(50),
+      minOrderValue: dec(0),
+      maxDiscount: null,
+      status: 'ACTIVE',
+      validFrom: new Date(Date.now() - 1000),
+      validTo: new Date(Date.now() + 86400000),
+      usageCount: 0,
+    });
+    const t = buildTx(rows, true);
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(t));
+    const result = await service.checkout('u1', {
+      cartId: 'c1',
+      paymentMethod: 'COD',
+      address: addr(),
+      couponCode: 'FLAT50',
+    } as never);
+    // subtotal 300 + tax 15 + delivery 49 - coupon 50 = 314
+    expect(result.price.couponDiscount).toBe(50);
+    expect(result.price.grandTotal).toBe(314);
+    expect(t.coupon.update).toHaveBeenCalled(); // usage increment
+  });
 });
