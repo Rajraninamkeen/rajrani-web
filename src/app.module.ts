@@ -5,6 +5,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { CommerceModule } from './commerce/commerce.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -18,6 +19,7 @@ import { AppController } from './app.controller';
     HealthModule,
     AuthModule,
     CatalogModule,
+    CommerceModule,
   ],
   controllers: [AppController],
 })

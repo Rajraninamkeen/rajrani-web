@@ -24,6 +24,38 @@ const NUM_TO_SPICE: Record<number, SpiceLevel> = {
 async function main(): Promise<void> {
   console.log('Seeding catalog...');
 
+  // Upsert dev coupons (fixtures only)
+  const coupons = [
+    { code: 'BILOKAT20', type: 'PERCENTAGE', value: 20, minOrderValue: 299, maxDiscount: 150, validForDays: 365 },
+    { code: 'FLAT50', type: 'FIXED_AMOUNT', value: 50, minOrderValue: 199, maxDiscount: null, validForDays: 365 },
+    { code: 'SAVE10', type: 'PERCENTAGE', value: 10, minOrderValue: null, maxDiscount: 60, validForDays: 365 },
+  ];
+  for (const c of coupons) {
+    await prisma.coupon.upsert({
+      where: { code: c.code },
+      update: {
+        type: c.type,
+        value: c.value,
+        minOrderValue: c.minOrderValue,
+        maxDiscount: c.maxDiscount,
+        status: 'ACTIVE',
+        validFrom: new Date(Date.now() - 1 * 86400000),
+        validTo: new Date(Date.now() + c.validForDays * 86400000),
+      },
+      create: {
+        code: c.code,
+        type: c.type,
+        value: c.value,
+        minOrderValue: c.minOrderValue,
+        maxDiscount: c.maxDiscount,
+        status: 'ACTIVE',
+        validFrom: new Date(Date.now() - 1 * 86400000),
+        validTo: new Date(Date.now() + c.validForDays * 86400000),
+      },
+    });
+  }
+  console.log('  ✓ coupons');
+
   // Upsert categories
   const catMap: Record<string, string> = {};
   for (const c of SEED_CATEGORIES) {
