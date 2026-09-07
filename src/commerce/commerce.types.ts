@@ -74,3 +74,32 @@ export interface OrderListResult {
   limit: number;
   totalPages: number;
 }
+
+export interface PaymentIntentPublic {
+  id: string;
+  paymentReference: string;
+  provider: string;
+  method: string;
+  amount: number;
+  currency: string;
+  state: string;
+  clientSecret?: string | null;
+  confirmedAt?: string | null;
+}
+
+export interface OrderPaymentResult {
+  order: OrderPublic;
+  payment: PaymentIntentPublic | null; // non-null for PREPAID orders
+}
+
+export interface CodVerificationPublic {
+  id: string;
+  orderId: string;
+  status: string;
+  secondaryContact?: string | null;
+  attemptsUsed: number;
+  attemptsAllowed: number;
+  otpExpiresAt?: string | null;
+  devOtp?: string | null; // SANDBOX only: simulated OTP for local/dev verification
+  completedAt?: string | null;
+}

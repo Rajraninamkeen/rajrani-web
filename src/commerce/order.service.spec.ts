@@ -93,7 +93,13 @@ describe('OrderService', () => {
       orderStatusHistory: { create: jest.fn() },
       $transaction: jest.fn(),
     };
-    service = new OrderService(prisma);
+    service = new OrderService(prisma, {
+      createIntentTx: jest.fn().mockResolvedValue({ id: 'pay1' }),
+      getOrderPayment: jest.fn(),
+      confirmFromWebhook: jest.fn(),
+      toPublic: jest.fn(),
+      signForTesting: jest.fn(),
+    } as never);
   });
 
   function runCheckout(rows: any[], stockSucceeds = true) {

@@ -17,20 +17,31 @@ import {
   PaymentMethod,
   PaymentStatus,
   Prisma,
+  Product,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   OrderItemPublic,
   OrderListQuery,
   OrderListResult,
+  OrderPaymentResult,
   OrderPublic,
   PriceBreakdown,
 } from './commerce.types';
 import { CheckoutDto } from './dto/checkout.dto';
+import { BuyNowDto } from './dto/payment.dto';
+import { PaymentService } from './payment.service';
 
 const TAX_RATE = 0.05; // 5% GST on namkeen (India)
 const DELIVERY_FLAT = 49;
 const FREE_DELIVERY_ABOVE = 499;
+
+// Only APPROVED + LIVE products may be purchased (Master-Spec §28).
+const purchasableWhere: Prisma.ProductWhereInput = {
+  status: 'APPROVED',
+  visibility: 'LIVE',
+  deletedAt: null,
+};
 
 export interface QuoteResult {
   items: OrderItemPublic[];
@@ -39,7 +50,10 @@ export interface QuoteResult {
 
 @Injectable()
 export class OrderService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly payments: PaymentService,
+  ) {}
 
   /** Server-authoritative preview/quote for the current cart. */
   async preview(userId: string, cartId: string, couponCode?: string): Promise<QuoteResult> {
@@ -50,90 +64,65 @@ export class OrderService {
     return quote;
   }
 
-  /** Place an order transactionally: price, coupon, reserve stock, snapshot, history. */
+  /** Quote for a direct buy-now purchase (single product, no cart). */
+  async quoteBuyNow(userId: string, productId: string, quantity: number, couponCode?: string): Promise<QuoteResult> {
+    const product = await this.prisma.product.findFirst({ where: { ...purchasableWhere, id: productId } });
+    if (!product) throw new NotFoundException('Product not available');
+    const quote = this.quoteFromLines([{ product, quantity }]);
+    const coupon = couponCode ? await this.validateCoupon(couponCode, quote.price.subtotal) : undefined;
+    if (coupon) this.applyCouponToQuote(coupon, quote);
+    return quote;
+  }
+
+  /** Place an order from the cart (cart-checkout). */
   async checkout(userId: string, dto: CheckoutDto): Promise<OrderPublic> {
-    // Verify ownership + active status up front (distinct from "not found").
     const cart = await this.assertClaimableCart(userId, dto.cartId);
 
     return this.prisma.$transaction(async (tx) => {
-      // Atomically claim the cart (ACTIVE -> CONVERTED). If another concurrent
-      // checkout already claimed it, this one aborts. The whole transaction rolls
-      // back on any later failure, so a failed checkout leaves the cart ACTIVE.
       const claimed = await tx.cart.updateMany({
         where: { id: cart.id, userId, status: 'ACTIVE' },
         data: { status: 'CONVERTED' },
       });
-      if (claimed.count === 0) {
-        throw new ConflictException('This cart has already been checked out');
-      }
+      if (claimed.count === 0) throw new ConflictException('This cart has already been checked out');
 
       const quote = await this.calcQuote(tx, cart);
+      await this.applyCouponInTx(tx, dto.couponCode, quote);
 
-      let coupon: Coupon | undefined;
-      if (dto.couponCode) {
-        coupon = await this.validateCoupon(dto.couponCode, quote.price.subtotal);
-        if (coupon) {
-          this.applyCouponToQuote(coupon, quote);
-          await tx.coupon.update({
-            where: { id: coupon.id },
-            data: { usageCount: { increment: 1 } },
-          });
-        }
-      }
-
-      // Reserve stock (atomic decrement guarded by available stock).
-      for (const item of quote.items) {
-        const res = await tx.product.updateMany({
-          where: { id: item.productId, stockOnHand: { gte: item.quantity } },
-          data: { stockOnHand: { decrement: item.quantity } },
-        });
-        if (res.count === 0) {
-          throw new BadRequestException(`Insufficient stock for "${item.productName}"`);
-        }
-      }
-
-      const orderNumber = await this.generateOrderNumber(tx);
-      const order = await tx.order.create({
-        data: {
-          orderNumber,
-          userId,
-          status: OrderStatus.PLACED,
-          subtotal: quote.price.subtotal,
-          discountTotal: quote.price.discount,
-          taxTotal: quote.price.tax,
-          deliveryTotal: quote.price.deliveryCharge,
-          grandTotal: quote.price.grandTotal,
-          couponCode: quote.price.couponCode,
-          couponDiscount: quote.price.couponDiscount,
-          paymentMethod: dto.paymentMethod,
-          paymentStatus:
-            dto.paymentMethod === PaymentMethod.COD ? PaymentStatus.COD_PENDING : PaymentStatus.PENDING,
-          addressSnapshot: dto.address as unknown as Prisma.InputJsonValue,
-          items: {
-            create: quote.items.map((it) => ({
-              productId: it.productId,
-              productNameSnapshot: it.productName,
-              skuSnapshot: it.sku,
-              weightSnapshot: it.weight,
-              unitPrice: it.unitPrice,
-              quantity: it.quantity,
-              lineTotal: it.lineTotal,
-            })),
-          },
-          history: {
-            create: {
-              fromStatus: null,
-              toStatus: OrderStatus.PLACED,
-              actor: OrderActor.CUSTOMER,
-              actorId: userId,
-              metadata: { paymentMethod: dto.paymentMethod },
-            },
-          },
-        },
-        include: { items: true },
+      const order = await this.createOrderFromQuote(tx, {
+        userId,
+        quote,
+        paymentMethod: dto.paymentMethod,
+        address: dto.address,
       });
 
+      if (dto.paymentMethod === PaymentMethod.PREPAID) {
+        await this.payments.createIntentTx(tx, order.id, order.grandTotal.toNumber(), `order-${order.id}`);
+      }
       return this.toPublic(order);
+    });
+  }
+
+  /** Direct (no-cart) buy-now order placement. */
+  async buyNow(userId: string, dto: BuyNowDto): Promise<OrderPaymentResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const product = await tx.product.findFirst({ where: { ...purchasableWhere, id: dto.productId } });
+      if (!product) throw new NotFoundException('Product not available');
+
+      const quote = this.quoteFromLines([{ product, quantity: dto.quantity }]);
+      await this.applyCouponInTx(tx, dto.couponCode, quote);
+
+      const order = await this.createOrderFromQuote(tx, {
+        userId,
+        quote,
+        paymentMethod: dto.paymentMethod,
+        address: dto.address,
+      });
+
+      let payment = null;
+      if (dto.paymentMethod === PaymentMethod.PREPAID) {
+        payment = await this.payments.createIntentTx(tx, order.id, order.grandTotal.toNumber(), `order-${order.id}`);
+      }
+      return { order: this.toPublic(order), payment };
     });
   }
 
@@ -144,9 +133,7 @@ export class OrderService {
     const where: Prisma.OrderWhereInput = { userId };
     if (query.status) {
       const valid = Object.values(OrderStatus) as string[];
-      if (!valid.includes(query.status)) {
-        throw new BadRequestException(`Invalid order status "${query.status}"`);
-      }
+      if (!valid.includes(query.status)) throw new BadRequestException(`Invalid order status "${query.status}"`);
       where.status = query.status;
     }
 
@@ -184,22 +171,15 @@ export class OrderService {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      // Guarded transition: only one cancellation can win, so a concurrent
-      // cancel cannot restore stock twice.
       const cancelled = await tx.order.updateMany({
         where: { id, userId, status: { in: [OrderStatus.PLACED, OrderStatus.CONFIRMED] } },
         data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() },
       });
-      if (cancelled.count === 0) {
-        throw new ConflictException('Order is no longer cancellable');
-      }
+      if (cancelled.count === 0) throw new ConflictException('Order is no longer cancellable');
 
       const items = await tx.orderItem.findMany({ where: { orderId: id } });
       for (const it of items) {
-        await tx.product.update({
-          where: { id: it.productId },
-          data: { stockOnHand: { increment: it.quantity } },
-        });
+        await tx.product.update({ where: { id: it.productId }, data: { stockOnHand: { increment: it.quantity } } });
       }
       await tx.orderStatusHistory.create({
         data: {
@@ -227,7 +207,6 @@ export class OrderService {
     return cart;
   }
 
-  /** Ownership + active check for checkout, distinguishing missing vs stale cart. */
   private async assertClaimableCart(userId: string, cartId: string): Promise<Cart> {
     const cart = await this.prisma.cart.findFirst({ where: { id: cartId, userId } });
     if (!cart) throw new NotFoundException('Cart not found');
@@ -237,39 +216,54 @@ export class OrderService {
     return cart;
   }
 
-  private async calcQuote(
-    db: Prisma.TransactionClient,
-    cart: Cart,
-  ): Promise<QuoteResult> {
-    const rows = await db.cartItem.findMany({
-      where: { cartId: cart.id },
-      include: { product: true },
-    });
+  /** Validate (service-level) and apply a coupon, incrementing usage inside the tx. */
+  private async applyCouponInTx(
+    tx: Prisma.TransactionClient,
+    couponCode: string | undefined,
+    quote: QuoteResult,
+  ): Promise<void> {
+    if (!couponCode) return;
+    const coupon = await this.validateCoupon(couponCode, quote.price.subtotal);
+    if (!coupon) return;
+    this.applyCouponToQuote(coupon, quote);
+    await tx.coupon.update({ where: { id: coupon.id }, data: { usageCount: { increment: 1 } } });
+  }
+
+  private async calcQuote(db: Prisma.TransactionClient, cart: Cart): Promise<QuoteResult> {
+    const rows = await db.cartItem.findMany({ where: { cartId: cart.id }, include: { product: true } });
+    if (rows.length === 0) throw new BadRequestException('Your cart is empty');
+    return this.quoteFromLines(
+      rows.map((r) => ({ product: r.product, quantity: r.quantity })),
+      (name) => `"${name}" is no longer available. Please review your cart.`,
+    );
+  }
+
+  private quoteFromLines(
+    lines: { product: Product; quantity: number }[],
+    unavailableMsg: (name: string) => string = (name) => `"${name}" is no longer available`,
+  ): QuoteResult {
     const items: OrderItemPublic[] = [];
     let subtotal = 0;
-    for (const r of rows) {
-      const p = r.product;
+    for (const line of lines) {
+      const p = line.product;
       if (p.status !== 'APPROVED' || p.visibility !== 'LIVE' || p.deletedAt) {
-        throw new BadRequestException(`"${p.name}" is no longer available. Please review your cart.`);
+        throw new BadRequestException(unavailableMsg(p.name));
       }
-      if (p.stockOnHand < r.quantity) {
+      if (p.stockOnHand < line.quantity) {
         throw new BadRequestException(`Only ${p.stockOnHand} units of "${p.name}" are available.`);
       }
       const unit = p.basePrice.toNumber();
-      const line = unit * r.quantity;
-      subtotal += line;
+      const lineTotal = unit * line.quantity;
+      subtotal += lineTotal;
       items.push({
         productId: p.id,
         productName: p.name,
         sku: p.slug,
         weight: p.weightLabel,
         unitPrice: unit,
-        quantity: r.quantity,
-        lineTotal: line,
+        quantity: line.quantity,
+        lineTotal,
       });
-    }
-    if (items.length === 0) {
-      throw new BadRequestException('Your cart is empty');
     }
     const deliveryCharge = subtotal >= FREE_DELIVERY_ABOVE ? 0 : DELIVERY_FLAT;
     const tax = this.round2(subtotal * TAX_RATE);
@@ -287,7 +281,68 @@ export class OrderService {
     };
   }
 
-  /** Fold an applied coupon into the quote: set discount/code and recompute the payable grand total. */
+  private async createOrderFromQuote(
+    tx: Prisma.TransactionClient,
+    args: {
+      userId: string;
+      quote: QuoteResult;
+      paymentMethod: PaymentMethod;
+      address: unknown;
+    },
+  ): Promise<Order & { items: OrderItem[] }> {
+    for (const item of args.quote.items) {
+      const res = await tx.product.updateMany({
+        where: { id: item.productId, stockOnHand: { gte: item.quantity } },
+        data: { stockOnHand: { decrement: item.quantity } },
+      });
+      if (res.count === 0) throw new BadRequestException(`Insufficient stock for "${item.productName}"`);
+    }
+
+    const orderNumber = await this.generateOrderNumber(tx);
+    const paymentStatus =
+      args.paymentMethod === PaymentMethod.COD ? PaymentStatus.COD_PENDING : PaymentStatus.PENDING;
+
+    const order = await tx.order.create({
+      data: {
+        orderNumber,
+        userId: args.userId,
+        status: OrderStatus.PLACED,
+        subtotal: args.quote.price.subtotal,
+        discountTotal: args.quote.price.discount,
+        taxTotal: args.quote.price.tax,
+        deliveryTotal: args.quote.price.deliveryCharge,
+        grandTotal: args.quote.price.grandTotal,
+        couponCode: args.quote.price.couponCode,
+        couponDiscount: args.quote.price.couponDiscount,
+        paymentMethod: args.paymentMethod,
+        paymentStatus,
+        addressSnapshot: args.address as Prisma.InputJsonValue,
+        items: {
+          create: args.quote.items.map((it) => ({
+            productId: it.productId,
+            productNameSnapshot: it.productName,
+            skuSnapshot: it.sku,
+            weightSnapshot: it.weight,
+            unitPrice: it.unitPrice,
+            quantity: it.quantity,
+            lineTotal: it.lineTotal,
+          })),
+        },
+        history: {
+          create: {
+            fromStatus: null,
+            toStatus: OrderStatus.PLACED,
+            actor: OrderActor.CUSTOMER,
+            actorId: args.userId,
+            metadata: { paymentMethod: args.paymentMethod },
+          },
+        },
+      },
+      include: { items: true },
+    });
+    return order;
+  }
+
   private applyCouponToQuote(coupon: Coupon, quote: QuoteResult): void {
     const discount = this.applyCoupon(coupon, quote.price.subtotal);
     quote.price.couponDiscount = discount;
@@ -302,12 +357,8 @@ export class OrderService {
     if (!coupon || coupon.status !== CouponStatus.ACTIVE) {
       throw new BadRequestException('Coupon is invalid or inactive');
     }
-    if (coupon.validTo && coupon.validTo < new Date()) {
-      throw new BadRequestException('Coupon has expired');
-    }
-    if (coupon.validFrom && coupon.validFrom > new Date()) {
-      throw new BadRequestException('Coupon is not yet active');
-    }
+    if (coupon.validTo && coupon.validTo < new Date()) throw new BadRequestException('Coupon has expired');
+    if (coupon.validFrom && coupon.validFrom > new Date()) throw new BadRequestException('Coupon is not yet active');
     if (coupon.minOrderValue && subtotal < coupon.minOrderValue.toNumber()) {
       throw new BadRequestException(`This coupon needs a minimum order of ₹${coupon.minOrderValue.toNumber()}`);
     }

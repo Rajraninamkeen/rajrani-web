@@ -11,7 +11,7 @@ import {
 import { PaymentMethod } from '../../generated/prisma/client';
 import { AddressInput } from '../commerce.types';
 
-class AddressInputDto implements AddressInput {
+export class AddressInputDto implements AddressInput {
   @IsString() @MinLength(2) name!: string;
   @IsString() @MinLength(10) phone!: string;
   @IsString() @MinLength(3) line1!: string;
