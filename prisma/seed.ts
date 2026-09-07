@@ -1,7 +1,7 @@
 // Bilokat local development seed (fixtures only — never used as production data).
 // Populates categories + products that mirror the landing-page catalog so the
 // public API can serve the SAME data the frontend currently hardcodes.
-import { PrismaClient, Prisma, ProductStatus, VisibilityStatus, SpiceLevel, StockStatus } from '../src/generated/prisma/client';
+import { PrismaClient, Prisma, ProductStatus, VisibilityStatus, SpiceLevel, StockStatus, CouponType } from '../src/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { SEED_CATEGORIES, SEED_PRODUCTS } from './catalog-seed';
 
@@ -26,9 +26,9 @@ async function main(): Promise<void> {
 
   // Upsert dev coupons (fixtures only)
   const coupons = [
-    { code: 'BILOKAT20', type: 'PERCENTAGE', value: 20, minOrderValue: 299, maxDiscount: 150, validForDays: 365 },
-    { code: 'FLAT50', type: 'FIXED_AMOUNT', value: 50, minOrderValue: 199, maxDiscount: null, validForDays: 365 },
-    { code: 'SAVE10', type: 'PERCENTAGE', value: 10, minOrderValue: null, maxDiscount: 60, validForDays: 365 },
+    { code: 'BILOKAT20', type: CouponType.PERCENTAGE, value: 20, minOrderValue: 299, maxDiscount: 150, validForDays: 365 },
+    { code: 'FLAT50', type: CouponType.FIXED_AMOUNT, value: 50, minOrderValue: 199, maxDiscount: null, validForDays: 365 },
+    { code: 'SAVE10', type: CouponType.PERCENTAGE, value: 10, minOrderValue: null, maxDiscount: 60, validForDays: 365 },
   ];
   for (const c of coupons) {
     await prisma.coupon.upsert({
