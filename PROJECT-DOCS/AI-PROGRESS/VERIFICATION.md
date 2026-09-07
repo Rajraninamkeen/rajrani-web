@@ -180,3 +180,27 @@
 | OPERATOR advance COD CONFIRMED→PACKED→SHIPPED→OUT_FOR_DELIVERY→DELIVERED | DELIVERED; DB paymentStatus **COD_PAID**, deliveredAt set |
 | `GET /orders/:id/history` (customer) | returns ordered timeline (from→to, actor, reason) |
 | `git push origin main` | backend `645f851` (+ AI-PROGRESS commit) pushed |
+
+## Session 07 — returns + refunds (2026-09-07, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| `npx prisma validate` / `generate` | schema valid; client regenerated |
+| migration `20260907133000_return_refund_models` apply + ledger record | applied; `prisma migrate deploy` clean (9) |
+| `npm run typecheck` / `build` | exit 0 |
+| `npm test` | 11 suites / 63 tests PASS (added returns.service.spec — 14 tests) |
+| PREPAID buy-now + signed capture | order PLACED/PAID; payment CONFIRMED |
+| operator fulfil to DELIVERED | CONFIRMED→PACKED→SHIPPED→OUT_FOR_DELIVERY→DELIVERED all OK |
+| `POST /orders/:id/returns` with OPERATOR token | 404 (ownership: only the order owner may request) |
+| customer `POST /orders/:id/returns` (DEFECTIVE) | ReturnRequest REQUESTED; order RETURN_REQUESTED |
+| customer `POST /return-requests/:id/decision` | 403 FORBIDDEN (RBAC) |
+| operator decision reject, no reason | 400 "A reason is required to reject a return" |
+| operator decision reject (with reason) | ReturnRequest REJECTED; order back to DELIVERED |
+| re-request (QUALITY_ISSUE) + operator approve | ReturnRequest APPROVED; order RETURNED |
+| `POST /return-requests/:id/refund` (default) | Refund `RFD-...` 1887.90 GATEWAY PENDING; order REFUND_PENDING |
+| `POST /return-requests/:id/refund/complete` | Refund COMPLETED (`sndbox-refund-...`); order REFUNDED / paymentStatus REFUNDED |
+| double `complete` | 409 CONFLICT |
+| `payment_transactions` for the order | CAPTURE 1887.90 SUCCESS + REFUND 1887.90 SUCCESS |
+| `return_requests` | one REJECTED (DEFECTIVE) + one COMPLETED (QUALITY_ISSUE) |
+| `order_status_history` | full audit: PLACED→…→DELIVERED→RETURN_REQUESTED→DELIVERED→RETURN_REQUESTED→RETURNED→REFUND_PENDING→REFUNDED (customer + CONTROL actors) |
+| `git push origin main` | schema+backend+tests `20fb712` (+ AI-PROGRESS commit) pushed |

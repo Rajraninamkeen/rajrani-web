@@ -394,3 +394,45 @@ Live E2E run — see VERIFICATION Session 05 table.
   history rows (actor CONTROL = operator id) confirmed in DB; customer
   `GET /orders/:id/history` timeline verified; FORBIDDEN for a CUSTOMER token;
   illegal jump and post-terminal advances → 409. See VERIFICATION Session 06.
+
+---
+
+## Session 07 — Returns + refunds
+- **Date:** 2026-09-07
+- **Objective:** Open the exception transitions out of DELIVERED/RETURNED per the
+  order state machine (§39/§40) and implement a backend-authoritative return &
+  refund flow (DB-Design §§85-92).
+- **Schema/migration `20260907133000_return_refund_models`:** enums `ReturnStatus`
+  (REQUESTED/APPROVED/REJECTED/COMPLETED), `ReturnReasonCode`,
+  `RefundMethod` (GATEWAY/COD), `RefundState` (PENDING/PROCESSING/COMPLETED/FAILED);
+  models `ReturnRequest` (return_requests) and `Refund` (refunds) with FK to
+  Order/ReturnRequest/optional Payment; `prisma migrate deploy` clean (9). Ledger
+  was reconciled after a psql apply (schema applied, failed-deploy placeholder row
+  corrected) — migrate deploy now reports no pending.
+- **ReturnsService:** customer `request` (ownership + must be DELIVERED + within
+  `RETURN_WINDOW_DAYS=7` delivery window + no existing non-rejected return; guarded
+  order move + `order_status_history` CUSTOMER row) → `RETURN_REQUESTED`;
+  operator `decide` approve (→`RETURNED`) or reject (→back to `DELIVERED`;
+  rejection reason mandatory) with CONTROL audit; operator `initiateRefund`
+  (defaults to full grand total, allows ≤ grand total, GATEWAY for PREPAID /
+  COD for cash, links original Payment, order → `REFUND_PENDING`) and
+  `completeRefund` sandbox (order `REFUNDED` + `paymentStatus REFUNDED`,
+  `Refund` COMPLETED, appends a `payment_transactions` REFUND ledger row on the
+  original payment, `ReturnRequest` COMPLETED); double-complete guarded.
+- **Controllers/RBAC:** `ReturnsController` (`POST|GET /orders/:id/returns`,
+  JWT, order-owner enforced in service); `ReturnOpsController`
+  (`POST /return-requests/:id/decision|/refund|/refund/complete`, `@Roles
+  (OPERATOR,ADMIN)`). Centralized `returns.policy.ts` (return window constant).
+- **Tests:** returns.service.spec (14) — ownership 404, non-DELIVERED, closed
+  window, create+moving to RETURN_REQUESTED with audited CUSTOMER row,
+  duplicate conflict, reject-mandatory-reason, approve→RETURNED, reject→DELIVERED,
+  block-unless-approved, amount>grandTotal reject, full refund GATEWAY +
+  REFUND_PENDING, COD method, complete→REFUNDED + ledger REFUND + no-double.
+  Full suite now 11 suites / 63 tests.
+- **Verification:** typecheck + build clean; live E2E PREPAID order captured →
+  delivered → requested return (operator-token request correctly 404s as not the
+  owner) → reject-without-reason 400 → reject returns to DELIVERED → re-request →
+  approve → initiate full 1887.90 GATEWAY refund → complete → order REFUNDED /
+  paymentStatus REFUNDED / ledger shows CAPTURE + REFUND SUCCESS / ReturnRequest
+  COMPLETED; double-complete 409; customer calling decision 403. See VERIFICATION
+  Session 07 table.

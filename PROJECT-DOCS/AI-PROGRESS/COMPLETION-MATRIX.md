@@ -24,9 +24,9 @@
 | 05 | Catalog Publishing | NOT_STARTED | listings, approval/review, visibility, lifecycle |
 | 06 | Seller Platform | NOT_STARTED | seller apps for products/orders/inventory/returns |
 | 07 | Customer Commerce | PARTIALLY_COMPLETE | cart (guest+auth, merge-on-login), checkout quote, order place/list/cancel/history-timeline, coupons, buy-now done (server-authoritative, verified live). Remaining: discovery, multi-seller split-cart, reviews |
-| 08 | Payment + COD | PARTIALLY_COMPLETE | provider-agnostic Payment intent + sandbox gateway capture (signature+idempotency), payment ledger/webhook audit, buy-now, COD OTP verification, COD cash-collection at delivery (COD_PAID flip) — verified live. Remaining: real gateway (razorpay/stripe), refunds |
-| 09 | Fulfillment + Delivery | PARTIALLY_COMPLETE | internal operator advance workflow (CONFIRMED→PACKED→SHIPPED→OUT_FOR_DELIVERY→DELIVERED, guarded + audited, deliveredAt + COD_PAID on delivery) verified live. Remaining: delivery pricing/partners/tracking, seller/returns wiring, dedicated delivery role/courier handoff |
-| 10 | Returns + Support | NOT_STARTED | returns, refunds, tickets |
+| 08 | Payment + COD | PARTIALLY_COMPLETE | provider-agnostic Payment intent + sandbox gateway capture (signature+idempotency), payment ledger/webhook audit, buy-now, COD OTP verification, COD cash-collection at delivery (COD_PAID flip), refund ledger (payment_transactions REFUND) — verified live. Remaining: real gateway (razorpay/stripe) with live refund execution |
+| 09 | Fulfillment + Delivery | PARTIALLY_COMPLETE | internal operator advance workflow (CONFIRMED→PACKED→SHIPPED→OUT_FOR_DELIVERY→DELIVERED, guarded + audited, deliveredAt + COD_PAID on delivery) verified live. Remaining: delivery pricing/partners/tracking, dedicated delivery role/courier handoff |
+| 10 | Returns + Support | PARTIALLY_COMPLETE | whole-order returns + refunds backend (customer request within delivery window, operator approve/reject, refund initiate/complete with REFUND ledger) verified live + 14 tests. Remaining: item-level partial returns/pickup/inspection, replacement, support tickets/CRM, refund_transactions ledger table |
 | 11 | Control Panel | NOT_STARTED | platform governance, audit, break-glass |
 | 12 | Finance + Settlement | NOT_STARTED | settlements, reconciliation, financial integrity |
 | 13 | Analytics | NOT_STARTED | events, analytics storage, dashboards |

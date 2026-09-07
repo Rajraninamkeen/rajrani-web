@@ -11,14 +11,14 @@
 | Branch | `main` |
 | Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
 | Stack (final) | **NestJS 11.2.3 + TypeScript 5.9.3 + Prisma ORM 7.10.0** (driver adapter, prisma.config.ts) + PostgreSQL 17 |
-| Current session | Session 06 — Fulfilment + delivery state machine |
-| Current phase | Fulfilment/delivery transitions done; reviews/refunds/deferred-seller-ops remain |
-| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery) on Prisma 7; all verified |
-| Completed sessions | 00–04, upgrade pass, 05 (buy-now, online payment intent/capture, COD OTP), 06 (fulfilment/delivery) |
-| Next session | Reviews, returns/refunds, or real payment-gateway provider / real delivery integration |
+| Current session | Session 07 — Returns + refunds |
+| Current phase | Returns/refunds slice done; reviews/deferred-seller-ops/settlements remain |
+| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery, returns/refunds) on Prisma 7; all verified |
+| Completed sessions | 00–04, upgrade pass, 05 (buy-now, online payment intent/capture, COD OTP), 06 (fulfilment/delivery), 07 (returns/refunds) |
+| Next session | Reviews, multi-seller/split-checkout, seller-ops, or real payment-gateway provider / settlements |
 | Active blockers | Owner to rotate GitHub token; keep `rajrani-web` canonical |
-| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments currently use the built-in **sandbox** gateway (pluggable provider) — real gateway provider deferred. Fulfilment is gated behind `OPERATOR`/`ADMIN` roles; no dedicated delivery/seller role yet (no schema/role migration until warranted). |
-| Last verification | typecheck/build OK; `npm test` 49 passing (10 suites); migrate deploy clean (8); live PREPAID & COD orders driven end-to-end through fulfilment to DELIVERED (audited history, deliveredAt, COD_PAID flip) verified (2026-09-07) |
+| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments currently use the built-in **sandbox** gateway (pluggable provider) — real gateway + real refund execution deferred. Fulfilment/returns gated behind `OPERATOR`/`ADMIN` roles; no dedicated delivery/seller/finance role yet. Returns are whole-order only (no item-level partial returns/pickup/inspection yet). |
+| Last verification | typecheck/build OK; `npm test` 63 passing (11 suites); migrate deploy clean (9); live PREPAID & COD end-to-end incl. full return → approve → refund (GATEWAY/COD) verified (2026-09-07) |
 | Repository health | pushed to GitHub (`main`); no committed secrets |
 
 > ## IMPORTANT PRODUCT DECISION (owner)
@@ -79,13 +79,29 @@ multi-app platform.
     transition (actor CONTROL + operator id + reason), and on DELIVERED sets
     `deliveredAt` + flips COD `COD_PENDING`→`COD_PAID` (cash collected at door).
     Customer timeline `GET /orders/:id/history`.
+  - Session 07: **Returns + refunds** (DB-Design §§85-92): `ReturnRequest` +
+    `Refund` models/enums (migration `return_refund_models`). Customer
+    `POST|GET /orders/:id/returns` requests a return on a DELIVERED order within
+    a server-side delivery window (ownership + no-duplicate guarded) →
+    order `RETURN_REQUESTED`. Operator `POST /return-requests/:id/decision`
+    approves (→`RETURNED`) or rejects (→back to `DELIVERED`; rejection reason
+    mandatory). Operator refund endpoints: initiate (full or ≤ grand-total,
+    `GATEWAY` for PREPAID / `COD` for cash, order → `REFUND_PENDING`) and sandbox
+    complete (order `REFUNDED` + `paymentStatus REFUNDED`, a `payment_transactions`
+    REFUND ledger row on the original payment, ReturnRequest `COMPLETED`). Every
+    order transition recorded in `order_status_history` (customer + CONTROL
+    actors). Returns/decision/refund are operator-gated (`@Roles(OPERATOR,ADMIN)`).
 
 ### Absent (per spec) / deferred
-- No reviews, returns/refunds, multi-seller split-checkout, real payment-gateway
-  provider (razorpay/stripe), or real delivery-courier integration yet.
-- Fulfilment/delivery exists as an internal operator flow (`OPERATOR`/`ADMIN`
-  advance transitions); no dedicated delivery/seller role or real courier
+- No reviews, multi-seller split-checkout, real payment-gateway provider
+  (razorpay/stripe) with live refund execution, or real delivery-courier
+  integration yet.
+- Fulfilment/delivery/returns/refunds exist as internal operator flows
+  (`OPERATOR`/`ADMIN`); no dedicated delivery/seller/finance role or real courier
   handoff yet.
+- Returns are whole-order only (item-level partial returns, return pickup
+  scheduling, warehouse inspection are deferred — `return_items`, `return_events`,
+  `return_inspections`, `refund_transactions` from DB-Design not yet modelled).
 - No ABAC/organization/tenant isolation, step-up auth (deferred to later auth work).
 - No `customer-web` full application (multi-page with account, orders, etc.).
 - No `seller-web`, `catalog-publishing-web`, `support-web`, `delivery-web`,

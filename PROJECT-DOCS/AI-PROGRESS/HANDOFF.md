@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 06 — Fulfilment + delivery state machine |
-| STATUS | COMPLETE (10 suites / 49 tests; live PREPAID & COD orders driven to DELIVERED, audited, COD_PAID + deliveredAt verified) |
-| NEXT SESSION | Reviews, returns/refunds, or real payment-gateway provider |
-| NEXT WORKFLOW | Product reviews (rating avg refresh), returns/refunds (exception transitions OUT of DELIVERED/RETURN*/REFUND*), a real gateway provider (razorpay/stripe via the pluggable provider), settlements/finance |
+| CURRENT SESSION | Session 07 — Returns + refunds |
+| STATUS | COMPLETE (11 suites / 63 tests; live full PREPAID return→refund verified, audited, REFUND ledger) |
+| NEXT SESSION | Reviews, multi-seller/split-checkout, seller-ops, or real payment-gateway provider / settlements |
+| NEXT WORKFLOW | Product reviews (rating avg refresh); item-level/partial returns + pickup/inspection; a real gateway provider (razorpay/stripe via the pluggable provider) with live refunds; settlements/finance |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It
@@ -116,3 +116,29 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
   `fulfilment.controller.ts`, `dto/fulfilment.dto.ts`; `order.service.ts`
   (`orderHistory`, `toPublicOrder`), `checkout.controller.ts` (history route),
   `commerce.module.ts`.
+
+## SESSION 07 HANDOFF NOTES
+- **Returns are whole-order** (order-level), not per-item. `return_items`,
+  `return_events`, `return_inspections`, `refund_transactions` (DB-Design §88/89/92)
+  are NOT modelled yet — next refinement would add partial returns + pickup/
+  inspection, and a `refund_transactions` ledger mirror.
+- **Refund execution is sandbox.** `completeRefund` marks the `Refund` COMPLETED
+  and appends a `payment_transactions` REFUND row on the original (PREPAID)
+  payment. A real provider would execute the gateway refund keyed by the same
+  `Refund.id` + idempotency before completing. COD refunds (method `COD`) have no
+  gateway row by design (cash paid out-of-band) — a finance/settlement concern.
+- **Return window is centralized** in `src/commerce/returns.policy.ts`
+  (`RETURN_WINDOW_DAYS=7`); move to a config store when one exists. Do not scatter
+  in frontends.
+- **RBAC:** request/status are customer-owned (order.userId must match caller —
+  an operator token on a customer's order returns 404). Decisions/refunds are
+  `@Roles('OPERATOR','ADMIN')`. Rejections require a reason.
+- **Order transitions for returns** (each audited in `order_status_history`):
+  DELIVERED→RETURN_REQUESTED (CUSTOMER), RETURN_REQUESTED→RETURNED (approve) or
+  →DELIVERED (reject, CONTROL), RETURNED→REFUND_PENDING (initiate), REFUND_PENDING→
+  REFUNDED (complete) + `paymentStatus`→REFUNDED. FulfilmentService's forward map
+  is intentionally NOT widened for these return edges.
+- **Files:** prisma schema + migration `20260907133000_return_refund_models`;
+  `src/commerce/{returns.service,returns.controller,return-ops.controller,
+  returns.policy}.ts` (+ `.spec.ts` 14 tests), `dto/returns.dto.ts`,
+  commerce.types.ts, commerce.module.ts.
