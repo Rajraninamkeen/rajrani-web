@@ -621,3 +621,58 @@ Live E2E run — see VERIFICATION Session 05 table.
   200 and DELIVERED → 200 shipping only the ACCEPTED Bilokat slice (its shippedAt +
   deliveredAt stamped; Rajrani slice untouched); customer order view exposes the
   cancelled slice's cancelledAt/cancellationReason. See VERIFICATION Session 11.
+
+## Session 12 — Seller payables & settlements
+- **Date:** 2026-09-07
+- **Objective (owner-selected):** close the seller money loop opened in Session 09
+  (split seller_orders with money attribution) and Session 11 (rejected slices cancel
+  + refund) by defining exactly how much each seller is owed per fulfilled order and
+  rolling those amounts into an audited settlement/payout ledger. Owner decisions:
+  money rule = **seller earns goods value minus commission** (Bilokat retains the tax
+  it remits and the delivery charge); commission is **per-seller
+  `commissionRateBps`** (Bilokat platform seller 0, partner Rajrani 1000 bps = 10%);
+  a payable is **auto-earned at DELIVERED** for each accepted slice (a cancelled/
+  rejected Session-11 slice earns nothing).
+- **Schema/migration `20260907234906_seller_payables_settlements`:** adds
+  `Seller.commissionRateBps`; new tables `seller_payables`,
+  `seller_payable_adjustments`, `settlements`, `settlement_items`,
+  `settlement_events`; enums `PayableStatus` (EARNED/IN_SETTLEMENT/SETTLED) and
+  `SettlementStatus` (PENDING/APPROVED/PROCESSING/PAID/RECONCILED/FAILED).
+  `seller_payables.sellerOrderId` is unique (a delivered slice earns at most one
+  payable); `settlement_items.sellerPayableId` is unique (a payable can be in only
+  one settlement). 14 migrations total; `migrate deploy` clean.
+- **Money rule:** for each slice, `goodsValue = subtotal − discountTotal`;
+  `commissionAmount = round(goodsValuePaise·bps/10000)` (paise-safe); `netPayable =
+  goodsValue − commission − refunds − adjustments`; Bilokat retains `taxAmount` +
+  `deliveryAmount`. Invariant `net + commission + tax + delivery == slice.grandTotal`
+  (asserted in live E2E and tests).
+- **Auto-earn at DELIVERED:** the operator `fulfilment/advance` (already the step
+  that stamps `deliveredAt` on accepted slices) now calls
+  `SettlementService.earnDeliveredSlices` inside the same transaction, creating an
+  EARNED `SellerPayable` for each ACCEPTED slice of the just-delivered order. Idempotent
+  via the unique sellerOrderId; CANCELLED/REJECTED slices never earn.
+- **Finance ops (`@Roles(OPERATOR,ADMIN)`), `/api/v1/finance`:** payables list/detail;
+  `POST /payables/:id/adjustments` (signed, reason+actor required, append-only, only on
+  EARNED, never below zero); settlements list/detail/create (guards: all payables belong
+  to the seller, all still EARNED — else 409); `POST /settlements/:id/advance` through
+  PENDING→APPROVED→PROCESSING→PAID→RECONCILED (PROCESSING→FAILED→PROCESSING retry),
+  each step an audited `settlement_events` row; reaching PAID marks the included
+  payables SETTLED. No financial value is rewritten (adjustments are additive).
+- **Seller-facing reads (`@Roles(SELLER)`), `/api/v1/seller`:** payables + settlements
+  (scoped to the caller's own seller org via `users.sellerId`).
+- **Tests:** new `settlement.service.spec.ts` (15: money-rule maths incl. paise
+  rounding + exact reconciliation, earn-only-accepted + idempotency, adjustment net
+  reduction / below-zero rejection / not-EARNED rejection, settlement create sum +
+  IN_SETTLEMENT marking, double-inclusion 409, cross-seller 400, illegal-jump 409,
+  PROCESSING→FAILED→retry, getPayable 404). `fulfilment.service.spec` updated for the
+  injected `SettlementService`. Full suite 13 suites / **101 tests**; typecheck +
+  build clean.
+- **Live E2E:** fresh PREPAID multi-seller order `BK-MTRWEGUT` (Bilokat ₹396.90 +
+  Rajrani ₹313.95) captured PAID, accepted, shipped, delivered → payables auto-earned
+  and reconciling exactly (Bilokat net ₹378.00 @0%; Rajrani net ₹269.10 = 299 − 29.90
+  @10%); operator -₹10 adjustment → ₹259.10; settlement STL-445969B3 PENDING → net
+  ₹259.10, advanced APPROVED→PROCESSING→PAID→RECONCILED; Rajrani payable SETTLED,
+  Bilokat EARNED; RECONCILED→PAID and second-inclusion both rejected; Rajrani seller
+  sees own payable+settlement. Second order `BK-MTRWFK4Z`: Rajrani slice REJECTED then
+  resolve-reject (Session 11), delivered → only the accepted Bilokat slice earned
+  ₹189.00, the CANCELLED Rajrani slice earned **₹0**. See VERIFICATION Session 12.

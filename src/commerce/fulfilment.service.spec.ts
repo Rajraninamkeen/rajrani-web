@@ -18,6 +18,7 @@ function baseOrder(over: Record<string, any> = {}) {
 describe('FulfilmentService', () => {
   let prisma: any;
   let orders: any;
+  let settlement: any;
   let service: FulfilmentService;
 
   function mockTx(order: any) {
@@ -37,13 +38,14 @@ describe('FulfilmentService', () => {
 
   beforeEach(() => {
     orders = { toPublicOrder: jest.fn((o: any) => ({ id: o.id, status: o.status })) };
+    settlement = { earnDeliveredSlices: jest.fn().mockResolvedValue(0) };
     prisma = {
       order: { findUnique: jest.fn() },
       codVerification: { findUnique: jest.fn() },
       sellerOrder: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn(),
     };
-    service = new FulfilmentService(prisma, orders);
+    service = new FulfilmentService(prisma, orders, settlement);
   });
 
   it('throws 404 for an unknown order', async () => {

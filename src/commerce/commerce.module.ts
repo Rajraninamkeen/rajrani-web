@@ -13,6 +13,8 @@ import { OrderResolutionController } from './order-resolution.controller';
 import { ReturnOpsController } from './return-ops.controller';
 import { SellerOpsController } from './seller-ops.controller';
 import { SellerOpsService } from './seller-ops.service';
+import { SettlementService } from './settlement.service';
+import { FinanceOpsController, SellerSettlementController } from './settlement-ops.controller';
 import { ReturnsController } from './returns.controller';
 import { ReturnsService } from './returns.service';
 import { PaymentController } from './payment.controller';
@@ -31,6 +33,8 @@ import { PaymentService } from './payment.service';
     ReturnOpsController,
     SellerOpsController,
     OrderResolutionController,
+    FinanceOpsController,
+    SellerSettlementController,
   ],
   providers: [
     CartService,
@@ -40,6 +44,7 @@ import { PaymentService } from './payment.service';
     FulfilmentService,
     ReturnsService,
     SellerOpsService,
+    SettlementService,
   ],
   exports: [PaymentService, CodService, OrderService],
 })

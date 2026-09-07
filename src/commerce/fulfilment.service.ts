@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { OrderPublic } from './commerce.types';
 import { OrderService } from './order.service';
+import { SettlementService } from './settlement.service';
 
 // Stages at which goods physically leave the warehouse / reach the customer.
 // From here every fulfil-required seller slice must have been ACCEPTED, because
@@ -46,6 +47,7 @@ export class FulfilmentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orders: OrderService,
+    private readonly settlement: SettlementService,
   ) {}
 
   /**
@@ -127,6 +129,10 @@ export class FulfilmentService {
           where: { orderId, status: SellerOrderStatus.ACCEPTED },
           data: { deliveredAt: new Date() },
         });
+        // Session 12: the accepted slices are now delivered, so each one earns its
+        // seller payable (cancelled/REJECTED slices earn nothing). Atomic with the
+        // DELIVERED transition because we are inside the same transaction.
+        await this.settlement.earnDeliveredSlices(tx, orderId);
       }
 
       await tx.orderStatusHistory.create({

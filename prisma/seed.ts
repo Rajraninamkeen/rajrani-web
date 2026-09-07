@@ -32,15 +32,15 @@ async function main(): Promise<void> {
   // Upsert dev sellers (Session 09 split-checkout). Fixed ids mirror the
   // 20260907142140 migration so a fresh DB is consistent after migrate deploy.
   const SELLERS = [
-    { id: 'seller-legacy', sellerCode: 'SELL-BILOKAT', legalName: 'Bilokat Foods Private Limited', displayName: 'Bilokat Kitchens' },
-    { id: 'seller-partner', sellerCode: 'SELL-RAJRANI', legalName: 'Rajrani Retail Ventures', displayName: 'Rajrani Select' },
+    { id: 'seller-legacy', sellerCode: 'SELL-BILOKAT', legalName: 'Bilokat Foods Private Limited', displayName: 'Bilokat Kitchens', commissionRateBps: 0 },
+    { id: 'seller-partner', sellerCode: 'SELL-RAJRANI', legalName: 'Rajrani Retail Ventures', displayName: 'Rajrani Select', commissionRateBps: 1000 }, // 10%
   ];
   const sellerByCode: Record<string, string> = {};
   for (const s of SELLERS) {
     await prisma.seller.upsert({
       where: { id: s.id },
-      update: { sellerCode: s.sellerCode, legalName: s.legalName, displayName: s.displayName, status: 'ACTIVE' },
-      create: { id: s.id, sellerCode: s.sellerCode, legalName: s.legalName, displayName: s.displayName, status: 'ACTIVE' },
+      update: { sellerCode: s.sellerCode, legalName: s.legalName, displayName: s.displayName, status: 'ACTIVE', commissionRateBps: s.commissionRateBps },
+      create: { id: s.id, sellerCode: s.sellerCode, legalName: s.legalName, displayName: s.displayName, status: 'ACTIVE', commissionRateBps: s.commissionRateBps },
     });
     sellerByCode[s.sellerCode] = s.id;
   }

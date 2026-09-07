@@ -285,3 +285,22 @@
 | customer `GET /orders/:id` | order DELIVERED / PAID; Rajrani slice exposes `cancelledAt: true` + reason; Bilokat slice shipped+delivered, cancelledAt false |
 | double stock-release guard | `cancelOrder` skips items of already-CANCELLED slices (unit-tested) |
 | `git push origin main` | schema+backend+tests pushed (Session 11 commit) |
+
+## Session 12 — Seller payables & settlements (2026-09-07, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| migration `20260907234906_seller_payables_settlements` + ledger | applied (14 total); `prisma migrate deploy` clean (no pending) |
+| `npm test` | 13 suites / **101 tests** PASS (settlement.service.spec +15; fulfilment.service.spec updated for new dep) |
+| `npm run typecheck` / `build` | exit 0 |
+| sellers commission | `SELL-BILOKAT` 0 bps, `SELL-RAJRANI` 1000 bps (10%) |
+| multi-seller PREPAID order `BK-MTRWEGUT` (grand ₹710.85) | captured PAID → CONFIRMED → PACKED; both seller slices ACCEPTED → SHIPPED → DELIVERED |
+| auto-earn at DELIVERED (`seller_payables` for the order) | 2 EARNED rows, each reconciles to its slice grandTotal exactly: Bilokat gross 378.00 / comm 0 / net **378.00** (goods 378 + tax 18.90 + del 0 = 396.90); Rajrani gross 299.00 / comm 29.90 / net **269.10** (269.10+29.90+14.95 = 313.95) |
+| operator `POST /finance/payables/:id/adjustments` {amount:-10} | Rajrani payable net ₹269.10 → **₹259.10**; adjustment row recorded (actor OPERATOR) |
+| operator `POST /finance/settlements` (Rajrani payable) | **STL-445969B3** PENDING, net ₹259.10, comm ₹29.90, 1 item (SO-MTRWEGW0-6871 ₹259.10) |
+| `POST /finance/settlements/:id/advance` | APPROVED → PROCESSING → PAID → RECONCILED (each an audited `settlement_events` row); on PAID the Rajrani payable → **SETTLED**; Bilokat payable stays EARNED |
+| advance RECONCILED → PAID | **409 CONFLICT** `Cannot move settlement from "RECONCILED" to "PAID"` |
+| second settlement re-including the settled Rajrani payable | **409 CONFLICT** `One or more payables are already in a settlement` |
+| seller2 (Rajrani) `GET /seller/payables` + `/seller/settlements` | sees own payable (₹259.10 SETTLED) + settlement STL-445969B3 RECONCILED ₹259.10 |
+| 2nd order `BK-MTRWFK4Z`: Rajrani REJECTED → operator resolve-reject → delivered | only the delivered ACCEPTED Bilokat slice earned a payable **₹189.00**; the CANCELLED Rajrani slice has **no** payable (₹0 earned) — Session-11 rejected/cancelled slice contributes nothing |
+| `git push origin main` | schema+backend+tests pushed (Session 12 commit) |

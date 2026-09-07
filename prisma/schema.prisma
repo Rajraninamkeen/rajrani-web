@@ -414,6 +414,7 @@ model Order {
   codVerification CodVerification?
   returnRequests ReturnRequest[]
   refunds Refund[]
+  payables SellerPayable[]
 
   @@index([userId])
   @@index([status])
@@ -809,12 +810,17 @@ model Seller {
   legalName   String
   displayName String
   status      SellerStatus @default(ACTIVE)
+  // Platform commission this seller is charged on the goods value they sell
+  // (basis points, Session 12). Bilokat's own storefront seller is 0.
+  commissionRateBps Int    @default(0)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
   products     Product[] // products this seller owns
   sellerOrders SellerOrder[]
   operators    User[]     @relation("SellerOperators") // SELLER-role users bound here
+  payables     SellerPayable[]
+  settlements  Settlement[]
 
   @@index([status])
   @@map("sellers")
@@ -859,9 +865,168 @@ model SellerOrder {
 
   items   OrderItem[]
   refunds Refund[]
+  payable SellerPayable? // Session 12: authoritative settlement basis for this slice
 
   @@index([orderId])
   @@index([sellerId])
   @@index([status])
   @@map("seller_orders")
+}
+
+// ===================== Session 12: Seller payables & settlements =====================
+
+// A delivered seller slice's money is "earned" by the seller. Lifecycle:
+// EARNED (auto at DELIVERED) -> IN_SETTLEMENT (rolled into a settlement) ->
+// SETTLED (its settlement is PAID).
+enum PayableStatus {
+  EARNED
+  IN_SETTLEMENT
+  SETTLED
+}
+
+// Settlement workflow statuses (DB-design §104/§84). Lean subset actually used:
+// PENDING -> APPROVED -> PROCESSING -> PAID -> RECONCILED; PROCESSING -> FAILED,
+// FAILED -> PROCESSING (retry). No historical value is rewritten; each step is an
+// audited SettlementEvent.
+enum SettlementStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  PAID
+  RECONCILED
+  FAILED
+}
+
+// Authoritative per-seller payout for one fulfilled (delivered, non-cancelled)
+// seller slice. Auto-created when the order reaches DELIVERED for each slice that
+// is ACCEPTED (a Session-11 cancelled/REJECTED slice never earns). Money rule
+// (owner-selected, Session 12): the seller earns the slice's goods value
+// (subtotal - discount) MINUS platform commission on that value; Bilokat retains
+// the tax (remitted) and delivery charge. So for a slice:
+//   goodsValue        = subtotal - discount
+//   commissionAmount  = round(goodsValue * rateBps / 10000)
+//   netPayable        = goodsValue - commission - refunds - adjustments
+// and slice.grandTotal (= goodsValue + tax + delivery) reconciles to seller
+// netPayable + commission + tax + delivery exactly (see VERIFICATION Session 12).
+model SellerPayable {
+  id            String    @id @default(cuid())
+  sellerId      String
+  seller        Seller    @relation(fields: [sellerId], references: [id])
+  orderId       String
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // One payable per delivered slice; the unique prevents double-earning.
+  sellerOrderId String    @unique
+  sellerOrder   SellerOrder @relation(fields: [sellerOrderId], references: [id], onDelete: Cascade)
+
+  grossAmount       Decimal @db.Decimal(12, 2) // slice.subtotal (goods selling value pre-discount)
+  discountAmount    Decimal @db.Decimal(12, 2) @default(0)
+  goodsValue        Decimal @db.Decimal(12, 2) // grossAmount - discountAmount
+  commissionRateBps Int     @default(0)
+  commissionAmount  Decimal @db.Decimal(12, 2) @default(0)
+  // Bilokat-retained pass-through, recorded for reconciliation (not subtracted
+  // from the seller's net under the goods-minus-commission rule).
+  taxAmount         Decimal @db.Decimal(12, 2) @default(0)
+  deliveryAmount    Decimal @db.Decimal(12, 2) @default(0)
+  refundAmount      Decimal @db.Decimal(12, 2) @default(0)
+  adjustmentAmount  Decimal @db.Decimal(12, 2) @default(0) // net signed adjustments
+  netPayable        Decimal @db.Decimal(12, 2) // goodsValue - commission - refund - adjustment
+  currency          String  @default("INR")
+
+  status   PayableStatus @default(EARNED)
+  earnedAt DateTime      @default(now())
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  adjustments     SellerPayableAdjustment[]
+  settlementItem  SettlementItem?
+
+  @@index([sellerId, status])
+  @@index([orderId])
+  @@map("seller_payables")
+}
+
+// Append-only traceable correction to an earned payable (DB-design §85/§106):
+// never rewrite the snapshot, add a signed adjustment with reason + actor. The
+// payable's netPayable reflects goodsValue - commission - refunds - adjustments.
+model SellerPayableAdjustment {
+  id              String        @id @default(cuid())
+  sellerPayableId String
+  sellerPayable   SellerPayable @relation(fields: [sellerPayableId], references: [id], onDelete: Cascade)
+  amount          Decimal       @db.Decimal(12, 2) // signed: negative reduces the seller's net
+  reason          String
+  actorType       String // OPERATOR | SELLER | SYSTEM
+  actorId         String?
+  createdAt       DateTime      @default(now())
+
+  @@index([sellerPayableId])
+  @@map("seller_payable_adjustments")
+}
+
+// A batch of earned payables for one seller, to be paid out together.
+model Settlement {
+  id                 String    @id @default(cuid())
+  sellerId           String
+  seller             Seller    @relation(fields: [sellerId], references: [id])
+  settlementReference String   @unique
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  status             SettlementStatus @default(PENDING)
+  currency           String    @default("INR")
+
+  grossAmount     Decimal @db.Decimal(12, 2) @default(0)
+  discountAmount  Decimal @db.Decimal(12, 2) @default(0)
+  goodsValue      Decimal @db.Decimal(12, 2) @default(0)
+  commissionAmount Decimal @db.Decimal(12, 2) @default(0)
+  taxAmount       Decimal @db.Decimal(12, 2) @default(0)
+  deliveryAmount  Decimal @db.Decimal(12, 2) @default(0)
+  refundAmount    Decimal @db.Decimal(12, 2) @default(0)
+  adjustmentAmount Decimal @db.Decimal(12, 2) @default(0)
+  netPayable      Decimal @db.Decimal(12, 2) @default(0)
+
+  approvedAt DateTime?
+  processedAt DateTime?
+  paidAt      DateTime?
+  reconciledAt DateTime?
+  failedAt    DateTime?
+  failedReason String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items  SettlementItem[]
+  events SettlementEvent[]
+
+  @@index([sellerId, status])
+  @@index([status])
+  @@map("settlements")
+}
+
+// Traceability from a settlement to the individual earned payable (DB-design §105).
+// sellerPayableId is unique so a payable can never sit in two settlements.
+model SettlementItem {
+  id              String        @id @default(cuid())
+  settlementId    String
+  settlement      Settlement    @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  sellerPayableId String        @unique
+  sellerPayable   SellerPayable @relation(fields: [sellerPayableId], references: [id], onDelete: Cascade)
+  sellerOrderId   String        // denormalised reference for traceability
+  amount          Decimal       @db.Decimal(12, 2) // the payable's netPayable at inclusion
+  createdAt       DateTime      @default(now())
+
+  @@index([settlementId])
+  @@map("settlement_items")
+}
+
+// Immutable per-settlement lifecycle audit.
+model SettlementEvent {
+  id           String   @id @default(cuid())
+  settlementId String
+  settlement   Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  eventType    String // CREATED | APPROVED | PROCESSING | PAID | RECONCILED | FAILED | RETRY
+  actorId      String?
+  reason       String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([settlementId])
+  @@map("settlement_events")
 }
