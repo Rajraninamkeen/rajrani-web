@@ -84,3 +84,20 @@
 | `GET /catalog/products/bilokat-royal-ratlami-sev` | price 189, orig 240, disc 21%, rating 4.9 |
 | `GET /catalog/products/<missing>` | HTTP 404 (error envelope) |
 | `git push origin main` | `1c5e199..ebd9ce0` pushed |
+
+## Tech Upgrade (Prisma 6->7.10), 2026-09-07
+
+| Command / check | Result |
+|---|---|
+| `prisma generate` (v7, config) | client -> ./src/generated/prisma |
+| `prisma validate` | valid (config loaded from prisma.config.ts) |
+| `prisma migrate deploy` | clean — "No pending migrations to apply" (5) |
+| `prisma migrate resolve --applied 20260907120621_product_catalog_display_fields` | marked applied |
+| `npm run typecheck` | exit 0 |
+| `npm run build` | exit 0 |
+| `npm test` | 5 suites / 15 PASS |
+| `prisma db seed` | 5 categories / 8 products |
+| live health | postgres up (Prisma 7 + PrismaPg adapter log) |
+| live catalog + auth (register/login) via adapter | success |
+| `npm audit` | 6 findings incl. 5 high (largely Prisma CLI/`deepmerge-ts`-style dev tooling + `@prisma/streams-local` node>=22); runtime not blocked. Deferred to Session 15 review. |
+| NestJS 12 ESM + Jest | FAILED (reverted to NestJS 11; recorded) |

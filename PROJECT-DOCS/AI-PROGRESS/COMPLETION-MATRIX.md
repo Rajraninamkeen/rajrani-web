@@ -10,6 +10,10 @@
 
 ## Session / Workstream matrix
 
+> Cross-cutting: Prisma 6→7.10 (stable) completed as a tech-upgrade pass
+> (NestJS stays 11, TS stays 5.9) — see SESSION-LOG. `landing-page/` is a
+> PROTOTYPE/UX reference, not an exact spec (owner).
+
 | # | Session | Status | Notes |
 |---|---|---|---|
 | 00 | Project Initialization | COMPLETE | Repo/docs inspected, security audited, AI-PROGRESS created |
@@ -34,13 +38,14 @@
 
 | Workstream | Status |
 |---|---|
-| Landing-page static prototype (visual reference) | DISCOVERED → builds cleanly |
+| Landing-page static prototype | DISCOVERED → builds cleanly; **owner: UX reference only, not exact spec** |
+| ORM layer | COMPLETE (Prisma 7.10 + adapter-pg + prisma.config.ts, verified) |
 | `bilokat-api` backend foundation | COMPLETE (scaffold/config/DB/envelope/health/unit tests — verified) |
 | Auth + RBAC foundation | PARTIALLY_COMPLETE (register/login/logout/me, refresh rotation + reuse detection, guards — verified live + tests) |
 | Catalog API endpoints (products/categories serving landing page) | COMPLETE (public read API verified live + seeded + tested) |
 | Commerce modules (cart, checkout, orders, coupons, reviews) | NOT_STARTED |
 | `customer-web` full application | NOT_STARTED (only static landing prototype exists) |
-| Data model / DB migrations (Identity + Catalog subset) | COMPLETE (2 migrations applied; commerce tables deferred to their sessions) |
+| Data model / DB migrations (Identity + Catalog subset) | COMPLETE (5 migrations, `prisma migrate deploy` clean; commerce tables deferred) |
 | Backend unit tests | COMPLETE (5 suites / 15 tests passing: exception filter, app, auth.service, roles.guard, catalog.service) |
 | AuthN (sessions/tokens) | NOT_STARTED |
 | AuthZ (RBAC/ABAC, org/tenant isolation) | NOT_STARTED |

@@ -205,3 +205,57 @@ Chronological record. Append new sessions at the bottom; do not rewrite history.
   slug (price 189/orig 240/disc 21) ✓; unknown product → HTTP 404 ✓.
 - `npm test` → 5 suites / 15 tests PASS.
 - Pushed to GitHub `rajrani-web` → commit `ebd9ce0`.
+
+---
+
+## Session: Tech Stack Upgrade (Prisma 6 -> 7.10 stable)
+
+- **Date:** 2026-09-07
+- **Owner instruction:** adopt latest technology; research then implement.
+- **Owner clarification (recorded):** `landing-page/` is a PROTOTYPE/UX reference,
+  not an exact spec. Future customer experience should be built properly per
+  specs + later requirements, not slavishly copied from the prototype.
+
+### Research & decision (executed)
+- NestJS latest = 12.0.1 (28 Aug 2026, ~1 wk old). NestJS 12 ships ESM packages.
+  Tested upgrade: runtime Nest packages 12 installed cleanly (typecheck/build
+  passed on TS 5.9), BUT Jest failed loading ESM packages
+  ("Cannot use import statement outside a module"). NestJS 12 recommends Vitest
+  for ESM. We did NOT want to migrate the whole test toolchain now.
+- DECISION (owner chose): revert NestJS to 11.2.3, keep TypeScript 5.9.3, and
+  upgrade Prisma 6 -> **7.10.0 (stable)** — the clean, isolated modernization.
+  @nestjs/cli@12 + schematics@12 also require root TS >= 6; staying on 11 avoids
+  that cascade.
+- Prisma npm "latest" dist-tag points at 8.0.0-rc.13 (an RC) — explicitly pinned
+  prisma@7.10.0 + @prisma/client@7.10.0 (stable).
+
+### Prisma 7 changes applied
+- schema.prisma generator: `prisma-client` + explicit `output = ../src/generated/prisma`;
+  removed datasource `url` (no longer supported in schema in v7).
+- New `prisma.config.ts` (defineConfig): schema, migrations.path + seed,
+  datasource.url from env (CLI + dotenv). Removed deprecated `prisma` key from
+  package.json; seed runs via `prisma db seed`.
+- PrismaClient now requires a driver adapter -> added `@prisma/adapter-pg` + `pg`;
+  PrismaService + seed.ts construct `new PrismaClient({ adapter: new PrismaPg({...}) })`.
+- All `@prisma/client` imports changed to the generated client path.
+- `src/generated/` added to .gitignore (generated at build time).
+
+### DB migration history reconcile
+- Earlier Session 03 manual apply left a stray + a 0-step record for one migration.
+  Removed the stray record, fixed applied_steps_count/checksum, ran
+  `prisma migrate resolve --applied`, then `prisma migrate deploy` -> clean
+  ("No pending migrations to apply", 5 migrations).
+
+### Verification (executed)
+- `prisma validate` PASS (config loaded). `prisma migrate deploy` PASS.
+- `npm run typecheck` exit 0; `npm run build` exit 0.
+- `npm test` -> 5 suites / 15 tests PASS.
+- `prisma db seed` -> 5 categories / 8 products.
+- Live server started on Prisma 7: health postgres up; catalog list/detail OK;
+  auth register + login (DB read AND write via adapter) OK.
+- Pushed to GitHub `rajrani-web` -> commit `06bfecd`.
+
+### Notes
+- `src/generated/` not committed; run `npx prisma generate` before `npm run build`.
+- Runtime Node require(esm) fine; Jest issue only affected a NestJS-12 path that
+  was reverted.

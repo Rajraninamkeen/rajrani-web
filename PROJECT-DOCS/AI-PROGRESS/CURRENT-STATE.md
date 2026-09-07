@@ -10,15 +10,23 @@
 | Remote | `origin https://github.com/Rajraninamkeen/rajrani-web.git` |
 | Branch | `main` |
 | Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
-| Current session | Session 03 — Catalog API (products/categories/detail public endpoints + seed) |
-| Current phase | Customer commerce backend — catalog read API done; cart/checkout remain |
-| Overall status | Specs + landing prototype + backend foundation + auth/RBAC + **catalog API** |
-| Completed sessions | Session 00 (audit), 01 (backend foundation), 02 (auth+RBAC) — complete |
-| Next session | Session 04 — Commerce (cart + checkout + orders) |
-| Active blockers | Owner to rotate GitHub token (shared in chat); keep `rajrani-web` canonical |
-| Known technical debt | See `COMPLETION-MATRIX.md`; landing-page still hardcoded; Prisma CLI `deepmerge-ts` advisory (dev-only) |
-| Last verification | Backend typecheck/build OK; `npm test` 15 passing; catalog endpoints verified live (2026-09-07) |
-| Repository health | `rajrani-web` pushed to GitHub (`ebd9ce0`); no committed secrets |
+| Stack (final) | **NestJS 11.2.3 + TypeScript 5.9.3 + Prisma ORM 7.10.0** (driver adapter, prisma.config.ts) + PostgreSQL 17 |
+| Current session | Session: Tech upgrade — Prisma 6→7.10 (kept NestJS 11/TS 5.9 after research) |
+| Current phase | Backend modernization (Prisma 7) done; commerce feature modules remain |
+| Overall status | Backend (foundation + auth/RBAC + catalog API) on Prisma 7; all verified |
+| Completed sessions | 00 (audit), 01 (foundation), 02 (auth), 03 (catalog API), upgrade pass |
+| Next session | Session 04 — Commerce: cart + checkout + orders |
+| Active blockers | Owner to rotate GitHub token; keep `rajrani-web` canonical |
+| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored (run `prisma generate` before build) |
+| Last verification | typecheck/build OK; `npm test` 15 passing; `prisma migrate deploy` clean (5 migrations); live endpoints OK (2026-09-07) |
+| Repository health | pushed to GitHub (`06bfecd`); no committed secrets |
+
+> ## IMPORTANT PRODUCT DECISION (owner)
+> **`landing-page/` is a PROTOTYPE / UX reference only — NOT an exact pixel spec.**
+> It shows the *feel* of user interactions and checkout the owner wants. It is
+> NOT a strict "make it exactly this." Future customer experience should be
+> enriched/built properly per the PROJECT-DOCS specs and later requirements, not
+> slavishly copied from the prototype. The backend/DB remains the source of truth.
 
 ---
 
