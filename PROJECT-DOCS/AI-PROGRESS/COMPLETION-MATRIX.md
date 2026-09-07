@@ -46,7 +46,7 @@
 | Commerce: cart + checkout + orders + coupons (server-authoritative) | COMPLETE (schema+services/controllers+migrations seeded; unit tests 26 passing; live E2E order place/cancel verified). Reviews separate |
 | `customer-web` full application | NOT_STARTED (only static landing prototype exists) |
 | Data model / DB migrations (Identity + Catalog + Commerce tables) | COMPLETE (7 migrations recorded incl. `commerce_models`, `cart_status_merged`; migrate deploy clean) |
-| Backend unit tests | COMPLETE (7 suites / 26 tests passing: exception filter, app, auth.service, roles.guard, catalog.service, cart.service, order.service) |
+| Backend unit tests | COMPLETE (7 suites / 31 tests passing: exception filter, app, auth.service, roles.guard, catalog.service, cart.service, order.service) |
 | AuthN (sessions/tokens) | NOT_STARTED |
 | AuthZ (RBAC/ABAC, org/tenant isolation) | NOT_STARTED |
 | Event/outbox infrastructure | NOT_STARTED |

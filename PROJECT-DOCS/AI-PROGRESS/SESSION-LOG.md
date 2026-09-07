@@ -303,3 +303,19 @@ CANCELLED, stock restored). Guest over-stock rejected; guest→login merge OK.
 - NestJS 12 ESM + Jest remains unsuitable (reverted in prior pass); still on
   NestJS 11/Jest CJS.
 
+
+### Session 04 follow-up — Core correctness hardening (2026-09-07)
+- `GET /orders` now paginated (`page`/`limit`) + optional `status` filter and
+  returns `{ orders, total, page, limit, totalPages }` (empty-state friendly).
+- Checkout now atomically claims the cart (ACTIVE→CONVERTED via guarded
+  `updateMany`) inside the transaction to prevent a double-checkout race on the
+  same cart; distinct `409 CONFLICT` for an already-converted/inactive cart
+  (replacing a generic 404).
+- Order cancel uses a guarded `PLACED/CONFIRMED → CANCELLED` transition so a
+  concurrent double-cancel cannot double-restore stock; lost race → 409.
+- Added 6 tests (cart-not-active conflict, in-transaction claim conflict,
+  pagination + status filter, non-cancellable order, cancel race guard).
+  Commerce specs 10→16; full suite 26→31 tests PASS.
+- Live verified: reuse of a CONVERTED cart → 409; orders pagination shape;
+  `?status=CANCELLED` filter; invalid status → 400.
+- Pushed `dfb27f7`.

@@ -123,3 +123,17 @@
 | `POST /orders/:id/cancel` | status CANCELLED; stock restored (29→31, 14→15) |
 | `git push origin main` | commits `7424840`, `d8c6205`, `3037e31`, `3348021` pushed |
 
+
+## Session 04 follow-up — hardening (2026-09-07)
+
+| Command / check | Result |
+|---|---|
+| `npm test` | 7 suites / 31 tests PASS (commerce specs 10→16) |
+| `npm run typecheck` / `build` | exit 0 |
+| checkout on already-CONVERTED cart | 409 CONFLICT "not active or already checked out" |
+| `GET /orders?page=1&limit=1` | `{orders,total,page,limit,totalPages}`; total 3, onpage 1 |
+| `GET /orders?page=2&limit=1` | onpage 1 PLACED |
+| `GET /orders?status=CANCELLED` | total 1, all CANCELLED |
+| `GET /orders?status=BOGUS` | 400 BAD_REQUEST |
+| `git push origin main` | commit `dfb27f7` pushed |
+

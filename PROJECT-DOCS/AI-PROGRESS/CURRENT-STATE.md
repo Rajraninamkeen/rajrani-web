@@ -18,7 +18,7 @@
 | Next session | Reviews, or further commerce/payments per priority |
 | Active blockers | Owner to rotate GitHub token; keep `rajrani-web` canonical |
 | Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored (run `prisma generate` before build) |
-| Last verification | typecheck/build OK; `npm test` 26 passing; migrations clean (7 recorded); live cart→checkout→order→cancel E2E OK (2026-09-07) |
+| Last verification | typecheck/build OK; `npm test` 31 passing; migrations clean (7 recorded); live cart→checkout→order→cancel E2E OK; hardened orders pagination/filter + concurrency guards (2026-09-07) |
 | Repository health | pushed to GitHub (`06bfecd`); no committed secrets |
 
 > ## IMPORTANT PRODUCT DECISION (owner)
