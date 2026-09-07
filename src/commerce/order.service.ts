@@ -18,6 +18,9 @@ import {
   PaymentStatus,
   Prisma,
   Product,
+  Seller,
+  SellerOrder,
+  SellerOrderStatus,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -43,9 +46,19 @@ const purchasableWhere: Prisma.ProductWhereInput = {
   deletedAt: null,
 };
 
+/** A purchasable line carrying its owning seller (Session 09 split-checkout). */
+interface QuoteLine {
+  product: Product;
+  sellerId: string;
+  sellerName: string;
+  quantity: number;
+}
+
 export interface QuoteResult {
   items: OrderItemPublic[];
   price: PriceBreakdown;
+  /** group items by seller to create one SellerOrder per seller */
+  sellers: { sellerId: string; sellerName: string }[];
 }
 
 @Injectable()
@@ -66,9 +79,14 @@ export class OrderService {
 
   /** Quote for a direct buy-now purchase (single product, no cart). */
   async quoteBuyNow(userId: string, productId: string, quantity: number, couponCode?: string): Promise<QuoteResult> {
-    const product = await this.prisma.product.findFirst({ where: { ...purchasableWhere, id: productId } });
+    const product = await this.prisma.product.findFirst({
+      where: { ...purchasableWhere, id: productId },
+      include: { seller: true },
+    });
     if (!product) throw new NotFoundException('Product not available');
-    const quote = this.quoteFromLines([{ product, quantity }]);
+    const quote = this.quoteFromLines([
+      { product, sellerId: product.seller.id, sellerName: product.seller.displayName, quantity },
+    ]);
     const coupon = couponCode ? await this.validateCoupon(couponCode, quote.price.subtotal) : undefined;
     if (coupon) this.applyCouponToQuote(coupon, quote);
     return quote;
@@ -105,10 +123,15 @@ export class OrderService {
   /** Direct (no-cart) buy-now order placement. */
   async buyNow(userId: string, dto: BuyNowDto): Promise<OrderPaymentResult> {
     return this.prisma.$transaction(async (tx) => {
-      const product = await tx.product.findFirst({ where: { ...purchasableWhere, id: dto.productId } });
+      const product = await tx.product.findFirst({
+        where: { ...purchasableWhere, id: dto.productId },
+        include: { seller: true },
+      });
       if (!product) throw new NotFoundException('Product not available');
 
-      const quote = this.quoteFromLines([{ product, quantity: dto.quantity }]);
+      const quote = this.quoteFromLines([
+        { product, sellerId: product.seller.id, sellerName: product.seller.displayName, quantity: dto.quantity },
+      ]);
       await this.applyCouponInTx(tx, dto.couponCode, quote);
 
       const order = await this.createOrderFromQuote(tx, {
@@ -140,7 +163,7 @@ export class OrderService {
     const [rows, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
-        include: { items: true },
+        include: { items: true, sellerOrders: { include: { seller: true } } },
         orderBy: { placedAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -158,7 +181,10 @@ export class OrderService {
   }
 
   async getOrder(userId: string, id: string): Promise<OrderPublic> {
-    const order = await this.prisma.order.findFirst({ where: { id, userId }, include: { items: true } });
+    const order = await this.prisma.order.findFirst({
+      where: { id, userId },
+      include: { items: true, sellerOrders: { include: { seller: true } } },
+    });
     if (!order) throw new NotFoundException('Order not found');
     return this.toPublic(order);
   }
@@ -204,6 +230,11 @@ export class OrderService {
       for (const it of items) {
         await tx.product.update({ where: { id: it.productId }, data: { stockOnHand: { increment: it.quantity } } });
       }
+      // cascade: mark each seller slice cancelled
+      await tx.sellerOrder.updateMany({
+        where: { orderId: id, status: { in: ['PLACED', 'ACCEPTED'] } },
+        data: { status: SellerOrderStatus.CANCELLED },
+      });
       await tx.orderStatusHistory.create({
         data: {
           orderId: id,
@@ -214,7 +245,10 @@ export class OrderService {
           reason: reason ?? 'Cancelled by customer',
         },
       });
-      const up = await tx.order.findUniqueOrThrow({ where: { id }, include: { items: true } });
+      const up = await tx.order.findUniqueOrThrow({
+        where: { id },
+        include: { items: true, sellerOrders: { include: { seller: true } } },
+      });
       return up;
     });
     return this.toPublic(updated);
@@ -253,19 +287,29 @@ export class OrderService {
   }
 
   private async calcQuote(db: Prisma.TransactionClient, cart: Cart): Promise<QuoteResult> {
-    const rows = await db.cartItem.findMany({ where: { cartId: cart.id }, include: { product: true } });
+    const rows = await db.cartItem.findMany({
+      where: { cartId: cart.id },
+      include: { product: { include: { seller: true } } },
+    });
     if (rows.length === 0) throw new BadRequestException('Your cart is empty');
     return this.quoteFromLines(
-      rows.map((r) => ({ product: r.product, quantity: r.quantity })),
+      rows.map((r) => ({
+        product: r.product,
+        sellerId: r.product.seller.id,
+        sellerName: r.product.seller.displayName,
+        quantity: r.quantity,
+      })),
       (name) => `"${name}" is no longer available. Please review your cart.`,
     );
   }
 
   private quoteFromLines(
-    lines: { product: Product; quantity: number }[],
+    lines: QuoteLine[],
     unavailableMsg: (name: string) => string = (name) => `"${name}" is no longer available`,
   ): QuoteResult {
     const items: OrderItemPublic[] = [];
+    const sellers: { sellerId: string; sellerName: string }[] = [];
+    const seen = new Set<string>();
     let subtotal = 0;
     for (const line of lines) {
       const p = line.product;
@@ -274,6 +318,10 @@ export class OrderService {
       }
       if (p.stockOnHand < line.quantity) {
         throw new BadRequestException(`Only ${p.stockOnHand} units of "${p.name}" are available.`);
+      }
+      if (!seen.has(line.sellerId)) {
+        seen.add(line.sellerId);
+        sellers.push({ sellerId: line.sellerId, sellerName: line.sellerName });
       }
       const unit = p.basePrice.toNumber();
       const lineTotal = unit * line.quantity;
@@ -286,12 +334,15 @@ export class OrderService {
         unitPrice: unit,
         quantity: line.quantity,
         lineTotal,
+        sellerId: line.sellerId,
+        sellerName: line.sellerName,
       });
     }
     const deliveryCharge = subtotal >= FREE_DELIVERY_ABOVE ? 0 : DELIVERY_FLAT;
     const tax = this.round2(subtotal * TAX_RATE);
     return {
       items,
+      sellers,
       price: {
         subtotal,
         discount: 0,
@@ -325,6 +376,15 @@ export class OrderService {
     const paymentStatus =
       args.paymentMethod === PaymentMethod.COD ? PaymentStatus.COD_PENDING : PaymentStatus.PENDING;
 
+    // ---- Session 09: split the order into one seller_order per seller ----
+    // The customer Order keeps its authoritative totals/payment. Each SellerOrder
+    // receives that seller's real subtotal (sum of its lines) and a proportional
+    // share of the order-level tax/discount/delivery/grand allocated by line-value
+    // share (f_S), with the last seller taking the rounding remainder so that
+    // SUM(seller_orders.grandTotal) === orders.grandTotal exactly.
+    const sellerTotals = this.sellerAllocation(args.quote);
+    const sellerOrderIdBySeller = new Map<string, string>();
+
     const order = await tx.order.create({
       data: {
         orderNumber,
@@ -340,30 +400,110 @@ export class OrderService {
         paymentMethod: args.paymentMethod,
         paymentStatus,
         addressSnapshot: args.address as Prisma.InputJsonValue,
-        items: {
-          create: args.quote.items.map((it) => ({
-            productId: it.productId,
-            productNameSnapshot: it.productName,
-            skuSnapshot: it.sku,
-            weightSnapshot: it.weight,
-            unitPrice: it.unitPrice,
-            quantity: it.quantity,
-            lineTotal: it.lineTotal,
-          })),
-        },
         history: {
           create: {
             fromStatus: null,
             toStatus: OrderStatus.PLACED,
             actor: OrderActor.CUSTOMER,
             actorId: args.userId,
-            metadata: { paymentMethod: args.paymentMethod },
+            metadata: { paymentMethod: args.paymentMethod, sellerCount: sellerTotals.length },
           },
         },
       },
-      include: { items: true },
     });
-    return order;
+
+    for (const s of sellerTotals) {
+      const so = await tx.sellerOrder.create({
+        data: {
+          orderId: order.id,
+          sellerId: s.sellerId,
+          sellerOrderNumber: await this.genSellerOrderNumber(tx),
+          status: SellerOrderStatus.PLACED,
+          subtotal: s.subtotal,
+          discountTotal: s.discountTotal,
+          taxTotal: s.taxTotal,
+          deliveryTotal: s.deliveryTotal,
+          grandTotal: s.grandTotal,
+          sellerAmount: s.grandTotal,
+        },
+      });
+      sellerOrderIdBySeller.set(s.sellerId, so.id);
+    }
+
+    for (const it of args.quote.items) {
+      const soId = sellerOrderIdBySeller.get(it.sellerId ?? '');
+      if (!soId) throw new Error(`No seller_order allocated for seller of "${it.productName}"`);
+      await tx.orderItem.create({
+        data: {
+          orderId: order.id,
+          sellerOrderId: soId,
+          productId: it.productId,
+          productNameSnapshot: it.productName,
+          sellerNameSnapshot: it.sellerName ?? null,
+          skuSnapshot: it.sku,
+          weightSnapshot: it.weight,
+          unitPrice: it.unitPrice,
+          quantity: it.quantity,
+          lineTotal: it.lineTotal,
+        },
+      });
+    }
+
+    const created = await tx.order.findUniqueOrThrow({
+      where: { id: order.id },
+      include: { items: true, sellerOrders: { include: { seller: true } } },
+    });
+    return created;
+  }
+
+  /**
+   * Compute per-seller money attribution for a quote. Guarantees the seller
+   * grandTotals sum exactly to the order grandTotal (last seller absorbs rounding).
+   */
+  private sellerAllocation(quote: QuoteResult) {
+    const p = quote.price;
+    const orderSubtotal = p.subtotal;
+    // real subtotal per seller (sum of that seller's lines)
+    const subBySeller = new Map<string, number>();
+    for (const it of quote.items) {
+      const k = it.sellerId ?? '';
+      subBySeller.set(k, (subBySeller.get(k) ?? 0) + it.lineTotal);
+    }
+    const sellers = quote.sellers;
+    const result: {
+      sellerId: string;
+      subtotal: number;
+      discountTotal: number;
+      taxTotal: number;
+      deliveryTotal: number;
+      grandTotal: number;
+    }[] = [];
+    let allocated = 0;
+    for (let i = 0; i < sellers.length; i++) {
+      const seller = sellers[i];
+      const sub = subBySeller.get(seller.sellerId) ?? 0;
+      const f = orderSubtotal > 0 ? sub / orderSubtotal : 1;
+      let grand: number;
+      if (i === sellers.length - 1) {
+        grand = Math.round((p.grandTotal - allocated) * 100) / 100; // remainder
+      } else {
+        grand = Math.round(p.grandTotal * f * 100) / 100;
+        allocated += grand;
+      }
+      result.push({
+        sellerId: seller.sellerId,
+        subtotal: Math.round(sub * 100) / 100,
+        discountTotal: Math.round((p.discount + p.couponDiscount) * f * 100) / 100,
+        taxTotal: Math.round(p.tax * f * 100) / 100,
+        deliveryTotal: Math.round(p.deliveryCharge * f * 100) / 100,
+        grandTotal: grand,
+      });
+    }
+    return result;
+  }
+
+  private async genSellerOrderNumber(tx: Prisma.TransactionClient): Promise<string> {
+    return `SO-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 10000)}`;
   }
 
   private applyCouponToQuote(coupon: Coupon, quote: QuoteResult): void {
@@ -410,8 +550,10 @@ export class OrderService {
     return Math.round(n * 100) / 100;
   }
 
-  private toPublic(order: Order & { items?: OrderItem[] }): OrderPublic {
-    const o = order as Order & { items: OrderItem[] };
+  private toPublic(
+    order: Order & { items?: OrderItem[]; sellerOrders?: (SellerOrder & { seller: Seller })[] },
+  ): OrderPublic {
+    const o = order as Order & { items?: OrderItem[]; sellerOrders?: (SellerOrder & { seller: Seller })[] };
     const price: PriceBreakdown = {
       subtotal: o.subtotal.toNumber(),
       discount: o.discountTotal.toNumber(),
@@ -421,14 +563,14 @@ export class OrderService {
       couponCode: o.couponCode,
       grandTotal: o.grandTotal.toNumber(),
     };
-    return {
+    const out: OrderPublic = {
       id: o.id,
       orderNumber: o.orderNumber,
       status: o.status,
       paymentMethod: o.paymentMethod,
       paymentStatus: o.paymentStatus,
       placedAt: o.placedAt.toISOString(),
-      items: o.items.map((i) => ({
+      items: (o.items ?? []).map((i) => ({
         orderItemId: i.id,
         productId: i.productId,
         productName: i.productNameSnapshot,
@@ -437,8 +579,22 @@ export class OrderService {
         unitPrice: i.unitPrice.toNumber(),
         quantity: i.quantity,
         lineTotal: i.lineTotal.toNumber(),
+        sellerName: i.sellerNameSnapshot,
       })),
       price,
     };
+    if (o.sellerOrders && o.sellerOrders.length > 0) {
+      out.sellerOrders = o.sellerOrders.map((so) => ({
+        id: so.id,
+        sellerOrderNumber: so.sellerOrderNumber,
+        sellerId: so.sellerId,
+        sellerName: so.seller.displayName,
+        status: so.status,
+        itemCount: (o.items ?? []).filter((i) => i.sellerOrderId === so.id).length,
+        subtotal: so.subtotal.toNumber(),
+        grandTotal: so.grandTotal.toNumber(),
+      }));
+    }
+    return out;
   }
 }

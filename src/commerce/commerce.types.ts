@@ -49,6 +49,20 @@ export interface OrderItemPublic {
   unitPrice: number;
   quantity: number;
   lineTotal: number;
+  sellerId?: string;
+  sellerName?: string | null;
+}
+
+/** A seller's slice of a split order (Session 09). */
+export interface SellerOrderPublic {
+  id: string;
+  sellerOrderNumber: string;
+  sellerId: string;
+  sellerName: string;
+  status: string;
+  itemCount: number;
+  subtotal: number;
+  grandTotal: number;
 }
 
 export interface OrderPublic {
@@ -59,6 +73,7 @@ export interface OrderPublic {
   paymentStatus: string;
   placedAt: string;
   items: OrderItemPublic[];
+  sellerOrders?: SellerOrderPublic[];
   price: PriceBreakdown;
 }
 

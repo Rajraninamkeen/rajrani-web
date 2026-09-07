@@ -497,3 +497,52 @@ Live E2E run — see VERIFICATION Session 05 table.
   DELIVERED/PAID; Return #2 remaining qty PASS → ₹201.95; cumulative 403.90 ==
   grand → order auto-flipped to REFUNDED/REFUNDED. `refund_transactions` each
   SUCCESS; customer-facing RBAC 403 verified. See VERIFICATION Session 08 table.
+
+## Session 09 — Seller orgs + multi-seller catalog + split-checkout (seller_orders) core
+- **Date:** 2026-09-07
+- **Objective (owner-selected scope "B"):** introduce a `SELLER`-role + Seller org
+  model, make the catalog multi-seller (`Product.sellerId`), and split a single
+  customer order into per-seller `seller_orders` at checkout with a seller-order
+  status lifecycle (accept/reject) — while leaving order-level money/payment/
+  returns/refunds/fulfilment untouched so the proven flows keep working. Seller
+  onboarding/KYC, per-seller delivery + fulfilment-gating, and payables/
+  settlements are deferred.
+- **Schema/migration `20260907142140_seller_split_checkout`:** enums `SellerStatus`,
+  `SellerOrderStatus`; models `Seller` (sellers) and `SellerOrder` (seller_orders);
+  `Product.sellerId` (required); `OrderItem.sellerOrderId` + `sellerNameSnapshot`;
+  `User.sellerId` (SELLER-role operator binding). Migration backfills a DB that
+  already held data: creates legacy + partner sellers, assigns existing products to
+  the legacy seller (then moves `shahi-kaju-mixture` & `roasted-peri-makhana` to the
+  partner), creates one seller_order per existing order (single-seller historical)
+  and links all existing order_items. 11 migrations total; `migrate deploy` clean.
+- **Order capture (checkout + buy-now) is now split-aware:** each line carries its
+  seller; `sellerAllocation` groups by seller and gives each seller_order its real
+  subtotal + a proportional (line-value) share of order tax/discount/delivery/grand,
+  with the last seller absorbing rounding so **Σ seller_order.grandTotal ===
+  order.grandTotal exactly**. The customer `Order` remains the single authoritative
+  money/payment/refund entity; seller_amount = grandTotal (settlement placeholder).
+  Order items now live on their seller_order with a seller-name snapshot. Order
+  cancellation cascades open seller_orders → CANCELLED. Customer order view and
+  create responses expose `sellerOrders` + per-item `sellerName`.
+- **Seller-ops surface (`@Roles(SELLER)`, scoped to the caller's seller):**
+  `/seller/me`, `/seller/products` (own catalog), `/seller/orders` (+ `/:id` list
+  the seller's slices with order context), and `accept` / `reject`(reason) driving
+  PLACED→ACCEPTED/REJECTED. Cross-seller access is 404 (scoped); empty reject reason
+  400; non-seller 403; re-accept/transition-from-wrong-state 400.
+- **Seed:** sellers upserted (Bilokat Kitchens `SELL-BILOKAT` = legacy, Rajrani
+  Select `SELL-RAJRANI` = partner); products assigned by id; two SELLER-role
+  operators (`seller1@example.com`/`seller2@example.com`, dev pwd `Seller@123`)
+  bound to each seller. Idempotent upserts.
+- **Tests:** order.service.spec gained a multi-seller split + reconciliation case
+  and its mocks were updated for seller_order/order_item creation (now 12); new
+  seller-ops.service.spec (9: role/binding/active guards, scoping, accept, reject
+  reason-mandatory + transition, non-PLACED 400, not-own 404). Full suite 12
+  suites / **76 tests**; typecheck + build clean.
+- **Live E2E:** buyer cart with `ratlami-sev`×2 (Bilokat) + `shahi-kaju-mixture`
+  (Rajrani) → COD checkout grand ₹710.85 split into seller_orders ₹396.90
+  (Bilokat, 1 item) + ₹313.95 (Rajrani, 1 item); Σ == grand; per-item sellerName
+  present. seller1 accept → ACCEPTED; seller2 reject (reason) → REJECTED;
+  seller2 touching Bilokat slice 404; empty reject 400; buyer 403; re-accept 400.
+  Order cancel → seller_orders CANCELLED (ACCEPTED slice), REJECTED slice stays.
+  buy-now (single seller) → exactly 1 seller_order. Returns/refunds/fulfilment
+  regression green. See VERIFICATION Session 09.

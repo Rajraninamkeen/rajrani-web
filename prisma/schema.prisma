@@ -141,6 +141,10 @@ model User {
   fullName  String?
   status    UserStatus @default(ACTIVE)
   role      String     @default("CUSTOMER") // RBAC role slug; expanded in auth session
+  // Optional binding for SELLER-role users: which seller org they operate for
+  // (Session 09 split-checkout; organisations/org-members is a later refinement).
+  sellerId  String?
+  seller    Seller?    @relation("SellerOperators", fields: [sellerId], references: [id])
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   deletedAt DateTime?
@@ -152,6 +156,7 @@ model User {
   orders    Order[]
   codVerifications CodVerification[]
 
+  @@index([sellerId])
   @@map("users")
 }
 
@@ -227,6 +232,9 @@ model Product {
   description     String?
   categoryId      String
   category        Category         @relation(fields: [categoryId], references: [id])
+  // Owning seller (Session 09 multi-seller catalog / split-checkout).
+  sellerId        String
+  seller          Seller           @relation(fields: [sellerId], references: [id])
   brand           String?
   regionOrigin    String? // seller-declared origin
   status          ProductStatus    @default(DRAFT)
@@ -259,6 +267,7 @@ model Product {
   cartItems CartItem[]
 
   @@index([categoryId])
+  @@index([sellerId])
   @@index([status])
   @@index([visibility])
   @@map("products")
@@ -399,6 +408,7 @@ model Order {
   updatedAt      DateTime @updatedAt
 
   items   OrderItem[]
+  sellerOrders SellerOrder[]
   history OrderStatusHistory[]
   payment Payment?
   codVerification CodVerification?
@@ -414,8 +424,12 @@ model OrderItem {
   id                String @id @default(cuid())
   orderId           String
   order             Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // The per-seller sub-order (Session 09 split-checkout) this line belongs to.
+  sellerOrderId     String
+  sellerOrder       SellerOrder @relation(fields: [sellerOrderId], references: [id])
   productId         String
   productNameSnapshot String
+  sellerNameSnapshot String? // seller display name at purchase (catalog may change)
   skuSnapshot       String?
   weightSnapshot    String?
   unitPrice         Decimal @db.Decimal(12, 2) // selling price at purchase
@@ -425,6 +439,7 @@ model OrderItem {
   returnItems ReturnItem[]
 
   @@index([orderId])
+  @@index([sellerOrderId])
   @@map("order_items")
 }
 
@@ -764,4 +779,70 @@ model RefundTransaction {
 
   @@index([refundId])
   @@map("refund_transactions")
+}
+
+// ===================== Session 09: Seller orgs + split-checkout =====================
+
+enum SellerStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum SellerOrderStatus {
+  PLACED // created at checkout, awaiting seller confirmation
+  ACCEPTED // seller confirmed they will fulfil their slice
+  REJECTED // seller declined their slice (reason recorded)
+  CANCELLED // whole order cancelled
+}
+
+model Seller {
+  id          String       @id @default(cuid())
+  sellerCode  String       @unique
+  legalName   String
+  displayName String
+  status      SellerStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  products     Product[] // products this seller owns
+  sellerOrders SellerOrder[]
+  operators    User[]     @relation("SellerOperators") // SELLER-role users bound here
+
+  @@index([status])
+  @@map("sellers")
+}
+
+// Per-seller sub-order produced by splitting one customer order (DB-design §59).
+// The customer Order remains the authoritative money/payment/refund entity; each
+// SellerOrder carries that seller's attributed share of the order's totals so the
+// seller can acknowledge and (later) fulfil/fund their own slice. Sum of all
+// seller_orders.grandTotal reconciles exactly to orders.grandTotal.
+model SellerOrder {
+  id               String            @id @default(cuid())
+  orderId          String
+  order            Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sellerId         String
+  seller           Seller            @relation(fields: [sellerId], references: [id])
+  sellerOrderNumber String            @unique
+  status           SellerOrderStatus @default(PLACED)
+  // Money attribution (see model note above for reconciliation semantics).
+  subtotal         Decimal           @db.Decimal(12, 2)
+  discountTotal    Decimal           @db.Decimal(12, 2) @default(0)
+  taxTotal         Decimal           @db.Decimal(12, 2) @default(0)
+  deliveryTotal    Decimal           @db.Decimal(12, 2) @default(0)
+  grandTotal       Decimal           @db.Decimal(12, 2)
+  sellerAmount     Decimal           @db.Decimal(12, 2) // attributable payout basis (settlement deferred)
+  acceptedAt       DateTime?
+  rejectedAt       DateTime?
+  rejectionReason  String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  items OrderItem[]
+
+  @@index([orderId])
+  @@index([sellerId])
+  @@index([status])
+  @@map("seller_orders")
 }

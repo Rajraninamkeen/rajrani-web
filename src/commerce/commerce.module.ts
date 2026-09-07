@@ -10,6 +10,8 @@ import { FulfilmentController } from './fulfilment.controller';
 import { FulfilmentService } from './fulfilment.service';
 import { OrderService } from './order.service';
 import { ReturnOpsController } from './return-ops.controller';
+import { SellerOpsController } from './seller-ops.controller';
+import { SellerOpsService } from './seller-ops.service';
 import { ReturnsController } from './returns.controller';
 import { ReturnsService } from './returns.service';
 import { PaymentController } from './payment.controller';
@@ -26,8 +28,17 @@ import { PaymentService } from './payment.service';
     FulfilmentController,
     ReturnsController,
     ReturnOpsController,
+    SellerOpsController,
   ],
-  providers: [CartService, OrderService, PaymentService, CodService, FulfilmentService, ReturnsService],
-  exports: [PaymentService, CodService],
+  providers: [
+    CartService,
+    OrderService,
+    PaymentService,
+    CodService,
+    FulfilmentService,
+    ReturnsService,
+    SellerOpsService,
+  ],
+  exports: [PaymentService, CodService, OrderService],
 })
 export class CommerceModule {}

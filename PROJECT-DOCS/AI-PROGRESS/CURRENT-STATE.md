@@ -11,14 +11,14 @@
 | Branch | `main` |
 | Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
 | Stack (final) | **NestJS 11.2.3 + TypeScript 5.9.3 + Prisma ORM 7.10.0** (driver adapter, prisma.config.ts) + PostgreSQL 17 |
-| Current session | Session 08 — Item-level returns + full lifecycle (pickup/inspection/refunds) |
-| Current phase | Item-level returns/refunds done; reviews/replacement/seller-ops/settlements remain |
-| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery, returns/refunds incl. item-level) on Prisma 7; all verified |
-| Completed sessions | 00–04, upgrade pass, 05 (buy-now + payments + COD), 06 (fulfilment/delivery), 07 (returns/refunds), 08 (item-level returns + pickup/inspection lifecycle) |
-| Next session | Reviews, replacement vs refund, seller-ops/split-checkout, or real payment-gateway provider / settlements |
+| Current session | Session 09 — Seller orgs + multi-seller catalog + split-checkout (seller_orders) core |
+| Current phase | Split-checkout core (B) done; seller onboarding/KYC, seller fulfilment-gating, per-seller delivery, payables/settlements, reviews, replacement remain |
+| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery, returns/refunds incl. item-level, multi-seller split-checkout + seller-ops) on Prisma 7; all verified |
+| Completed sessions | 00–04, upgrade pass, 05 (buy-now + payments + COD), 06 (fulfilment/delivery), 07 (returns/refunds), 08 (item-level returns + pickup/inspection lifecycle), 09 (seller orgs + split-checkout + seller-ops core) |
+| Next session | Seller onboarding/KYC + orgs, per-seller delivery/settlement/payables, replacement vs refund, reviews, or real payment-gateway provider |
 | Active blockers | Owner to rotate GitHub token; keep `rajrani-web` canonical |
-| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments currently use the built-in **sandbox** gateway (pluggable provider) — real gateway + real refund execution deferred. Fulfilment/returns gated behind `OPERATOR`/`ADMIN`; no dedicated delivery/seller/finance role yet. Replacement (vs refund) & evidence upload not implemented; order-level status only goes REFUNDED on full aggregate refund. |
-| Last verification | typecheck/build OK; `npm test` 66 passing (11 suites); migrate deploy clean (10); live item-level partial return → PASS → refunded half → second partial → order REFUNDED; pickup/inspection/refund_transactions/return_events verified (2026-09-07) |
+| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments use the built-in **sandbox** gateway (pluggable provider) — real gateway + real refund execution deferred. Fulfilment/returns gated behind `OPERATOR`/`ADMIN`; SELLER role added for seller_orders ops (no onboarding/KYC or per-seller delivery/settlement yet). Seller onboarding/KYC, replacement vs refund, evidence upload, seller payables/settlements not implemented. |
+| Last verification | typecheck/build OK; `npm test` 76 passing (12 suites); migrate deploy clean (11); live multi-seller split-checkout: one COD order grand ₹710.85 split into seller_orders ₹396.90 (Bilokat) + ₹313.95 (Rajrani), Σ == grand; per-item seller names; seller1 accept→ACCEPTED, seller2 reject(with reason)→REJECTED, cross-seller 404, empty-reject 400, buyer 403, re-accept 400; order cancel cascades seller_orders→CANCELLED (buy-now single-seller 1 seller_order too); returns/refunds regression green (2026-09-07) |
 | Repository health | pushed to GitHub (`main`); no committed secrets |
 
 > ## IMPORTANT PRODUCT DECISION (owner)
@@ -96,11 +96,38 @@ multi-app platform.
     refunds covers the whole grand total (partial returns keep order `DELIVERED`).
     `return_events` record every step (customer + operator actors). Requests/
     decisions are operator-gated (`@Roles(OPERATOR,ADMIN)`).
+  - Session 09: **Seller orgs + multi-seller catalog + split-checkout core**
+    (scope "B", owner-selected). Schema/migration
+    `20260907142140_seller_split_checkout`: `Seller` (sellers) + `SellerStatus`,
+    `Product.sellerId` (required; seeded 2 sellers — Bilokat legacy + Rajrani
+    partner; migration backfills existing products/orders under the legacy seller),
+    `SellerOrder` (seller_orders) + `SellerOrderStatus`, `OrderItem.sellerOrderId`
+    + `sellerNameSnapshot`, `User.sellerId` (SELLER-role operator binding). Order
+    capture (`checkout` + `buy-now`) now splits each order into one `SellerOrder`
+    per seller: the customer `Order` stays the single authoritative money/payment/
+    refund entity, and each seller_order carries that seller's real subtotal plus a
+    proportional share of order tax/discount/delivery/grand allocated by line-value,
+    with the last seller absorbing rounding so **Σ seller_order.grandTotal ===
+    order.grandTotal exactly**. Every order item now belongs to a seller_order and
+    carries a seller-name snapshot. `Seller-ops` surface (`@Roles(SELLER)`,
+    scoped to the caller's seller via `User.sellerId`): `/seller/me`,
+    `/seller/products` (own catalog), `/seller/orders` (+ `/…/:id`) list the
+    seller's slices with order context, and `accept`/`reject` (reason mandatory)
+    drive the seller_order lifecycle PLACED→ACCEPTED/REJECTED. Order cancellation
+    cascades open seller_orders → CANCELLED. Returns/refunds/fulfilment keep
+    working on the order/orderItem level unchanged. Seller onboarding/KYC, per-seller
+    fulfilment gating + delivery, payables/settlements are consciously deferred.
 
 ### Absent (per spec) / deferred
-- No reviews, multi-seller split-checkout, real payment-gateway provider
-  (razorpay/stripe) with live refund execution, or real delivery-courier
+- No seller onboarding/KYC (applications/documents/status-history) or
+  org/organization_members, no per-seller delivery/fulfilment gating or
+  seller payables/settlement ledger (seller_amount on seller_order is a
+  placeholder basis), no reviews, no real payment-gateway provider
+  (razorpay/stripe) with live refund execution, and no real delivery-courier
   integration yet.
+- Split-checkout core (multi-seller seller_orders + seller accept/reject + money
+  reconciliation) is done (Session 09); seller-facing order management beyond
+  accept/reject and read surfaces is not yet exposed.
 - Fulfilment/delivery/returns/refunds exist as internal operator flows
   (`OPERATOR`/`ADMIN`); no dedicated delivery/seller/finance role or real courier
   handoff yet.

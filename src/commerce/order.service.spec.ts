@@ -29,7 +29,7 @@ function dec(n: number) {
   return { toNumber: () => n, gt: (b: { toNumber(): number }) => n > b.toNumber(), minus, div, mul };
 }
 
-function productRow(p: { id: string; name: string; price: number; stock: number }) {
+function productRow(p: { id: string; name: string; price: number; stock: number }, seller = 's1') {
   return {
     id: p.id,
     name: p.name,
@@ -40,8 +40,15 @@ function productRow(p: { id: string; name: string; price: number; stock: number 
     basePrice: dec(p.price),
     stockOnHand: p.stock,
     weightLabel: '400g',
+    sellerId: seller,
+    seller: { id: seller, displayName: seller === 's1' ? 'Seller One' : 'Seller Two' },
   };
 }
+
+const sellersByName: Record<string, { id: string; displayName: string }> = {
+  s1: { id: 's1', displayName: 'Seller One' },
+  s2: { id: 's2', displayName: 'Seller Two' },
+};
 
 function addr() {
   return { name: 'A', phone: '9876543210', line1: 'x', city: 'y', state: 'z', pincode: '110001' };
@@ -53,30 +60,85 @@ describe('OrderService', () => {
   let service: OrderService;
 
   function buildTx(rows: any[], stockSucceeds = true, cartClaimable = true) {
+    const items: any[] = [];
+    const sellerOrders: any[] = [];
+    let created: any = null;
+    const orderFrom = (args: any) => ({
+      id: 'o1',
+      orderNumber: args.data.orderNumber ?? 'BK-TEST',
+      userId: args.data.userId,
+      status: args.data.status,
+      paymentMethod: args.data.paymentMethod,
+      paymentStatus: args.data.paymentStatus,
+      placedAt: new Date(),
+      subtotal: dec(args.data.subtotal),
+      discountTotal: dec(args.data.discountTotal),
+      taxTotal: dec(args.data.taxTotal),
+      deliveryTotal: dec(args.data.deliveryTotal),
+      grandTotal: dec(args.data.grandTotal),
+      couponDiscount: dec(args.data.couponDiscount),
+      couponCode: args.data.couponCode,
+      addressSnapshot: {},
+    });
     tx = {
       cartItem: { findMany: jest.fn().mockResolvedValue(rows) },
       product: { updateMany: jest.fn().mockResolvedValue({ count: stockSucceeds ? 1 : 0 }) },
       coupon: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
-      orderItem: { findMany: jest.fn().mockResolvedValue([]) },
       orderStatusHistory: { create: jest.fn() },
       cart: { updateMany: jest.fn().mockResolvedValue({ count: cartClaimable ? 1 : 0 }) },
       order: {
-        create: jest.fn(async (args: any) => ({
-          id: 'o1',
-          orderNumber: args.data.orderNumber ?? 'BK-TEST',
-          status: args.data.status,
-          paymentMethod: args.data.paymentMethod,
-          paymentStatus: args.data.paymentStatus,
-          subtotal: dec(args.data.subtotal),
-          discountTotal: dec(args.data.discountTotal),
-          taxTotal: dec(args.data.taxTotal),
-          deliveryTotal: dec(args.data.deliveryTotal),
-          grandTotal: dec(args.data.grandTotal),
-          couponDiscount: dec(args.data.couponDiscount),
-          couponCode: args.data.couponCode,
-          placedAt: new Date(),
-          items: [],
+        create: jest.fn(async (args: any) => {
+          created = orderFrom(args);
+          return created;
+        }),
+        findUniqueOrThrow: jest.fn(async () => ({
+          ...created,
+          items,
+          sellerOrders: sellerOrders.map((so) => ({
+            ...so,
+            seller: sellersByName[so.sellerId] ?? { id: so.sellerId, displayName: 'Seller' },
+          })),
         })),
+      },
+      sellerOrder: {
+        create: jest.fn(async (args: any) => {
+          const so = {
+            id: `so${sellerOrders.length + 1}`,
+            orderId: args.data.orderId,
+            sellerId: args.data.sellerId,
+            sellerOrderNumber: args.data.sellerOrderNumber,
+            status: args.data.status,
+            subtotal: dec(args.data.subtotal),
+            discountTotal: dec(args.data.discountTotal),
+            taxTotal: dec(args.data.taxTotal),
+            deliveryTotal: dec(args.data.deliveryTotal),
+            grandTotal: dec(args.data.grandTotal),
+            sellerAmount: dec(args.data.sellerAmount),
+          };
+          sellerOrders.push(so);
+          return so;
+        }),
+      },
+      orderItem: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(async (args: any) => {
+          const d = args.data;
+          const row = {
+            id: `oi${items.length + 1}`,
+            orderId: d.orderId,
+            sellerOrderId: d.sellerOrderId,
+            productId: d.productId,
+            productNameSnapshot: d.productNameSnapshot,
+            sellerNameSnapshot: d.sellerNameSnapshot,
+            skuSnapshot: d.skuSnapshot,
+            weightSnapshot: d.weightSnapshot,
+            unitPrice: dec(d.unitPrice),
+            quantity: d.quantity,
+            lineTotal: dec(d.lineTotal),
+          };
+          items.push(row);
+          return row;
+        }),
       },
     };
     return tx;
@@ -180,6 +242,33 @@ describe('OrderService', () => {
     expect(result.price.couponDiscount).toBe(50);
     expect(result.price.grandTotal).toBe(314);
     expect(t.coupon.update).toHaveBeenCalled(); // usage increment
+  });
+
+  it('splits a multi-seller checkout into one seller_order per seller and reconciles totals', async () => {
+    const rows = [
+      { id: 'i1', quantity: 2, product: productRow({ id: 'p1', name: 'Sev', price: 100, stock: 50 }, 's1') },
+      { id: 'i2', quantity: 3, product: productRow({ id: 'p2', name: 'Mixture', price: 50, stock: 50 }, 's2') },
+    ];
+    const t = buildTx(rows, true);
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(t));
+    const result = await service.checkout('u1', {
+      cartId: 'c1',
+      paymentMethod: 'COD',
+      address: addr(),
+    } as never);
+    // subtotal 350 (<499) -> delivery 49, tax 17.50 => grand 416.50 across two sellers
+    expect(result.price.subtotal).toBe(350);
+    expect(result.price.grandTotal).toBe(416.5);
+    expect(t.sellerOrder.create).toHaveBeenCalledTimes(2);
+    // per-item seller attribution
+    expect(result.items.map((i) => i.sellerName)).toEqual(['Seller One', 'Seller Two']);
+    // two seller orders, money reconciles exactly to the order grand total
+    expect(result.sellerOrders!.length).toBe(2);
+    const soSum = result.sellerOrders!.reduce((a, s) => a + s.grandTotal, 0);
+    expect(Math.round(soSum * 100) / 100).toBe(result.price.grandTotal);
+    // each line routed to its own seller order
+    expect(result.sellerOrders![0].itemCount).toBe(1);
+    expect(result.sellerOrders![1].itemCount).toBe(1);
   });
 
   it('conflicts when the cart is not active (e.g. already converted)', async () => {

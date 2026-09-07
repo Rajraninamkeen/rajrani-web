@@ -229,3 +229,25 @@
 | `return_events` on a full-pass inspection (audit-fix regression) | `REQUESTED → APPROVED → PICKUP_SCHEDULED → PICKED_UP → APPROVED_FOR_REFUND → REFUND_INITIATED → REFUND_COMPLETED` — **no stray INSPECTION event** (pre-fix it appeared after APPROVED_FOR_REFUND) |
 | two-partial order `cmtrbhlgm000276nztebf4vvr` | Return#1 qty1 ₹201.95 + Return#2 qty1 ₹201.95; 2×201.95 = ₹403.90 == grand → order auto `REFUNDED`/`REFUNDED`; both refunds COMPLETED; both `refund_transactions` SUCCESS |
 | `git push origin main` | schema+backend+tests `f439879`; AI-PROGRESS docs in a following commit |
+
+## Session 09 — Seller orgs + split-checkout core (2026-09-07, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| `npx prisma validate` / `generate` | schema valid; client regenerated |
+| migration `20260907142140_seller_split_checkout` (backfill) + ledger | applied (11 total); `prisma migrate deploy` clean |
+| `npm test` | 12 suites / **76 tests** PASS (order.service.spec 12 incl. split; seller-ops.service.spec 9) |
+| `npm run typecheck` / `build` | exit 0 |
+| sellers seeded | `SELL-BILOKAT` Bilokat Kitchens (legacy, 6 products), `SELL-RAJRANI` Rajrani Select (partner, 2 products) |
+| buyer cart: ratlami-sev×2 (Bilokat) + shahi-kaju-mixture (Rajrani) → COD checkout | order `BK-MTRC6MCA` PLACED, grand **₹710.85**; **2 seller_orders** ₹396.90 (Bilokat) + ₹313.95 (Rajrani); Σ == 710.85; per-item `sellerName` present |
+| seller1 `POST /seller/orders/:id/accept` (its Bilokat slice) | seller_order → `ACCEPTED`, `acceptedAt` set |
+| seller2 `POST /seller/orders/:id/reject` {reason} (its Rajrani slice) | seller_order → `REJECTED`, `rejectionReason` recorded |
+| seller2 accepts Bilokat slice (not its own) | 404 |
+| reject with empty/no reason | 400 |
+| buyer (CUSTOMER) calls `/seller/orders` | 403 FORBIDDEN |
+| re-accept of an already-ACCEPTED slice | 400 |
+| `GET /orders/:id` (customer) | exposes `sellerOrders` with sellerName/status/grandTotal |
+| buyer cancels the multi-seller COD order | order `CANCELLED`; ACCEPTED seller_order → `CANCELLED`, REJECTED slice stays REJECTED |
+| buy-now (single seller, nylon-sev) | order `CANCELLED` for cleanup; created exactly **1** seller_order |
+| returns/refunds/fulfilment regression | existing order-level flows green (suite) |
+| `git push origin main` | schema+backend+tests pushed (Session 09 commits) |
