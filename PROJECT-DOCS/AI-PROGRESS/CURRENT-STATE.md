@@ -11,14 +11,14 @@
 | Branch | `main` |
 | Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
 | Stack (final) | **NestJS 11.2.3 + TypeScript 5.9.3 + Prisma ORM 7.10.0** (driver adapter, prisma.config.ts) + PostgreSQL 17 |
-| Current session | Session 10 — Per-seller fulfilment gating + delivery markers |
-| Current phase | Seller split-checkout + per-seller fulfilment gate done; seller onboarding/KYC, settlements/payables, per-slice delivery/replacement, reviews remain |
-| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery, returns/refunds incl. item-level, multi-seller split-checkout + seller-ops + per-seller fulfilment gate) on Prisma 7; all verified |
-| Completed sessions | 00–04, upgrade pass, 05 (buy-now + payments + COD), 06 (fulfilment/delivery), 07 (returns/refunds), 08 (item-level returns + pickup/inspection lifecycle), 09 (seller orgs + split-checkout + seller-ops core), 10 (per-seller fulfilment gating + delivery markers) |
-| Next session | Seller onboarding/KYC + orgs, per-seller delivery/settlement/payables (incl. rejected-slice resolution), replacement vs refund, reviews, or real payment-gateway provider |
+| Current session | Session 11 — Partial fulfilment resolution of rejected seller slices (pre-shipment) |
+| Current phase | Seller split-checkout + per-seller fulfilment gate + rejected-slice partial-fulfilment resolution done; seller onboarding/KYC, settlements/payables, per-slice delivery/replacement, reviews remain |
+| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery, returns/refunds incl. item-level, multi-seller split-checkout + seller-ops + per-seller fulfilment gate + partial-fulfilment resolution of rejected slices) on Prisma 7; all verified |
+| Completed sessions | 00–04, upgrade pass, 05 (buy-now + payments + COD), 06 (fulfilment/delivery), 07 (returns/refunds), 08 (item-level returns + pickup/inspection lifecycle), 09 (seller orgs + split-checkout + seller-ops core), 10 (per-seller fulfilment gating + delivery markers), 11 (partial fulfilment resolution of rejected seller slices) |
+| Next session | Seller onboarding/KYC + orgs, per-seller delivery/settlement/payables, replacement vs refund, reviews, or real payment-gateway provider |
 | Active blockers | Owner to rotate GitHub token; keep `rajrani-web` canonical |
-| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments use the built-in **sandbox** gateway (pluggable provider) — real gateway + real refund execution deferred. Fulfilment/returns gated behind `OPERATOR`/`ADMIN`; SELLER role added for seller_orders ops (no onboarding/KYC; seller_orders are single-level accept/reject; no per-slice settlement/payout ledger yet). Seller onboarding/KYC, replacement vs refund, evidence upload, seller payables/settlements not implemented. |
-| Last verification | typecheck/build OK; `npm test` 81 passing (12 suites); migrate deploy clean (12); live per-seller fulfilment gate: multi-seller order at PACKED, operator SHIPPED → 400 "Every seller must accept their slice… Not ready: Bilokat Kitchens (PLACED), Rajrani Select (PLACED)"; after both sellers ACCEPTED, SHIPPED → 200 then DELIVERED → 200; per-seller shippedAt & deliveredAt stamped (both slices); seller-ops order projection exposes the markers (2026-09-07) |
+| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments use the built-in **sandbox** gateway (pluggable provider) — real gateway + real refund execution deferred. Fulfilment/returns gated behind `OPERATOR`/`ADMIN`; SELLER role added for seller_orders ops (no onboarding/KYC; seller_orders are single-level accept/reject; rejected slices are resolved to CANCELLED by an OPERATOR pre-shipment only — no auto-cancel-all, no reassign/retry; no per-slice settlement/payout ledger yet). Seller onboarding/KYC, replacement vs refund, evidence upload, seller payables/settlements not implemented. |
+| Last verification | typecheck/build OK; `npm test` 86 passing (12 suites); migrate deploy clean (13); live partial-fulfilment E2E: PREPAID multi-seller order `BK-MTRVM3QQ` PAID→CONFIRMED→PACKED; seller1 ACCEPTED (Bilokat), seller2 REJECTED (Rajrani); operator `POST /orders/:id/slices/:soId/resolve-reject` → Rajrani slice `CANCELLED` (cancelledAt + reason), its kaju stock released back to 8, one **COMPLETED** `GATEWAY` refund ₹313.95 (slice grandTotal, return-request-free, bound to the seller_order); operator SHIPPED→DELIVERED succeed with only the ACCEPTED Bilokat slice shipping (shippedAt/deliveredAt stamped); order view exposes cancelledAt/cancellationReason on the cancelled slice (2026-09-07) |
 | Repository health | pushed to GitHub (`main`); no committed secrets |
 
 > ## IMPORTANT PRODUCT DECISION (owner)
@@ -126,19 +126,44 @@ multi-app platform.
     accepted slices (order-level delivery covers accepted slices together). New
     fields exposed on the order view and the seller-ops order projections.
     Returns/refunds/order-level money unchanged.
+  - Session 11: **Partial fulfilment resolution of rejected seller slices**
+    (owner-selected rule for a seller slice rejected before shipping: cancel the
+    slice, let the remaining accepted sellers ship together as one order-level
+    delivery, and for PREPAID refund the buyer that slice's share). Migration
+    `20260907232834_partial_fulfilment_resolution` adds nullable
+    `refunds.sellerOrderId` (FK → seller_orders) + index, makes
+    `refunds.returnRequestId` nullable, and adds `seller_orders.cancelledAt` +
+    `cancellationReason`. New OPERATOR/ADMIN endpoint
+    `POST /orders/:id/slices/:sellerOrderId/resolve-reject` → `OrderService.
+    resolveRejectedSlice`: in one transaction it requires the order status
+    PLACED/CONFIRMED/PACKED (pre-shipment) and the slice `REJECTED`; for PREPAID it
+    requires `paymentStatus=PAID`; then marks the slice `CANCELLED` (with
+    cancelledAt + reason), releases that slice's items' stock only, and for PREPAID
+    records one **COMPLETED** `Refund` (method GATEWAY, sandbox gatewayRef + SUCCESS
+    `RefundTransaction`) for the slice's `grandTotal`, guarding cumulative refunds
+    against the order grand total; an `order_status_history` CONTROL row records the
+    resolution. `cancelOrder` is hardened so it never double-releases stock for an
+    already-CANCELLED slice. The remaining ACCEPTED slices then pass the Session 10
+    gate and ship/deliver together; a REJECTED/unresolved slice still blocks
+    shipping. New projection fields expose `cancelledAt`/`cancellationReason` per
+    slice.
 
 ### Absent (per spec) / deferred
 - No seller onboarding/KYC (applications/documents/status-history) or
   org/organization_members, no per-slice shipment/delivery model or courier
   handoff, no seller payables/settlement ledger (seller_amount on seller_order is
-  a placeholder basis; rejected-slice resolution path deferred), no reviews, no
-  real payment-gateway provider (razorpay/stripe) with live refund execution, and
-  no real delivery-courier integration yet.
+  a placeholder basis; only a pre-shipment rejected-slice resolution path — the
+  Session 11 OPERATOR resolve-reject → CANCELLED + partial refund — exists; no
+  auto-cancel-all or reassign/retry), no reviews, no real payment-gateway provider
+  (razorpay/stripe) with live refund execution, and no real delivery-courier
+  integration yet.
 - Split-checkout core (multi-seller seller_orders + seller accept/reject + money
-  reconciliation) is done (Session 09); seller_orders do not yet gate the order —
-  see Session 10: operator shipping now requires every non-cancelled seller slice
-  to be ACCEPTED (blocked by PLACED/REJECTED), with per-seller shippedAt/deliveredAt
-  markers stamped at order SHIPPED/DELIVERED.
+  reconciliation) is done (Session 09); seller_orders gate the order as follows
+  (Sessions 10–11): operator shipping requires every non-cancelled seller slice to
+  be ACCEPTED (blocked by PLACED/REJECTED), per-seller shippedAt/deliveredAt markers
+  are stamped at order SHIPPED/DELIVERED, and an OPERATOR can resolve a REJECTED
+  slice to CANCELLED (partial-fulfilment cancel + PREPAID refund) so the remaining
+  ACCEPTED slices ship together.
 - Fulfilment/delivery/returns/refunds exist as internal operator flows
   (`OPERATOR`/`ADMIN`); no dedicated delivery/seller/finance role or real courier
   handoff yet.

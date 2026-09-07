@@ -146,6 +146,8 @@ export class SellerOpsService {
       rejectionReason: so.rejectionReason ?? null,
       shippedAt: so.shippedAt?.toISOString() ?? null,
       deliveredAt: so.deliveredAt?.toISOString() ?? null,
+      cancelledAt: so.cancelledAt?.toISOString() ?? null,
+      cancellationReason: so.cancellationReason ?? null,
       items: (so.items ?? []).map((i) => ({
         orderItemId: i.id,
         productName: i.productNameSnapshot,

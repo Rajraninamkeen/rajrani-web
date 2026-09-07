@@ -18,3 +18,10 @@ export class RejectSellerOrderDto {
   @MaxLength(500)
   reason!: string;
 }
+
+export class ResolveRejectedSliceDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}

@@ -334,4 +334,150 @@ describe('OrderService', () => {
     await expect(service.cancelOrder('u1', 'o1')).rejects.toThrow(ConflictException);
     expect(t.product.update).not.toHaveBeenCalled(); // stock untouched on lost race
   });
+
+  describe('resolveRejectedSlice (partial fulfilment)', () => {
+    function sliceOrder(over: Record<string, any> = {}) {
+      return {
+        id: 'o1',
+        orderNumber: 'BK-1',
+        userId: 'u1',
+        status: 'CONFIRMED',
+        paymentMethod: 'PREPAID',
+        paymentStatus: 'PAID',
+        subtotal: dec(500),
+        discountTotal: dec(0),
+        taxTotal: dec(25),
+        deliveryTotal: dec(0),
+        grandTotal: dec(525),
+        couponDiscount: dec(0),
+        couponCode: null,
+        addressSnapshot: {},
+        placedAt: new Date('2026-09-07T10:00:00Z'),
+        sellerOrders: [
+          {
+            id: 'so-a',
+            sellerId: 's1',
+            sellerOrderNumber: 'SO-A',
+            status: 'REJECTED',
+            subtotal: dec(200),
+            grandTotal: dec(210),
+            sellerAmount: dec(210),
+            seller: { displayName: 'Seller A' },
+          },
+          {
+            id: 'so-b',
+            sellerId: 's2',
+            status: 'ACCEPTED',
+            subtotal: dec(300),
+            grandTotal: dec(315),
+            seller: { displayName: 'Seller B' },
+          },
+        ],
+        items: [
+          {
+            id: 'i1',
+            productId: 'p1',
+            productNameSnapshot: 'Sev',
+            sellerNameSnapshot: 'Seller A',
+            skuSnapshot: null,
+            weightSnapshot: null,
+            sellerOrderId: 'so-a',
+            unitPrice: dec(100),
+            quantity: 2,
+            lineTotal: dec(200),
+          },
+        ],
+        ...over,
+      };
+    }
+    function buildResolveTx(order: any, refundExists = false) {
+      return {
+        sellerOrder: { update: jest.fn().mockResolvedValue({}) },
+        product: { update: jest.fn() },
+        refund: {
+          aggregate: jest.fn().mockResolvedValue({
+            _sum: { amount: refundExists ? dec(0) : null },
+          }),
+          create: jest.fn(async (args: any) => ({
+            id: 'rfx1',
+            ...(args.data.transactions ? { transactions: [] } : {}),
+          })),
+        },
+        payment: { findUnique: jest.fn().mockResolvedValue({ id: 'pay1' }) },
+        orderStatusHistory: { create: jest.fn() },
+        order: {
+          findUniqueOrThrow: jest.fn(async () => ({
+            ...order,
+            sellerOrders: order.sellerOrders.map((s: any) => ({
+              ...s,
+              seller: s.seller ?? { displayName: 'X' },
+            })),
+          })),
+        },
+      };
+    }
+    beforeEach(() => {
+      prisma.order.findUnique = jest.fn();
+    });
+
+    it('cancels a REJECTED slice, releases stock and records a partial refund for PREPAID', async () => {
+      const order = sliceOrder();
+      prisma.order.findUnique.mockResolvedValue(order);
+      const tx = buildResolveTx(order);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+      const res = await service.resolveRejectedSlice('op1', 'o1', 'so-a');
+      // slice transitioned to CANCELLED
+      expect(tx.sellerOrder.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'so-a' },
+          data: expect.objectContaining({ status: 'CANCELLED', cancelledAt: expect.any(Date) }),
+        }),
+      );
+      // stock released for the cancelled slice's items only
+      expect(tx.product.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'p1' }, data: { stockOnHand: { increment: 2 } } }),
+      );
+      // a completed refund for the slice amount is recorded
+      expect(tx.refund.create).toHaveBeenCalledTimes(1);
+      const refData = tx.refund.create.mock.calls[0][0].data;
+      expect(refData.sellerOrderId).toBe('so-a');
+      expect(refData.amount).toBe(210);
+      expect(refData.status).toBe('COMPLETED');
+      expect(refData.method).toBe('GATEWAY');
+      expect(refData.transactions.create.status).toBe('SUCCESS');
+      expect(refData.transactions.create.amount).toBe(210);
+      // order still present with sellerOrders mapped
+      expect(res.sellerOrders!.map((s) => s.id)).toEqual(['so-a', 'so-b']);
+    });
+
+    it('refuses to resolve a slice that is not REJECTED', async () => {
+      const order = sliceOrder({
+        sellerOrders: [{ id: 'so-a', status: 'ACCEPTED', seller: { displayName: 'A' } }],
+      });
+      prisma.order.findUnique.mockResolvedValue(order);
+      await expect(service.resolveRejectedSlice('op1', 'o1', 'so-a')).rejects.toThrow(BadRequestException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses to resolve once the order has shipped', async () => {
+      prisma.order.findUnique.mockResolvedValue(sliceOrder({ status: 'SHIPPED' }));
+      await expect(service.resolveRejectedSlice('op1', 'o1', 'so-a')).rejects.toThrow(BadRequestException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses a PREPAID partial-cancel refund before payment is captured', async () => {
+      prisma.order.findUnique.mockResolvedValue(sliceOrder({ paymentStatus: 'PENDING' }));
+      await expect(service.resolveRejectedSlice('op1', 'o1', 'so-a')).rejects.toThrow(
+        /must be PAID before resolving/,
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFound for an unknown order or slice', async () => {
+      prisma.order.findUnique.mockResolvedValue(null);
+      await expect(service.resolveRejectedSlice('op1', 'o1', 'so-a')).rejects.toThrow(NotFoundException);
+      prisma.order.findUnique.mockResolvedValue(sliceOrder());
+      await expect(service.resolveRejectedSlice('op1', 'o1', 'so-zzz')).rejects.toThrow(NotFoundException);
+    });
+  });
 });

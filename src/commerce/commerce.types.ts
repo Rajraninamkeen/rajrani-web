@@ -68,6 +68,8 @@ export interface SellerOrderPublic {
   rejectionReason?: string | null;
   shippedAt?: string | null;
   deliveredAt?: string | null;
+  cancelledAt?: string | null;
+  cancellationReason?: string | null;
 }
 
 export interface OrderPublic {

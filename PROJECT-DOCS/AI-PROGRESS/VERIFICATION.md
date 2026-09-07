@@ -266,3 +266,22 @@
 | operator advance {DELIVERED} | 200 → order `DELIVERED`; `deliveredAt` stamped on both accepted slices |
 | seller-ops `GET /seller/orders` for the order | seller_order shows `shippedAt: true, deliveredAt: true` |
 | `git push origin main` | schema+backend+tests pushed (Session 10 commit) |
+
+## Session 11 — Partial fulfilment resolution of rejected seller slices (2026-09-07, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| migration `20260907232834_partial_fulfilment_resolution` + ledger | applied (13 total); `prisma migrate deploy` clean |
+| `npm test` | 12 suites / **86 tests** PASS (order.service.spec 17 incl. 5 resolution cases) |
+| `npm run typecheck` / `build` | exit 0 |
+| multi-seller PREPAID order `BK-MTRVM3QQ` (id `cmtrvm3r9000bg4nzp51b4eku`), grand ₹710.85 | sandbox capture webhook (integer 711) → order PAID; operator CONFIRMED → PACKED; slices: Bilokat `cmtrvm3rp000dg4nzhqv5ya05` ₹396.90, Rajrani `cmtrvm3rv000eg4nz3mj8iemr` ₹313.95 (both PLACED) |
+| seller1 `POST /seller/orders/:soId/accept` (Bilokat slice) | seller_order → `ACCEPTED` |
+| seller2 `POST /seller/orders/:soId/reject` {reason:"out of stock"} (Rajrani slice) | seller_order → `REJECTED` |
+| operator `POST /orders/:id/slices/:soId/resolve-reject` (Rajrani slice, reason) | 200; Rajrani slice → `CANCELLED` with `cancelledAt` + `cancellationReason`; response slices show Bilokat ACCEPTED (not cancelled), Rajrani CANCELLED |
+| Rajrani kaju `stockOnHand` before vs after resolve | 7 → **8** (slice's stock released exactly once) |
+| refunds row for the order | one **COMPLETED** `GATEWAY` refund `RFD-654D96F438B8` **₹313.95** == slice grandTotal; `refund_transactions` SUCCESS; `sellerOrderId` set, `returnRequestId` NULL (return-request-free cancellation refund) |
+| operator advance {SHIPPED} (only ACCEPTED Bilokat slice remains; Rajrani CANCELLED) | 200 → order `SHIPPED`; Bilokat slice `shippedAt` stamped, Rajrani slice stays CANCELLED (no shippedAt) |
+| operator advance {DELIVERED} | 200 → order `DELIVERED`; Bilokat slice `deliveredAt` stamped |
+| customer `GET /orders/:id` | order DELIVERED / PAID; Rajrani slice exposes `cancelledAt: true` + reason; Bilokat slice shipped+delivered, cancelledAt false |
+| double stock-release guard | `cancelOrder` skips items of already-CANCELLED slices (unit-tested) |
+| `git push origin main` | schema+backend+tests pushed (Session 11 commit) |

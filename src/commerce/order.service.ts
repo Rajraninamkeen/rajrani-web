@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import {
   Cart,
   CartStatus,
@@ -18,6 +19,8 @@ import {
   PaymentStatus,
   Prisma,
   Product,
+  RefundMethod,
+  RefundState,
   Seller,
   SellerOrder,
   SellerOrderStatus,
@@ -226,15 +229,29 @@ export class OrderService {
       });
       if (cancelled.count === 0) throw new ConflictException('Order is no longer cancellable');
 
+      // Full order cancellation: cancel every slice that is not already cancelled,
+      // and only release stock for items of those slices (never double-release an
+      // item belonging to a slice that was already cancelled by partial resolution).
+      const slices = await tx.sellerOrder.findMany({
+        where: { orderId: id, status: { not: SellerOrderStatus.CANCELLED } },
+      });
+      const releaseSliceIds = slices.map((s) => s.id);
+      if (releaseSliceIds.length) {
+        await tx.sellerOrder.updateMany({
+          where: { id: { in: releaseSliceIds } },
+          data: {
+            status: SellerOrderStatus.CANCELLED,
+            cancelledAt: new Date(),
+            cancellationReason: 'Order cancelled',
+          },
+        });
+      }
       const items = await tx.orderItem.findMany({ where: { orderId: id } });
       for (const it of items) {
-        await tx.product.update({ where: { id: it.productId }, data: { stockOnHand: { increment: it.quantity } } });
+        if (releaseSliceIds.includes(it.sellerOrderId)) {
+          await tx.product.update({ where: { id: it.productId }, data: { stockOnHand: { increment: it.quantity } } });
+        }
       }
-      // cascade: mark each seller slice cancelled
-      await tx.sellerOrder.updateMany({
-        where: { orderId: id, status: { in: ['PLACED', 'ACCEPTED'] } },
-        data: { status: SellerOrderStatus.CANCELLED },
-      });
       await tx.orderStatusHistory.create({
         data: {
           orderId: id,
@@ -252,6 +269,128 @@ export class OrderService {
       return up;
     });
     return this.toPublic(updated);
+  }
+
+  /**
+   * Partial fulfilment resolution (Session 11). When a seller has REJECTED their
+   * slice before shipping, an OPERATOR resolves it into a CANCELLATION: that
+   * seller's items are dropped from the shipment and their stock is released.
+   * For a PREPAID order the customer is refunded this slice's grand-total share
+   * (so the remaining ACCEPTED slices still ship together as one delivery).
+   * Returns the updated order with sellerOrders.
+   */
+  async resolveRejectedSlice(
+    actorUserId: string,
+    orderId: string,
+    sellerOrderId: string,
+    reason?: string,
+  ): Promise<OrderPublic> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { sellerOrders: { include: { seller: true } }, items: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    // Must be pre-shipment (a slice can only be pulled before the order ships).
+    const resolvable: OrderStatus[] = [OrderStatus.PLACED, OrderStatus.CONFIRMED, OrderStatus.PACKED];
+    if (!resolvable.includes(order.status)) {
+      throw new BadRequestException(
+        `A rejected slice can only be resolved while the order is PLACED/CONFIRMED/PACKED, not "${order.status}"`,
+      );
+    }
+    const slice = order.sellerOrders.find((s) => s.id === sellerOrderId);
+    if (!slice) throw new NotFoundException('Seller slice not found on this order');
+    if (slice.status !== SellerOrderStatus.REJECTED) {
+      throw new BadRequestException(`Only a REJECTED slice can be resolved (this one is "${slice.status}")`);
+    }
+
+    // PREPAID partial refund requires the money to already be captured.
+    const refundAmount = slice.grandTotal.toNumber();
+    if (order.paymentMethod === PaymentMethod.PREPAID && order.paymentStatus !== PaymentStatus.PAID) {
+      throw new BadRequestException(
+        'Confirm (capture) payment first — a PREPAID order must be PAID before resolving a rejected slice so the slice can be refunded',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // mark slice cancelled + release its stock
+      await tx.sellerOrder.update({
+        where: { id: slice.id },
+        data: {
+          status: SellerOrderStatus.CANCELLED,
+          cancelledAt: new Date(),
+          cancellationReason: reason ?? 'Rejected by seller — cancelled for partial fulfilment',
+        },
+      });
+      const sliceItems = order.items.filter((i) => i.sellerOrderId === slice.id);
+      for (const it of sliceItems) {
+        await tx.product.update({ where: { id: it.productId }, data: { stockOnHand: { increment: it.quantity } } });
+      }
+
+      let refundId: string | null = null;
+      if (order.paymentMethod === PaymentMethod.PREPAID) {
+        // Guard: cumulative refunds must not exceed the order grand total.
+        const agg = await tx.refund.aggregate({
+          where: { orderId, status: { in: [RefundState.PENDING, RefundState.PROCESSING, RefundState.COMPLETED] } },
+          _sum: { amount: true },
+        });
+        const already = agg._sum.amount ? agg._sum.amount.toNumber() : 0;
+        if (this.round2(already + refundAmount) > this.round2(order.grandTotal.toNumber() + 0.001)) {
+          throw new BadRequestException('Refunding this slice would exceed the order grand total');
+        }
+        const payment = await tx.payment.findUnique({ where: { orderId } });
+        const reference = `RFD-${randomBytes(6).toString('hex').toUpperCase()}`;
+        const gatewayRef = `sndbox-cancel-${randomBytes(6).toString('hex')}`;
+        const refund = await tx.refund.create({
+          data: {
+            orderId,
+            sellerOrderId: slice.id,
+            paymentId: payment?.id ?? null,
+            refundReference: reference,
+            amount: refundAmount,
+            method: RefundMethod.GATEWAY,
+            status: RefundState.COMPLETED,
+            gatewayProvider: 'sandbox',
+            gatewayRef,
+            reason: reason ?? 'Seller rejected slice — auto partial refund',
+            initiatedById: actorUserId,
+            initiatedAt: new Date(),
+            completedAt: new Date(),
+            transactions: {
+              create: {
+                provider: 'sandbox',
+                providerReference: gatewayRef,
+                amount: refundAmount,
+                status: 'SUCCESS',
+                completedAt: new Date(),
+              },
+            },
+          },
+        });
+        refundId = refund.id;
+      }
+
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId,
+          fromStatus: order.status,
+          toStatus: order.status, // order status unchanged
+          actor: OrderActor.CONTROL,
+          actorId: actorUserId,
+          reason:
+            reason ??
+            `Resolved rejected seller slice "${slice.seller.displayName}" to CANCELLED${
+              refundId ? '; partial refund recorded' : ''
+            }`,
+          metadata: { transition: 'seller-slice-resolution', sellerOrderId: slice.id, refundId, refundAmount },
+        },
+      });
+
+      return tx.order.findUniqueOrThrow({
+        where: { id: orderId },
+        include: { items: true, sellerOrders: { include: { seller: true } } },
+      });
+    }).then((updated) => this.toPublic(updated));
   }
 
   // ---------- helpers ----------
@@ -598,6 +737,8 @@ export class OrderService {
         rejectionReason: so.rejectionReason ?? null,
         shippedAt: so.shippedAt?.toISOString() ?? null,
         deliveredAt: so.deliveredAt?.toISOString() ?? null,
+        cancelledAt: so.cancelledAt?.toISOString() ?? null,
+        cancellationReason: so.cancellationReason ?? null,
       }));
     }
     return out;

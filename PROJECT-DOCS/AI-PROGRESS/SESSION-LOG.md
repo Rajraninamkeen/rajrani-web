@@ -574,3 +574,50 @@ Live E2E run — see VERIFICATION Session 05 table.
   both ACCEPTED; operator SHIPPED → 200; operator DELIVERED → 200; both slices have
   shippedAt + deliveredAt set; seller-ops order projection shows them. See
   VERIFICATION Session 10.
+
+## Session 11 — Partial fulfilment resolution of rejected seller slices
+- **Date:** 2026-09-07
+- **Objective (owner-selected):** choose the rule for a seller slice REJECTED before
+  shipping. Owner picked **partial fulfilment**: the rejected slice is cancelled and
+  removed, the remaining accepted sellers ship together as one order-level delivery,
+  and for a PREPAID order the buyer is refunded that slice's share. (Rejected
+  alternatives: auto-cancel-all and reassign/retry. No onboarding/KYC,
+  payables/settlements, per-seller delivery part-items, replacement, or reviews were
+  widened into this session.)
+- **Schema/migration `20260907232834_partial_fulfilment_resolution`:** adds nullable
+  `refunds.sellerOrderId` (FK → seller_orders) + index, drops NOT NULL on
+  `refunds.returnRequestId` (PG unique permits many NULLs), adds
+  `seller_orders.cancelledAt` + `cancellationReason`. 13 migrations total;
+  `migrate deploy` clean. Prisma schema gained `SellerOrder↔Refund` relations.
+- **`OrderService.resolveRejectedSlice(actorUserId, orderId, sellerOrderId, reason?)`:**
+  preconditions — order status PLACED/CONFIRMED/PACKED (must be pre-shipment) and the
+  slice `REJECTED`; for PREPAID, `paymentStatus=PAID` is required before a partial
+  refund is permitted. In one transaction it: marks the slice `CANCELLED` (with
+  cancelledAt + reason); releases **only that slice's** items' stock; for PREPAID
+  creates one **COMPLETED** `Refund` (method GATEWAY, sandbox gatewayRef + SUCCESS
+  `RefundTransaction`) for the slice's `grandTotal`, guarding cumulative refunds
+  against the order grand total; and appends an `order_status_history` row (actor
+  CONTROL, metadata `seller-slice-resolution`).
+- **Hardened `cancelOrder`:** no longer releases stock for items of already-CANCELLED
+  slices (prevents double release via a prior partial resolution); bulk-cancels only
+  non-CANCELLED slices with cancelledAt + reason.
+- **Endpoint:** `POST /orders/:orderId/slices/:sellerOrderId/resolve-reject`
+  `@Roles('OPERATOR','ADMIN')` in `order-resolution.controller.ts`; DTO reason added in
+  `src/commerce/dto/seller.dto.ts`.
+- **Projections:** order view and seller-ops projections expose
+  `cancelledAt`/`cancellationReason` per slice.
+- **Tests:** order.service.spec extended (5 new: happy PREPAID path completes one
+  GATEWAY refund for slice grandTotal + releases only that slice's stock + CANCELLED;
+  non-REJECTED slice refuses; post-shipment refuses; PREPAID pre-PAID refuses;
+  unknown order/slice → NotFound). Full suite 12 suites / **86 tests**; typecheck +
+  build clean.
+- **Live E2E:** multi-seller PREPAID order `BK-MTRVM3QQ` (Bilokat ₹396.90 + Rajrani
+  ₹313.95; grand ₹710.85) captured PAID → CONFIRMED → PACKED; seller1 ACCEPTED
+  (Bilokat), seller2 REJECTED (Rajrani, "out of stock"); operator
+  `resolve-reject` on the Rajrani slice → slice CANCELLED (cancelledAt + reason
+  "Rajrani cannot fulfil - cancelled for partial delivery"), kaju `stockOnHand`
+  released back to 8 (seeded value), one **COMPLETED** refund `RFD-…` GATEWAY
+  ₹313.95 with `sellerOrderId` bound and **no** `returnRequestId`; operator SHIPPED →
+  200 and DELIVERED → 200 shipping only the ACCEPTED Bilokat slice (its shippedAt +
+  deliveredAt stamped; Rajrani slice untouched); customer order view exposes the
+  cancelled slice's cancelledAt/cancellationReason. See VERIFICATION Session 11.

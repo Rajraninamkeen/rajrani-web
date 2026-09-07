@@ -738,8 +738,14 @@ model Refund {
   id               String               @id @default(cuid())
   orderId          String
   order            Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  returnRequestId  String               @unique
-  returnRequest    ReturnRequest        @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  // A Refund is normally attached to a ReturnRequest (returns/refunds). For
+  // Session 11 partial-fulfilment it may instead be NULL and tied to a cancelled
+  // seller slice via sellerOrderId (no return request involved). PG unique allows
+  // many NULLs, so returnRequestId stays one-to-one for return refunds.
+  returnRequestId  String?              @unique
+  returnRequest    ReturnRequest?       @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  sellerOrderId    String?
+  sellerOrder      SellerOrder?         @relation(fields: [sellerOrderId], references: [id], onDelete: Cascade)
   paymentId        String?
   payment          Payment?             @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   refundReference  String               @unique // RFD-XXXX
@@ -761,6 +767,7 @@ model Refund {
   transactions RefundTransaction[]
 
   @@index([orderId])
+  @@index([sellerOrderId])
   @@map("refunds")
 }
 
@@ -842,10 +849,16 @@ model SellerOrder {
   // these record each seller slice's ship/deliver point-in-time.
   shippedAt        DateTime?
   deliveredAt      DateTime?
+  // Set when a REJECTED slice is resolved to a cancellation (Session 11 partial
+  // fulfilment: that seller's items are removed from the shipment and (PREPAID)
+  // the customer is refunded this slice's share).
+  cancelledAt      DateTime?
+  cancellationReason String?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  items OrderItem[]
+  items   OrderItem[]
+  refunds Refund[]
 
   @@index([orderId])
   @@index([sellerId])
