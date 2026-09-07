@@ -5,7 +5,6 @@ import {
   IsObject,
   IsOptional,
   IsString,
-  IsUUID,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -24,7 +23,9 @@ class AddressInputDto implements AddressInput {
 }
 
 export class CheckoutDto {
-  @IsUUID()
+  // Cart ids are cuid strings (DB `@default(cuid())`), not UUIDs.
+  @IsString()
+  @MinLength(8)
   cartId!: string;
 
   @IsObject()
