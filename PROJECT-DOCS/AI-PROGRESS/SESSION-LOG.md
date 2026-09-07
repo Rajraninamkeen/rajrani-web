@@ -319,3 +319,40 @@ CANCELLED, stock restored). Guest over-stock rejected; guest→login merge OK.
 - Live verified: reuse of a CONVERTED cart → 409; orders pagination shape;
   `?status=CANCELLED` filter; invalid status → 400.
 - Pushed `dfb27f7`.
+
+## Session 05 — Buy-now + payments (COD & online intent/capture) — 2026-09-07
+
+- **Objective:** Extend checkout with direct buy-now ordering plus an online
+  payment-intent/capture flow and a pragmatic COD verification workflow.
+  Owner scope: buy-now = direct single-product checkout; online payment =
+  provider-agnostic interface + built-in no-keys **sandbox** gateway modeling
+  signature + idempotency; COD = secondary-mobile simulated OTP (no support-queue).
+
+### What was delivered
+- Schema/migration `20260907125816_payment_cod_models`: `Payment` (payments),
+  `PaymentTransaction` (ledger), `PaymentWebhook` (idempotency+signature audit,
+  UNIQUE provider+event), `CodVerification`; enums PaymentState,
+  PaymentTransactionType, CodVerificationStatus. Order/User back-relations.
+  Migration ledger reconciled (fixed a pre-existing truncated `cart_status_merged`
+  name + stray duplicate) so `prisma migrate deploy` is clean (8 migrations).
+- **Buy-now**: `POST /buy-now/preview` + `POST /buy-now` (JWT) — no cart; product
+  validated purchasable/stock inside a transaction; reuses the same
+  server-authoritative quote + order-persistence core as cart checkout.
+- **Online payment**: PREPAID orders (cart checkout or buy-now) create a `Payment`
+  intent. `POST /payments/webhook/sandbox` (public, but HMAC-signed) verifies
+  signature, amount match, and is idempotent (UNIQUE provider+event); on
+  `payment.captured` marks Payment CONFIRMED + order `PAID`, writes a
+  `payment_transactions` CAPTURE + webhook audit row. Failed/bad-signature events
+  are logged. `GET /orders/:id/payment` returns the intent.
+- **COD**: `POST /orders/:id/cod/otp` (secondary mobile; sandbox returns the
+  simulated OTP in the response, only its hash is stored + 10-min expiry),
+  `POST /orders/:id/cod/verify`, `GET /orders/:id/cod`. Success → verification
+  CONFIRMED and order `CONFIRMED` (paymentStatus stays COD_PENDING until
+  delivery); attempt cap (5) → REJECTED + COD_FAILED.
+- **Tests**: payment.service.spec (signature round-trip/tamper, bad-signature
+  403, amount mismatch, unknown payment 404, idempotency), cod.service.spec
+  (initiate hash-not-raw, non-COD reject, success confirms, wrong-OTP attempt cap,
+  404). Full suite now 9 suites / 41 tests.
+
+### Verification
+Live E2E run — see VERIFICATION Session 05 table.

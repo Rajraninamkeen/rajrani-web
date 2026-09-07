@@ -24,7 +24,7 @@
 | 05 | Catalog Publishing | NOT_STARTED | listings, approval/review, visibility, lifecycle |
 | 06 | Seller Platform | NOT_STARTED | seller apps for products/orders/inventory/returns |
 | 07 | Customer Commerce | PARTIALLY_COMPLETE | cart (guest+auth, merge-on-login), checkout quote, order place/list/cancel, coupons done (server-authoritative, verified live). Remaining: discovery, multi-seller split-cart, buy-now, reviews |
-| 08 | Payment + COD | NOT_STARTED | online payments, webhooks, COD verification |
+| 08 | Payment + COD | PARTIALLY_COMPLETE | provider-agnostic Payment intent + sandbox gateway capture (signature+idempotency), payment ledger/webhook audit, buy-now, pragmatic COD OTP verification — verified live. Remaining: real gateway (razorpay/stripe), COD delivery cash-collection, refunds |
 | 09 | Fulfillment + Delivery | NOT_STARTED | orders, packaging, delivery pricing/partners/tracking |
 | 10 | Returns + Support | NOT_STARTED | returns, refunds, tickets |
 | 11 | Control Panel | NOT_STARTED | platform governance, audit, break-glass |
@@ -43,10 +43,11 @@
 | `bilokat-api` backend foundation | COMPLETE (scaffold/config/DB/envelope/health/unit tests — verified) |
 | Auth + RBAC foundation | PARTIALLY_COMPLETE (register/login/logout/me, refresh rotation + reuse detection, guards — verified live + tests) |
 | Catalog API endpoints (products/categories serving landing page) | COMPLETE (public read API verified live + seeded + tested) |
-| Commerce: cart + checkout + orders + coupons (server-authoritative) | COMPLETE (schema+services/controllers+migrations seeded; unit tests 26 passing; live E2E order place/cancel verified). Reviews separate |
+| Commerce: cart + checkout + orders + coupons (server-authoritative) | COMPLETE (unit tests pass; live order place/cancel verified). Reviews separate |
+| Buy-now + online payment (intent/capture, sandbox) + COD OTP | COMPLETE (verified live + payment.service/cod.service tests) |
 | `customer-web` full application | NOT_STARTED (only static landing prototype exists) |
 | Data model / DB migrations (Identity + Catalog + Commerce tables) | COMPLETE (7 migrations recorded incl. `commerce_models`, `cart_status_merged`; migrate deploy clean) |
-| Backend unit tests | COMPLETE (7 suites / 31 tests passing: exception filter, app, auth.service, roles.guard, catalog.service, cart.service, order.service) |
+| Backend unit tests | COMPLETE (9 suites / 41 tests passing: exception filter, app, auth.service, roles.guard, catalog.service, cart.service, order.service, payment.service, cod.service) |
 | AuthN (sessions/tokens) | NOT_STARTED |
 | AuthZ (RBAC/ABAC, org/tenant isolation) | NOT_STARTED |
 | Event/outbox infrastructure | NOT_STARTED |

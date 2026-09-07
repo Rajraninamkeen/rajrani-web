@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 04 — Commerce: cart + checkout + orders (server-authoritative) |
-| STATUS | COMPLETE (unit tests 26 pass; live order place/cancel verified) |
-| NEXT SESSION | Reviews, or next commerce/payments module per priority |
-| NEXT WORKFLOW | Product reviews (rating avg refresh), or multi-seller split-cart / buy-now / payments; reuse commerce source-of-truth pricing + transactional patterns |
+| CURRENT SESSION | Session 05 — Buy-now + payments (COD & online intent/capture, sandbox gateway) |
+| STATUS | COMPLETE (9 suites / 41 tests; live buy-now + capture→PAID + COD OTP verified) |
+| NEXT SESSION | Reviews, or fulfilment/delivery / real payment-gateway provider |
+| NEXT WORKFLOW | Product reviews (rating avg refresh), or a real gateway provider (razorpay/stripe via the pluggable `PaymentGatewayProvider`), COD delivery cash-collection, refunds |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It
@@ -77,3 +77,17 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
 - Reviews (rating refresh keeping `ratingAvg`/`reviewCount` in sync with orders),
   or payments/COD workflow + delivery per `00-MASTER-SPEC.md`, `03-DATABASE-DESIGN.md`,
   `04-API-SPECIFICATION.md`, `02-BUSINESS-WORKFLOWS.md`, `09-SECURITY-SPEC.md`.
+
+## SESSION 05 HANDOFF NOTES
+- Payments are **sandbox-only** (provider-agnostic). Webhook/confirm signature
+  uses HMAC secret from env `PAYMENT_WEBHOOK_SECRET` (default constant in
+  `payment.service.ts`). Sandbox COD OTP is returned in the dev response body
+  (`devOtp`) and only its hash is stored. Real providers/OTP gateways are future work.
+- New routes: `POST /buy-now/preview`, `POST /buy-now`,
+  `POST /payments/webhook/sandbox` (signed), `GET /orders/:id/payment`,
+  `GET|POST /orders/:id/cod(/otp|/verify)`.
+- Files: `src/commerce/{payment.service,cod.service,buynow.controller,
+  payment.controller,cod.controller}.ts`, dto/payment.dto.ts, commerce.types.ts,
+  order.service.ts (shared `createOrderFromQuote`), commerce.module.ts.
+- Migration `20260907125816_payment_cod_models`; ledger now 8 clean rows
+  (`prisma migrate deploy` clean). Run `npx prisma generate` on fresh clone.

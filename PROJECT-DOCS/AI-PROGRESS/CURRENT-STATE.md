@@ -11,15 +11,15 @@
 | Branch | `main` |
 | Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
 | Stack (final) | **NestJS 11.2.3 + TypeScript 5.9.3 + Prisma ORM 7.10.0** (driver adapter, prisma.config.ts) + PostgreSQL 17 |
-| Current session | Session 04 — Commerce: cart + checkout + orders (server-authoritative) |
-| Current phase | Commerce (cart/checkout/orders) done; reviews + remaining platform modules deferred |
-| Overall status | Backend (foundation + auth/RBAC + catalog + commerce cart/checkout/orders) on Prisma 7; all verified |
-| Completed sessions | 00 (audit), 01 (foundation), 02 (auth), 03 (catalog API), upgrade pass, 04 (commerce cart/checkout/orders) |
-| Next session | Reviews, or further commerce/payments per priority |
+| Current session | Session 05 — Buy-now + payments (COD & online intent/capture) |
+| Current phase | Buy-now + payment-intent/capture + COD OTP done; reviews/fulfilment/refunds deferred |
+| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD) on Prisma 7; all verified |
+| Completed sessions | 00–04, upgrade pass, 05 (buy-now, online payment intent/capture, COD OTP) |
+| Next session | Reviews, or fulfilment/delivery / real payment-gateway provider |
 | Active blockers | Owner to rotate GitHub token; keep `rajrani-web` canonical |
-| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored (run `prisma generate` before build) |
-| Last verification | typecheck/build OK; `npm test` 31 passing; migrations clean (7 recorded); live cart→checkout→order→cancel E2E OK; hardened orders pagination/filter + concurrency guards (2026-09-07) |
-| Repository health | pushed to GitHub (`06bfecd`); no committed secrets |
+| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments currently use the built-in **sandbox** gateway (pluggable provider) — real gateway provider deferred |
+| Last verification | typecheck/build OK; `npm test` 41 passing (9 suites); migrate deploy clean (8); live buy-now + sandbox capture(→PAID, idempotent) + COD OTP verified (2026-09-07) |
+| Repository health | pushed to GitHub (`main`); no committed secrets |
 
 > ## IMPORTANT PRODUCT DECISION (owner)
 > **`landing-page/` is a PROTOTYPE / UX reference only — NOT an exact pixel spec.**
@@ -61,18 +61,27 @@ multi-app platform.
     status history, cart → CONVERTED); list/get/cancel orders (cancel restores
     stock). Dev coupons seeded (`BILOKAT20`, `FLAT50`, `SAVE10`). Commerce tables
     via 2 migrations (`commerce_models`, `cart_status_merged`).
+  - Session 05: **Buy-now + payments (COD & online intent/capture)**:
+    `POST /buy-now` (direct no-cart order, same server-authoritative pricing);
+    provider-agnostic `Payment` intent (`payments`/`payment_transactions`/
+    `payment_webhooks`) created for PREPAID orders; signed **sandbox gateway**
+    webhook `POST /payments/webhook/sandbox` (HMAC signature, idempotent via
+    UNIQUE(provider, provider_event_id), amount match, capture → order `PAID`,
+    transaction ledger, audit webhook log); COD secondary-mobile **OTP** flow
+    (`/orders/:id/cod` otp/verify — only the OTP hash is stored, expires, attempt
+    cap → REJECTED). Migration `payment_cod_models`.
 
 ### Absent (per spec) / deferred
-- No reviews, returns/refunds, payments gateway, multi-seller split-checkout,
-  fulfilment/delivery, or buy-now yet.
+- No reviews, returns/refunds, multi-seller split-checkout, fulfilment/delivery,
+  real payment-gateway provider (razorpay/stripe) yet.
 - No ABAC/organization/tenant isolation, step-up auth (deferred to later auth work).
 - No `customer-web` full application (multi-page with account, orders, etc.).
 - No `seller-web`, `catalog-publishing-web`, `support-web`, `delivery-web`,
   `finance-web`, `control-web`, `analytics-web` applications.
 - No Redis-backed caching/jobs, no event bus / outbox yet.
-- No payments gateway integration, COD cash-collection workflow, delivery,
-  returns, refunds, settlements, AI, analytics, or audit implementation.
-  (Order placement supports COD/PREPAID intent with `COD_PENDING`/`PENDING`.)
+- No real payment-gateway integration (sandbox gateway + pluggable interface
+  implemented), no COD cash-collection at delivery, no returns/refunds,
+  settlements, AI, analytics, or audit beyond payment webhook logging.
 - No integration/E2E/security tests yet (only backend unit tests exist).
 - No CI/CD, no Docker runtime available in sandbox (docker-compose file is
   written; Postgres 17 + Redis used locally).

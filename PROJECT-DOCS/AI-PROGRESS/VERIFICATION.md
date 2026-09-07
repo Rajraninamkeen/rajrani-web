@@ -137,3 +137,25 @@
 | `GET /orders?status=BOGUS` | 400 BAD_REQUEST |
 | `git push origin main` | commit `dfb27f7` pushed |
 
+
+## Session 05 — buy-now + payments + COD (2026-09-07, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| migration `payment_cod_models` (manual apply + record) | applied; `prisma migrate deploy` clean (8) |
+| reconcile migration ledger (rename cart_status_merged row, drop stray dup, resolve product display) | deploy reports "No pending migrations" |
+| `npm run typecheck` / `build` | exit 0 |
+| `npm test` | 9 suites / 41 tests PASS (added payment.service, cod.service) |
+| `POST /buy-now/preview?productId=shahi-kaju-mixture` | grandTotal 362.95 (server-derived) |
+| `POST /buy-now` (PREPAID khatta-meetha x3) | order PLACED/PENDING; payment intent created (state INITIATED, amount 532) |
+| `GET /orders/:id/payment` | returns intent INITIATED |
+| `POST /payments/webhook/sandbox` valid-signed capture | payment CONFIRMED; order PAID; 1 payment_transaction; webhook PROCESSED |
+| re-send same providerEventId | idempotent (no reprocess) |
+| webhook with bad signature | HTTP 403; webhook row signatureVerified=f, FAILED |
+| `POST /buy-now` (COD roasted-diet-chana x2) | order PLACED/COD_PENDING |
+| `POST /orders/:id/cod/otp` | returns 6-digit devOtp (hash stored) PENDING_CUSTOMER_OTP |
+| wrong OTP verify | stays PENDING (attempt incremented) |
+| correct OTP verify | verification CONFIRMED; order CONFIRMED/COD_PENDING |
+| `GET /orders/:id/cod` | status CONFIRMED |
+| `git push origin main` | schema `a15e75e`, backend `161e4d4`, tests + docs commits pushed |
+
