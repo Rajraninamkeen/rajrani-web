@@ -11,14 +11,14 @@
 | Branch | `main` |
 | Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
 | Stack (final) | **NestJS 11.2.3 + TypeScript 5.9.3 + Prisma ORM 7.10.0** (driver adapter, prisma.config.ts) + PostgreSQL 17 |
-| Current session | Session 05 — Buy-now + payments (COD & online intent/capture) |
-| Current phase | Buy-now + payment-intent/capture + COD OTP done; reviews/fulfilment/refunds deferred |
-| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD) on Prisma 7; all verified |
-| Completed sessions | 00–04, upgrade pass, 05 (buy-now, online payment intent/capture, COD OTP) |
-| Next session | Reviews, or fulfilment/delivery / real payment-gateway provider |
+| Current session | Session 06 — Fulfilment + delivery state machine |
+| Current phase | Fulfilment/delivery transitions done; reviews/refunds/deferred-seller-ops remain |
+| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery) on Prisma 7; all verified |
+| Completed sessions | 00–04, upgrade pass, 05 (buy-now, online payment intent/capture, COD OTP), 06 (fulfilment/delivery) |
+| Next session | Reviews, returns/refunds, or real payment-gateway provider / real delivery integration |
 | Active blockers | Owner to rotate GitHub token; keep `rajrani-web` canonical |
-| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments currently use the built-in **sandbox** gateway (pluggable provider) — real gateway provider deferred |
-| Last verification | typecheck/build OK; `npm test` 41 passing (9 suites); migrate deploy clean (8); live buy-now + sandbox capture(→PAID, idempotent) + COD OTP verified (2026-09-07) |
+| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments currently use the built-in **sandbox** gateway (pluggable provider) — real gateway provider deferred. Fulfilment is gated behind `OPERATOR`/`ADMIN` roles; no dedicated delivery/seller role yet (no schema/role migration until warranted). |
+| Last verification | typecheck/build OK; `npm test` 49 passing (10 suites); migrate deploy clean (8); live PREPAID & COD orders driven end-to-end through fulfilment to DELIVERED (audited history, deliveredAt, COD_PAID flip) verified (2026-09-07) |
 | Repository health | pushed to GitHub (`main`); no committed secrets |
 
 > ## IMPORTANT PRODUCT DECISION (owner)
@@ -70,10 +70,22 @@ multi-app platform.
     transaction ledger, audit webhook log); COD secondary-mobile **OTP** flow
     (`/orders/:id/cod` otp/verify — only the OTP hash is stored, expires, attempt
     cap → REJECTED). Migration `payment_cod_models`.
+  - Session 06: **Fulfilment/delivery state machine**: operator-only
+    `POST /orders/:id/fulfilment/advance` (`@Roles(OPERATOR, ADMIN)` — customers
+    cannot self-set delivery). Advance transitions PLACED→CONFIRMED→PACKED→SHIPPED→
+    OUT_FOR_DELIVERY→DELIVERED with a confirmation gate (PREPAID must be PAID; COD
+    must have passed OTP verification), legal-transition map + concurrency-safe
+    guarded `updateMany(where status)`, an audited `order_status_history` row per
+    transition (actor CONTROL + operator id + reason), and on DELIVERED sets
+    `deliveredAt` + flips COD `COD_PENDING`→`COD_PAID` (cash collected at door).
+    Customer timeline `GET /orders/:id/history`.
 
 ### Absent (per spec) / deferred
-- No reviews, returns/refunds, multi-seller split-checkout, fulfilment/delivery,
-  real payment-gateway provider (razorpay/stripe) yet.
+- No reviews, returns/refunds, multi-seller split-checkout, real payment-gateway
+  provider (razorpay/stripe), or real delivery-courier integration yet.
+- Fulfilment/delivery exists as an internal operator flow (`OPERATOR`/`ADMIN`
+  advance transitions); no dedicated delivery/seller role or real courier
+  handoff yet.
 - No ABAC/organization/tenant isolation, step-up auth (deferred to later auth work).
 - No `customer-web` full application (multi-page with account, orders, etc.).
 - No `seller-web`, `catalog-publishing-web`, `support-web`, `delivery-web`,

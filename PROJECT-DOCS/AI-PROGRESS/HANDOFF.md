@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 05 — Buy-now + payments (COD & online intent/capture, sandbox gateway) |
-| STATUS | COMPLETE (9 suites / 41 tests; live buy-now + capture→PAID + COD OTP verified) |
-| NEXT SESSION | Reviews, or fulfilment/delivery / real payment-gateway provider |
-| NEXT WORKFLOW | Product reviews (rating avg refresh), or a real gateway provider (razorpay/stripe via the pluggable `PaymentGatewayProvider`), COD delivery cash-collection, refunds |
+| CURRENT SESSION | Session 06 — Fulfilment + delivery state machine |
+| STATUS | COMPLETE (10 suites / 49 tests; live PREPAID & COD orders driven to DELIVERED, audited, COD_PAID + deliveredAt verified) |
+| NEXT SESSION | Reviews, returns/refunds, or real payment-gateway provider |
+| NEXT WORKFLOW | Product reviews (rating avg refresh), returns/refunds (exception transitions OUT of DELIVERED/RETURN*/REFUND*), a real gateway provider (razorpay/stripe via the pluggable provider), settlements/finance |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It
@@ -91,3 +91,28 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
   order.service.ts (shared `createOrderFromQuote`), commerce.module.ts.
 - Migration `20260907125816_payment_cod_models`; ledger now 8 clean rows
   (`prisma migrate deploy` clean). Run `npx prisma generate` on fresh clone.
+
+## SESSION 06 HANDOFF NOTES
+- **Fulfilment access control:** the delivery workflow is gated behind
+  `@Roles('OPERATOR','ADMIN')` (existing RolesGuard reads `role` from the JWT at
+  login time). There is **no dedicated delivery/seller role** yet — if a real
+  courier/seller app needs it, add a role value + migration, and extend the
+  RolesGuard allow-list rather than loosening the endpoint. Customers cannot
+  self-set delivery (verified 403 FORBIDDEN with a CUSTOMER token).
+- **Transitions:** `POST /orders/:id/fulfilment/advance` body `{toStatus, reason?}`.
+  Legal map PLACED→CONFIRMED→PACKED→SHIPPED→{OUT_FOR_DELIVERY|DELIVERED}→DELIVERED;
+  all other states terminal (future returns/refunds/seller-reject flows will open
+  exception edges out of DELIVERED/PLACED/etc — implement them as new guarded
+  transitions, not by widening this map). Confirmation gate blocks CONFIRMED until
+  PREPAID is PAID or COD OTP verification is CONFIRMED.
+- **Actor:** every transition row is `OrderActor.CONTROL` with `actorId` = the
+  authenticated operator's user id + reason + metadata. Confirmation itself
+  (PLACED→CONFIRMED) is recorded by the payment/cod services with actor SYSTEM.
+- **Delivery semantics:** DELIVERED sets `deliveredAt` and (COD only) flips
+  `paymentStatus` `COD_PENDING`→`COD_PAID`; PREPAID stays PAID.
+- **Customer timeline:** `GET /orders/:id/history` returns from→to, actor,
+  reason, createdAt (ordered). Public order DTO does not expose `deliveredAt`.
+- **Files:** `src/commerce/fulfilment.service.ts` (+ `.spec.ts`, 8 tests),
+  `fulfilment.controller.ts`, `dto/fulfilment.dto.ts`; `order.service.ts`
+  (`orderHistory`, `toPublicOrder`), `checkout.controller.ts` (history route),
+  `commerce.module.ts`.

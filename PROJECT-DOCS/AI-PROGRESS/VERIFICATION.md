@@ -159,3 +159,24 @@
 | `GET /orders/:id/cod` | status CONFIRMED |
 | `git push origin main` | schema `a15e75e`, backend `161e4d4`, tests + docs commits pushed |
 
+
+## Session 06 — fulfilment + delivery state machine (2026-09-07, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| `npm run typecheck` / `build` | exit 0 |
+| `npm test` | 10 suites / 49 tests PASS (added fulfilment.service.spec — 8 tests) |
+| promote `op6@example.com` to OPERATOR; fresh login | JWT `role=OPERATOR`; operator user id = actor in audit rows |
+| PREPAID buy-now (festive hamper x2) | order PLACED/PENDING; intent INITIATED amount 1887.9 |
+| signed sandbox webhook `payment.captured` (amount 1888) | PROCESSED; Payment CONFIRMED; order paymentStatus PAID (still PLACED) |
+| `POST /fulfilment/advance` with a CUSTOMER token → CONFIRMED | HTTP 403 FORBIDDEN (customer cannot self-set) |
+| OPERATOR advance → CONFIRMED | order CONFIRMED (gate: PREPAID PAID) |
+| OPERATOR advance → PACKED → SHIPPED → OUT_FOR_DELIVERY → DELIVERED | each success; final DELIVERED |
+| illegal jump PACKED→DELIVERED | 409 CONFLICT |
+| post-terminal DELIVERED→CANCELLED | 409 CONFLICT |
+| DB after DELIVERED | status DELIVERED, paymentStatus PAID, deliveredAt set |
+| `order_status_history` for order | PLACED(CUSTOMER)→CONFIRMED→PACKED→SHIPPED→OUT_FOR_DELIVERY→DELIVERED all actor CONTROL with operator id + reasons |
+| COD buy-now → OTP send/verify (devOtp) | order CONFIRMED / COD_PENDING |
+| OPERATOR advance COD CONFIRMED→PACKED→SHIPPED→OUT_FOR_DELIVERY→DELIVERED | DELIVERED; DB paymentStatus **COD_PAID**, deliveredAt set |
+| `GET /orders/:id/history` (customer) | returns ordered timeline (from→to, actor, reason) |
+| `git push origin main` | backend `645f851` (+ AI-PROGRESS commit) pushed |

@@ -356,3 +356,41 @@ CANCELLED, stock restored). Guest over-stock rejected; guest→login merge OK.
 
 ### Verification
 Live E2E run — see VERIFICATION Session 05 table.
+
+---
+
+## Session 06 — Fulfilment + delivery state machine
+- **Date:** 2026-09-07
+- **Objective:** Internal operator workflow advancing paid/verified orders through
+  fulfilment and delivery with guarded, audited transitions and correct COD
+  settlement at delivery.
+- **Delivered**
+  - `FulfilmentService.advance(operatorId, orderId, toStatus, reason?)` +
+    `FulfilmentController` `POST /orders/:id/fulfilment/advance`. Access is
+    operator-only (`@Roles('OPERATOR','ADMIN')` via existing RolesGuard) so a
+    customer can never self-set delivery status.
+  - Legal-transition map: PLACED→CONFIRMED→PACKED→SHIPPED→
+    {OUT_FOR_DELIVERY|DELIVERED}→DELIVERED; every other state is terminal
+    (CANCELLED/RETURN*/REFUND* reachable only via future flows).
+  - Confirmation gate: advancing to CONFIRMED requires PREPAID order to be `PAID`
+    (payment captured) or a COD order whose `CodVerification` is `CONFIRMED`.
+  - Concurrency safety: guarded `updateMany(where { id, status: current })`
+    inside a `$transaction` (0 rows → 409), then an audited
+    `order_status_history` row per transition (actor CONTROL, actorId = operator
+    user id, fromStatus/toStatus, reason, metadata) and a re-read return.
+  - Delivery semantics: advancing to DELIVERED sets `deliveredAt` and, for COD,
+    flips `paymentStatus` `COD_PENDING`→`COD_PAID` (cash collected at door);
+    PREPAID `PAID` is left untouched.
+  - Customer-facing timeline `GET /orders/:id/history` (OrderService.orderHistory)
+    returning ordered from/to/actor/reason/createdAt.
+  - Fulfilment unit spec (8 tests): illegal transition, confirmation gate
+    (PREPAID-not-PAID, COD-not-verified), legal CONFIRMED→PACKED with audited
+    row, DELIVERED sets deliveredAt + COD_PAID, PREPAID untouched on delivery,
+    default reason. Suite now 10 suites / 49 tests.
+- **Verification:** typecheck + `nest build` clean; `npm test` 49/10; live E2E —
+  PREPAID buy-now captured (→PAID, still PLACED) then driven CONFIRMED→PACKED→
+  SHIPPED→OUT_FOR_DELIVERY→DELIVERED; COD order OTP-verified (→CONFIRMED /
+  COD_PENDING) then driven to DELIVERED → `COD_PAID` + deliveredAt; audited
+  history rows (actor CONTROL = operator id) confirmed in DB; customer
+  `GET /orders/:id/history` timeline verified; FORBIDDEN for a CUSTOMER token;
+  illegal jump and post-terminal advances → 409. See VERIFICATION Session 06.
