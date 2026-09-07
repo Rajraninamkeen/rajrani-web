@@ -1,0 +1,258 @@
+// BILOKAT — Central Backend (bilokat-api)
+// Customer-commerce vertical slice — Session 01 foundation data model.
+//
+// Conventions (per PROJECT-DOCS/03-DATABASE-DESIGN.md):
+//  - IDs: UUIDv7 (default) — generated in app layer; kept uniform here via cuid for simplicity where noted.
+//  - Columns: snake_case (@map). Fields camelCase in Prisma.
+//  - Timestamps: createdAt / updatedAt. Soft delete via nullable deletedAt.
+//  - Status transitions are app-managed (no DB-enforced chains).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ ENUMS ============
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+  PENDING_VERIFICATION
+}
+
+enum AddressType {
+  HOME
+  WORK
+  OTHER
+}
+
+enum CategoryStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum ProductStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum VisibilityStatus {
+  LIVE
+  HIDDEN
+  SCHEDULED
+  OUT_OF_STOCK
+}
+
+enum StockStatus {
+  IN_STOCK
+  LOW_STOCK
+  OUT_OF_STOCK
+}
+
+enum SpiceLevel {
+  MILD
+  MEDIUM
+  SPICY
+  FIERY
+}
+
+enum CouponStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+  EXHAUSTED
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_SHIPPING
+}
+
+enum ReviewStatus {
+  PENDING
+  PUBLISHED
+  REJECTED
+  HIDDEN
+}
+
+// ============ IDENTITY ============
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  phone     String?    @unique
+  passwordHash String? // null => social/OTP-only accounts until verified
+  fullName  String?
+  status    UserStatus @default(ACTIVE)
+  role      String     @default("CUSTOMER") // RBAC role slug; expanded in auth session
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  deletedAt DateTime?
+
+  addresses Address[]
+  reviews   ProductReview[]
+
+  @@map("users")
+}
+
+model Address {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      AddressType @default(HOME)
+  label     String? // e.g. "Home", "Office"
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String // 6-digit Indian pincode
+  country   String      @default("India")
+  isDefault Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ============ CATALOG ============
+
+// Dynamic category tree (per Master Spec §18).
+model Category {
+  id        String         @id @default(cuid())
+  name      String
+  slug      String         @unique
+  description String?
+  parentId  String?
+  parent    Category?      @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[]     @relation("CategoryTree")
+  imageUrl  String?
+  sortOrder Int            @default(0)
+  status    CategoryStatus @default(ACTIVE)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  deletedAt DateTime?
+
+  products Product[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Product {
+  id              String           @id @default(cuid())
+  name            String
+  slug            String           @unique
+  tagline         String?
+  description     String?
+  categoryId      String
+  category        Category         @relation(fields: [categoryId], references: [id])
+  brand           String?
+  regionOrigin    String? // seller-declared origin
+  status          ProductStatus    @default(DRAFT)
+  visibility      VisibilityStatus @default(HIDDEN)
+  // Reference prices (source of truth for display). Variant-level prices live on variants.
+  basePrice       Decimal          @db.Decimal(10, 2)
+  // Weight options handled via variants.
+  spiceLevel      SpiceLevel?
+  ingredients     String[]         @default([]) // stored as JSON array column
+  nutritional     Json? // calories/protein/fat/carbs
+  stockStatus     StockStatus      @default(OUT_OF_STOCK)
+  stockOnHand     Int              @default(0)
+  isBestseller    Boolean          @default(false)
+  isNew           Boolean          @default(false)
+  publishedAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  deletedAt       DateTime?
+
+  variants  ProductVariant[]
+  media     ProductMedia[]
+  reviews   ProductReview[]
+
+  @@index([categoryId])
+  @@index([status])
+  @@index([visibility])
+  @@map("products")
+}
+
+model ProductVariant {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku       String   @unique
+  name      String? // e.g. "200g", "Jar 400g"
+  weightGrams Int?
+  price     Decimal  @db.Decimal(10, 2)
+  originalPrice Decimal? @db.Decimal(10, 2) // for strike-through / discount display
+  stock     Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model ProductMedia {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  altText   String?
+  kind      String   @default("IMAGE") // IMAGE | VIDEO
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@map("product_media")
+}
+
+model ProductReview {
+  id          String       @id @default(cuid())
+  productId   String
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  rating      Int // 1..5
+  title       String?
+  comment     String?
+  status      ReviewStatus @default(PENDING)
+  verifiedBuyer Boolean     @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([productId])
+  @@index([userId])
+  @@map("product_reviews")
+}
+
+// ============ PROMOTION ============
+
+model Coupon {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  type        CouponType
+  value       Decimal     @db.Decimal(10, 2) // percentage points OR fixed amount depending on type
+  minOrderValue Decimal?  @db.Decimal(10, 2)
+  maxDiscount Decimal?    @db.Decimal(10, 2)
+  status      CouponStatus @default(ACTIVE)
+  validFrom   DateTime?
+  validTo     DateTime?
+  usageLimit  Int?
+  usageCount  Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("coupons")
+}
