@@ -101,8 +101,29 @@ model User {
 
   addresses Address[]
   reviews   ProductReview[]
+  sessions  UserSession[]
 
   @@map("users")
+}
+
+// Refresh-token / device session registry (DB-design §15 User Session).
+// Used for refresh-token rotation, revocation, and session listing.
+model UserSession {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String @unique // hash of the current refresh token (never store raw)
+  ip        String?
+  userAgent String?
+  deviceName String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  replacedByTokenId String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("user_sessions")
 }
 
 model Address {
