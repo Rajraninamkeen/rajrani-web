@@ -42,6 +42,11 @@ export class CheckoutController {
     return this.orders.getOrder(userId, id);
   }
 
+  @Get('orders/:id/history')
+  history(@CurrentUserId() userId: string, @Param('id') id: string) {
+    return this.orders.orderHistory(userId, id);
+  }
+
   @Post('orders/:id/cancel')
   cancel(@CurrentUserId() userId: string, @Param('id') id: string, @Body('reason') reason?: string) {
     return this.orders.cancelOrder(userId, id, reason);

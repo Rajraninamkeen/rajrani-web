@@ -163,6 +163,29 @@ export class OrderService {
     return this.toPublic(order);
   }
 
+  /** Full status-history for one of the caller's own orders (for customer timeline). */
+  async orderHistory(userId: string, id: string) {
+    const order = await this.prisma.order.findFirst({ where: { id, userId } });
+    if (!order) throw new NotFoundException('Order not found');
+    const rows = await this.prisma.orderStatusHistory.findMany({
+      where: { orderId: id },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((h) => ({
+      id: h.id,
+      fromStatus: h.fromStatus,
+      toStatus: h.toStatus,
+      actor: h.actor,
+      reason: h.reason,
+      createdAt: h.createdAt.toISOString(),
+    }));
+  }
+
+  /** Public mapper exposed for internal modules (e.g. fulfilment). */
+  toPublicOrder(order: Order & { items?: OrderItem[] }): OrderPublic {
+    return this.toPublic(order);
+  }
+
   async cancelOrder(userId: string, id: string, reason?: string): Promise<OrderPublic> {
     const order = await this.prisma.order.findFirst({ where: { id, userId } });
     if (!order) throw new NotFoundException('Order not found');

@@ -6,6 +6,8 @@ import { CartService } from './cart.service';
 import { CheckoutController } from './checkout.controller';
 import { CodController } from './cod.controller';
 import { CodService } from './cod.service';
+import { FulfilmentController } from './fulfilment.controller';
+import { FulfilmentService } from './fulfilment.service';
 import { OrderService } from './order.service';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
@@ -18,8 +20,9 @@ import { PaymentService } from './payment.service';
     BuyNowController,
     PaymentController,
     CodController,
+    FulfilmentController,
   ],
-  providers: [CartService, OrderService, PaymentService, CodService],
+  providers: [CartService, OrderService, PaymentService, CodService, FulfilmentService],
   exports: [PaymentService, CodService],
 })
 export class CommerceModule {}
