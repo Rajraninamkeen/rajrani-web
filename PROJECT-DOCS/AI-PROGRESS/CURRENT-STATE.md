@@ -10,15 +10,15 @@
 | Remote | `origin https://github.com/Rajraninamkeen/rajrani-web.git` |
 | Branch | `main` |
 | Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
-| Current session | Session 02 — Authentication + Authorization (foundation: register/login/refresh/logout/me, RBAC guards) |
-| Current phase | Foundations — auth + RBAC foundation done; commerce feature modules remain |
-| Overall status | Specs + landing prototype + backend foundation + **auth/RBAC foundation** exist |
-| Completed sessions | Session 00 (audit), Session 01 (backend foundation) — complete |
-| Next session | Session 03 — Catalog API (products/categories endpoints to serve the landing page) |
-| Active blockers | Owner to rotate GitHub token (shared in chat); owner to keep `rajrani-web` as canonical repo |
-| Known technical debt | See `COMPLETION-MATRIX.md`; landing-page is hardcoded; Prisma CLI transitive `deepmerge-ts` advisory (dev-only) |
-| Last verification | Backend typecheck/build OK; `npm test` 12 passing; auth flows verified live (2026-09-07) |
-| Repository health | `rajrani-web` canonical: pushed to GitHub (`fcc6682`); no committed secrets |
+| Current session | Session 03 — Catalog API (products/categories/detail public endpoints + seed) |
+| Current phase | Customer commerce backend — catalog read API done; cart/checkout remain |
+| Overall status | Specs + landing prototype + backend foundation + auth/RBAC + **catalog API** |
+| Completed sessions | Session 00 (audit), 01 (backend foundation), 02 (auth+RBAC) — complete |
+| Next session | Session 04 — Commerce (cart + checkout + orders) |
+| Active blockers | Owner to rotate GitHub token (shared in chat); keep `rajrani-web` canonical |
+| Known technical debt | See `COMPLETION-MATRIX.md`; landing-page still hardcoded; Prisma CLI `deepmerge-ts` advisory (dev-only) |
+| Last verification | Backend typecheck/build OK; `npm test` 15 passing; catalog endpoints verified live (2026-09-07) |
+| Repository health | `rajrani-web` pushed to GitHub (`ebd9ce0`); no committed secrets |
 
 ---
 
@@ -38,9 +38,15 @@ multi-app platform.
     refresh-token rotation + reuse detection, `user_sessions` registry,
     JwtAuthGuard + RolesGuard, `@Roles`/`@CurrentUserId` decorators.
     Auth API live under `/api/v1/auth`.
+  - Session 03: **Catalog API** (public) under `/api/v1/catalog` — categories,
+    product list (filters: category/bestseller/new/search/price, sort, pagination),
+    product detail by id/slug. Seed populates 5 categories + 8 products mirroring
+    the landing-page catalog. Product schema gained display fields
+    (originalPrice, weightLabel, ratingAvg, reviewCount, pairingSuggestion,
+    customerFavTag). Migration `20260907120621_product_catalog_display_fields`.
 
 ### Absent (per spec) / deferred
-- No commerce/catalog **API endpoints** yet (Session 03+).
+- No cart/checkout/order endpoints yet (Session 04+).
 - No ABAC/organization/tenant isolation, step-up auth (deferred to later auth work).
 - No `customer-web` full application (multi-page with account, orders, etc.).
 - No `seller-web`, `catalog-publishing-web`, `support-web`, `delivery-web`,

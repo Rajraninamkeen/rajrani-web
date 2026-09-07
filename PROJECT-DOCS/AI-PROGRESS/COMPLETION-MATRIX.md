@@ -14,9 +14,9 @@
 |---|---|---|---|
 | 00 | Project Initialization | COMPLETE | Repo/docs inspected, security audited, AI-PROGRESS created |
 | 01 | Backend Foundation | PARTIALLY_COMPLETE | `bilokat-api` scaffolded (NestJS+Prisma): config, PostgreSQL wiring + 2 migrations, health, response/error envelope, request-id, Identity+Catalog data model, unit tests — typecheck/build/migrate/tests all PASS. Remaining: feature modules in later sessions |
-| 02 | Authentication + Authorization | PARTIALLY_COMPLETE | Auth+RBAC foundation done (register/login/logout/me, JWT + rotating refresh in DB sessions, JwtAuthGuard, RolesGuard, @Roles/@CurrentUserId). ABAC/org/tenant/step-up deferred. Live API + 12 unit tests passing |
-| 03 | Seller Onboarding | NOT_STARTED | applications, KYC, review, organizations |
-| 04 | Catalog | NOT_STARTED | categories (dynamic), attributes, products, variants |
+| 02 | Authentication + Authorization | PARTIALLY_COMPLETE | Auth+RBAC foundation done (register/login/logout/me, JWT + rotating refresh in DB sessions, JwtAuthGuard, RolesGuard, @Roles/@CurrentUserId). ABAC/org/tenant/step-up deferred. Live API + unit tests passing |
+| 03 | Seller Onboarding | NOT_STARTED | (Catalog API built early out-of-order to serve landing page; see Catalog row) |
+| 04 | Catalog | PARTIALLY_COMPLETE | Public catalog read API live (/api/v1/catalog: categories, products w/ filters, detail) + seed (5 cats/8 prods) + display-field migration + tests. Attribute/variant/media mgmt & publishing UI deferred |
 | 05 | Catalog Publishing | NOT_STARTED | listings, approval/review, visibility, lifecycle |
 | 06 | Seller Platform | NOT_STARTED | seller apps for products/orders/inventory/returns |
 | 07 | Customer Commerce | NOT_STARTED | discovery, cart, multi-seller cart, buy now |
@@ -37,11 +37,11 @@
 | Landing-page static prototype (visual reference) | DISCOVERED → builds cleanly |
 | `bilokat-api` backend foundation | COMPLETE (scaffold/config/DB/envelope/health/unit tests — verified) |
 | Auth + RBAC foundation | PARTIALLY_COMPLETE (register/login/logout/me, refresh rotation + reuse detection, guards — verified live + tests) |
-| Catalog API endpoints (products/categories serving landing page) | NOT_STARTED |
+| Catalog API endpoints (products/categories serving landing page) | COMPLETE (public read API verified live + seeded + tested) |
 | Commerce modules (cart, checkout, orders, coupons, reviews) | NOT_STARTED |
 | `customer-web` full application | NOT_STARTED (only static landing prototype exists) |
 | Data model / DB migrations (Identity + Catalog subset) | COMPLETE (2 migrations applied; commerce tables deferred to their sessions) |
-| Backend unit tests | COMPLETE (4 suites / 12 tests passing: exception filter, app, auth.service, roles.guard) |
+| Backend unit tests | COMPLETE (5 suites / 15 tests passing: exception filter, app, auth.service, roles.guard, catalog.service) |
 | AuthN (sessions/tokens) | NOT_STARTED |
 | AuthZ (RBAC/ABAC, org/tenant isolation) | NOT_STARTED |
 | Event/outbox infrastructure | NOT_STARTED |

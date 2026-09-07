@@ -65,3 +65,22 @@
 | reuse of old refresh token | UNAUTHORIZED; post-reuse new token also revoked |
 | `POST /api/v1/auth/logout` | revokes session |
 | `git push origin main` | `b0f3cfb..fcc6682` pushed |
+
+## Session 03 — catalog API (2026-09-07, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| migration `20260907120621_product_catalog_display_fields` (manual apply + record) | 5 migrations in DB |
+| `npx ts-node prisma/seed.ts` (x2 idempotent) | 5 categories, 8 products |
+| `npm run typecheck` | exit 0 |
+| `npm run build` | exit 0 |
+| `npm test` | 5 suites / 15 tests PASS |
+| `GET /catalog/categories` | 5 categories (bestseller/spicy/mixtures/healthy/gifts) |
+| `GET /catalog/products` | total 8, pagination meta present |
+| `GET /catalog/products?bestseller=true` | 5 bestsellers |
+| `GET /catalog/products?category=healthy` | 2 |
+| `GET /catalog/products?q=makhana` | 1 |
+| `GET /catalog/products?sort=price_asc` | [139,149,159,169,189,249,299,899] |
+| `GET /catalog/products/bilokat-royal-ratlami-sev` | price 189, orig 240, disc 21%, rating 4.9 |
+| `GET /catalog/products/<missing>` | HTTP 404 (error envelope) |
+| `git push origin main` | `1c5e199..ebd9ce0` pushed |

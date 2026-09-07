@@ -157,3 +157,51 @@ Chronological record. Append new sessions at the bottom; do not rewrite history.
 - bcryptjs (pure JS) used for password hashing.
 - ABAC / org–tenant isolation / step-up auth deferred to later work.
 - `.env` local only (gitignored); GitHub token must be rotated by owner.
+
+---
+
+## Session 03 — Catalog API
+
+- **Date:** 2026-09-07
+- **Objective:** Add public catalog read API so the backend/DB becomes the source
+  of truth for product data the landing page currently hardcodes. Owner asked for
+  research before implementation and preference for current/"latest" tech.
+
+### Research outcome (recorded)
+- Registry: @nestjs/core 12.0.1 (we on 11.2.3), @prisma/client 7.10.0 (we on
+  6.19.3), typescript 7.0.2, @nestjs/cli 12.
+- NestJS 12 released 28 Aug 2026 (1 week old): ESM-first, drops CommonJS,
+  Vitest/oxlint/Rspack. Sources: NestJS v12 release + Trilon + InfoQ. Production
+  ecosystem still on 11.2.x per research.
+- Prisma 7 (Nov 2025, now 7.6.0 stable): Rust-free, mandatory driver adapters,
+  prisma.config.ts, no auto env loading, generator output path change.
+- DECISION: stay on NestJS 11 + Prisma 6 for Session 03 (stable, non-breaking;
+  project already verified on it). A NestJS-12 upgrade on a 1-week-old major is
+  not advisable mid-project. Optional stack upgrades documented for owner.
+
+### Delivered
+- Prisma migration `20260907120621_product_catalog_display_fields` (added
+  originalPrice, weightLabel, ratingAvg, reviewCount, pairingSuggestion,
+  customerFavTag to products). Applied + recorded (DB now 5 migrations).
+- `prisma/catalog-seed.ts` + `prisma/seed.ts`: upsert 5 categories + 8 products
+  mirroring landing-page products.ts (idempotent).
+- `src/catalog/`: catalog.service, catalog.controller, catalog.module,
+  catalog.types, dto/list-products.query.
+- Public endpoints under /api/v1/catalog:
+  - GET /catalog/categories
+  - GET /catalog/products  (filters: category, bestseller, isNew, q search,
+    min/max price; sort: price_asc/price_desc/rating/newest/popular; pagination)
+  - GET /catalog/products/:identifier (id or slug) — only APPROVED+LIVE, non-deleted.
+- Public response shape aligned with the landing-page Product model
+  (price/originalPrice/discountPercent/weight/rating/spiceLevel numeric 1-4/etc.)
+  so frontend can later drop-in replace hardcoded data.
+- Catalog unit tests (mapping, no field leak, 404).
+
+### Verification (executed)
+- `prisma generate` OK; `npm run typecheck` exit 0; `npm run build` exit 0.
+- Seed run twice (idempotent): 5 categories, 8 products.
+- Live curl: categories (5) ✓; products list (8) ✓; bestseller filter (5) ✓;
+  category=healthy (2) ✓; search q=makhana (1) ✓; sort price_asc ✓; detail by
+  slug (price 189/orig 240/disc 21) ✓; unknown product → HTTP 404 ✓.
+- `npm test` → 5 suites / 15 tests PASS.
+- Pushed to GitHub `rajrani-web` → commit `ebd9ce0`.

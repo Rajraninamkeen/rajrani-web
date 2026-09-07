@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 02 — Authentication + Authorization (foundation) |
-| STATUS | PARTIALLY_COMPLETE (auth+RBAC foundation verified live + tested; ABAC/tenant/step-up deferred) |
-| NEXT SESSION | Session 03 — Catalog API |
-| NEXT WORKFLOW | Backend: product/category/variant endpoints (public read) that serve the landing-page data — `GET /api/v1/products`, categories, product detail; plus seed script |
+| CURRENT SESSION | Session 03 — Catalog API |
+| STATUS | PARTIALLY_COMPLETE (public catalog read API live + seeded + tested; cart/checkout/orders remain) |
+| NEXT SESSION | Session 04 — Commerce: cart + checkout + orders |
+| NEXT WORKFLOW | Backend: cart endpoints (guest/user), checkout, order creation + status, multi-line totals. Reuse catalog product source-of-truth for pricing |
 
 ## CONFIRMED DECISIONS (owner, 2026-09-07)
 - **Backend target:** Customer-commerce vertical slice (serve landing/customer flows: catalog, cart, checkout, orders, pincode/delivery, coupons, auth, reviews).
@@ -54,37 +54,34 @@ For the next AI session.
 - `CURRENT-STATE.md`, `COMPLETION-MATRIX.md`, `SESSION-LOG.md`, `HANDOFF.md`,
   `VERIFICATION.md`, `BLOCKERS.md` (decision statuses).
 
-## FILES ADDED (Session 02 — `src/auth/` + migrations)
-- `prisma/migrations/20260907115442_add_user_sessions`, `.../...15613_sessions_unique_refresh`
-- `src/auth/auth.{module,controller,service,types}.ts`, `auth-request.d.ts`
-- `src/auth/dto/{auth.dto,logout.dto}.ts`
-- `src/auth/guards/{jwt-auth.guard,roles.guard,roles.guard.spec}.ts`
-- `src/auth/decorators/{roles.decorator,current-user.decorator}.ts`
-- `src/auth/auth.service.spec.ts`
-- `src/app.module.ts` (import AuthModule)
+## FILES ADDED (Session 03 — catalog)
+- `prisma/migrations/.../20260907120621_product_catalog_display_fields/migration.sql`
+- `prisma/catalog-seed.ts`, `prisma/seed.ts`
+- `src/catalog/catalog.{module,controller,service,types}.ts`
+- `src/catalog/dto/list-products.query.ts`
+- `src/catalog/catalog.service.spec.ts`
 
-## KNOWN ISSUES
-- Landing-page is still a hardcoded prototype (visual reference) — not yet
-  served from the backend.
-- Only the routes marked `@UseGuards(JwtAuthGuard)` are protected; all public
-  endpoints are intentionally open.
-- `.env.example` JWT secrets are placeholders — rotate before any deployment.
-- GitHub token shared in chat → **owner must rotate it**.
+## WHAT WAS VERIFIED (Session 03)
+- Public catalog API live (categories/products/detail; filters/search/sort/pagination);
+  seed idempotent (5 cats / 8 products). `npm test` 5 suites / 15 PASS; tsc/build 0.
+- Pushed `ebd9ce0`.
 
-## BLOCKERS
-- Owner should rotate the GitHub token.
-- Prisma `deepmerge-ts` advisory (dev-only) — re-check in Session 15.
+## WHAT WAS NOT VERIFIED (Session 03)
+- Cart/checkout/orders (Session 04). No write/admin product APIs.
+- Landing page not yet wired to this API (frontend remains hardcoded).
+- Attribute/variant/media management & publishing workflows deferred.
+- No E2E/security/load tests; no Docker runtime in sandbox.
 
-## DO NOT REIMPLEMENT (next session)
-- Auth foundation done — reuse JwtAuthGuard / RolesGuard / envelope / PrismaService.
-- Do not re-scaffold NestJS/Prisma/config.
-- Follow `04-API-SPECIFICATION.md` product/category API + `03-DATABASE-DESIGN.md`
-  catalog tables when building the catalog endpoints.
-- Landing-page design language is the UI reference for `customer-web` later.
+## KNOWN ISSUES / DO NOT REIMPLEMENT (Session 04)
+- Do NOT duplicate catalog pricing: cart/checkout must re-derive price from the
+  product (basePrice) at serve time, never trust client-supplied price.
+- Landing page still hardcoded (visual reference).
+- `.env` local; GitHub token must be rotated by owner.
+- Prisma `deepmerge-ts` dev advisory deferred to Session 15.
 
-## DOCUMENTS TO READ (Session 03 — Catalog API)
-- `04-API-SPECIFICATION.md` (§33 category API, §35 product API, §34 attribute,
-  §18–§29 response/pagination/filter/sort)
-- `03-DATABASE-DESIGN.md` (§29 categories, §34–§37 product/variant/attribute/media)
-- `00-MASTER-SPEC.md` (§17–§23 catalog/listings/product visibility, §25 discovery,
-  §26 search, §27 homepage)
+## DOCUMENTS TO READ (Session 04 — Commerce)
+- `00-MASTER-SPEC.md` (§28–§31 cart/buy-now/multi-seller cart/pricing, §33 checkout, §38–§39 order + state machine)
+- `02-BUSINESS-WORKFLOWS.md` (§7 shopping workflow, §11–§14 cart, §15–§18 checkout/address)
+- `03-DATABASE-DESIGN.md` (commerce/payment/order table groups)
+- `04-API-SPECIFICATION.md` (§41–§50 cart/checkout/order APIs)
+- `09-SECURITY-SPEC.md` (§34 checkout integrity, §36 order state security)
