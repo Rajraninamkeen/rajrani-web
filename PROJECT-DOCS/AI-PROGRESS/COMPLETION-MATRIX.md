@@ -14,7 +14,7 @@
 |---|---|---|---|
 | 00 | Project Initialization | COMPLETE | Repo/docs inspected, security audited, AI-PROGRESS created |
 | 01 | Backend Foundation | PARTIALLY_COMPLETE | `bilokat-api` scaffolded (NestJS+Prisma): config, PostgreSQL wiring + 2 migrations, health, response/error envelope, request-id, Identity+Catalog data model, unit tests — typecheck/build/migrate/tests all PASS. Remaining: feature modules in later sessions |
-| 02 | Authentication + Authorization | NOT_STARTED | users, sessions, RBAC/ABAC foundation |
+| 02 | Authentication + Authorization | PARTIALLY_COMPLETE | Auth+RBAC foundation done (register/login/logout/me, JWT + rotating refresh in DB sessions, JwtAuthGuard, RolesGuard, @Roles/@CurrentUserId). ABAC/org/tenant/step-up deferred. Live API + 12 unit tests passing |
 | 03 | Seller Onboarding | NOT_STARTED | applications, KYC, review, organizations |
 | 04 | Catalog | NOT_STARTED | categories (dynamic), attributes, products, variants |
 | 05 | Catalog Publishing | NOT_STARTED | listings, approval/review, visibility, lifecycle |
@@ -36,10 +36,12 @@
 |---|---|
 | Landing-page static prototype (visual reference) | DISCOVERED → builds cleanly |
 | `bilokat-api` backend foundation | COMPLETE (scaffold/config/DB/envelope/health/unit tests — verified) |
-| `bilokat-api` feature modules (auth, catalog API, cart, checkout, orders, delivery, coupons, reviews) | NOT_STARTED |
+| Auth + RBAC foundation | PARTIALLY_COMPLETE (register/login/logout/me, refresh rotation + reuse detection, guards — verified live + tests) |
+| Catalog API endpoints (products/categories serving landing page) | NOT_STARTED |
+| Commerce modules (cart, checkout, orders, coupons, reviews) | NOT_STARTED |
 | `customer-web` full application | NOT_STARTED (only static landing prototype exists) |
 | Data model / DB migrations (Identity + Catalog subset) | COMPLETE (2 migrations applied; commerce tables deferred to their sessions) |
-| Backend unit tests | COMPLETE (2 suites / 4 tests passing) |
+| Backend unit tests | COMPLETE (4 suites / 12 tests passing: exception filter, app, auth.service, roles.guard) |
 | AuthN (sessions/tokens) | NOT_STARTED |
 | AuthZ (RBAC/ABAC, org/tenant isolation) | NOT_STARTED |
 | Event/outbox infrastructure | NOT_STARTED |

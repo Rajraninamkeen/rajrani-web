@@ -48,3 +48,20 @@
 | `curl /api/v1/nope` | HTTP 404 with error envelope |
 | `npm audit` | 3 high (single `deepmerge-ts` transitive advisory in Prisma CLI dev tool; deferred) |
 | `git status` in bilokat-api | clean, 1 commit, 28 files, no `.env`/`node_modules` staged |
+
+## Session 02 — auth (2026-09-07, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| `npx prisma migrate dev --name add_user_sessions` | non-interactive blocked; applied via manual SQL + recorded (see below) |
+| `prisma migrate diff ... ` + psql apply + record into `_prisma_migrations` | unique index `user_sessions_refreshTokenHash_key` created; 4 migrations recorded |
+| `npm run typecheck` | exit 0 |
+| `npm run build` | exit 0 |
+| `npm test` | 4 suites / 12 tests PASS |
+| `POST /api/v1/auth/register` | success:true, role CUSTOMER, access token issued |
+| `GET /api/v1/auth/me` (Bearer) | returns user (email/role) |
+| `GET /api/v1/auth/me` (no token) | HTTP 401 |
+| `POST /api/v1/auth/refresh` | success; new refresh token differs (rotation) |
+| reuse of old refresh token | UNAUTHORIZED; post-reuse new token also revoked |
+| `POST /api/v1/auth/logout` | revokes session |
+| `git push origin main` | `b0f3cfb..fcc6682` pushed |

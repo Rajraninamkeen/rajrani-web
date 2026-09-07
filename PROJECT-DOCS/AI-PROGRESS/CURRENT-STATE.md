@@ -6,19 +6,19 @@
 | Field | Value |
 |---|---|
 | Project | BILOKAT — Multi-Seller Marketplace Platform |
-| Spec/docs repo | `Rajraninamkeen/concept` (PROJECT-DOCS + AI-PROGRESS + landing-page prototype) |
-| Backend repo | `bilokat-api` — **separate repo** (NO-MONOREPO). Local path `/home/user/bilokat-api`; not yet on GitHub |
-| Branch | `main` (both repos) |
-| Remote | `origin https://github.com/Rajraninamkeen/concept.git` (concept); bilokat-api remote TBD (owner creates GitHub repo) |
-| Current session | Session 01 — Backend Foundation (backend scaffolded & verified; feature modules later) |
-| Current phase | Foundations |
-| Overall status | Specs + landing prototype + **backend foundation** (NestJS+Prisma) exist; no commerce/auth feature modules yet |
-| Completed sessions | Session 00 (audit) — complete |
-| Next session | Session 02 — Authentication + Authorization |
-| Active blockers | Owner must create GitHub repo for `bilokat-api` and grant push (B-001); no feature modules built yet |
+| Canonical repo | `Rajraninamkeen/rajrani-web` (all work lives here; owner decision) |
+| Remote | `origin https://github.com/Rajraninamkeen/rajrani-web.git` |
+| Branch | `main` |
+| Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
+| Current session | Session 02 — Authentication + Authorization (foundation: register/login/refresh/logout/me, RBAC guards) |
+| Current phase | Foundations — auth + RBAC foundation done; commerce feature modules remain |
+| Overall status | Specs + landing prototype + backend foundation + **auth/RBAC foundation** exist |
+| Completed sessions | Session 00 (audit), Session 01 (backend foundation) — complete |
+| Next session | Session 03 — Catalog API (products/categories endpoints to serve the landing page) |
+| Active blockers | Owner to rotate GitHub token (shared in chat); owner to keep `rajrani-web` as canonical repo |
 | Known technical debt | See `COMPLETION-MATRIX.md`; landing-page is hardcoded; Prisma CLI transitive `deepmerge-ts` advisory (dev-only) |
-| Last verification | Frontend build PASS; backend typecheck/build/migrate/tests PASS (2026-09-07) |
-| Repository health | concept clean (5 commits); bilokat-api clean (1 commit, 28 files); no committed secrets |
+| Last verification | Backend typecheck/build OK; `npm test` 12 passing; auth flows verified live (2026-09-07) |
+| Repository health | `rajrani-web` canonical: pushed to GitHub (`fcc6682`); no committed secrets |
 
 ---
 
@@ -28,21 +28,26 @@ The repository today is a **documentation + prototype container**, not the final
 multi-app platform.
 
 ### Present
-- `PROJECT-DOCS/` — all 13 specification documents (complete set, none missing).
+- `PROJECT-DOCS/` — all 13 specification documents + AI-PROGRESS control files.
 - `landing-page/` — a **static single-page React marketing prototype** named
   "Bilokat" (namkeen/snacks D2C). All data is hardcoded. No API / backend calls.
+- Backend (`src/`, `prisma/`) — NestJS + Prisma:
+  - Session 01: config, health, envelope, request-id, Identity + Catalog data
+    model + 3 migrations.
+  - Session 02: **Auth + RBAC foundation** — register/login/logout/me,
+    refresh-token rotation + reuse detection, `user_sessions` registry,
+    JwtAuthGuard + RolesGuard, `@Roles`/`@CurrentUserId` decorators.
+    Auth API live under `/api/v1/auth`.
 
 ### Absent (per spec) / deferred
-- `bilokat-api` backend exists as **foundation only** (Session 01): NestJS +
-  Prisma, config, health, envelope, Identity + Catalog data model + 2 migrations.
-  Feature modules (auth, commerce, catalog APIs, checkout, orders, delivery…)
-  are NOT built yet.
+- No commerce/catalog **API endpoints** yet (Session 03+).
+- No ABAC/organization/tenant isolation, step-up auth (deferred to later auth work).
 - No `customer-web` full application (multi-page with account, orders, etc.).
 - No `seller-web`, `catalog-publishing-web`, `support-web`, `delivery-web`,
   `finance-web`, `control-web`, `analytics-web` applications.
 - No Redis-backed caching/jobs, no event bus / outbox yet.
-- No auth, RBAC/ABAC, sessions, payments, COD, delivery, returns, refunds,
-  settlements, AI, analytics, or audit implementation.
+- No payments, COD, delivery, returns, refunds, settlements, AI, analytics, or
+  audit implementation.
 - No integration/E2E/security tests yet (only backend unit tests exist).
 - No CI/CD, no Docker runtime available in sandbox (docker-compose file is
   written; Postgres 17 + Redis used locally).

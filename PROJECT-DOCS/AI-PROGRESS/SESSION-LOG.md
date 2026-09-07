@@ -4,6 +4,19 @@ Chronological record. Append new sessions at the bottom; do not rewrite history.
 
 ---
 
+## Session 00 — Project Initialization (audit + control setup)
+- **Date:** 2026-09-07
+- **Objective:** Inspect repo(s), read specs, security-audit, map implementation
+  state, create AI-PROGRESS control system. No feature coding.
+- Findings: all 13 spec docs present; only a hardcoded static `landing-page`
+  prototype existed; no backend/tests/infra; no committed secrets.
+- Frontend prototype verified: `tsc --noEmit` exit 0, `npm run build` exit 0.
+- Created `PROJECT-DOCS/AI-PROGRESS/` (CURRENT-STATE, COMPLETION-MATRIX,
+  SESSION-LOG, HANDOFF, BLOCKERS, VERIFICATION).
+- Owner decisions (2026-09-07): customer-commerce vertical slice; NestJS +
+  Prisma; docker-compose infra. Repo later consolidated to `rajrani-web`
+  (owner chose a single all-in-one repo).
+
 ---
 
 ## Session 01 — Backend Foundation (bilokat-api)
@@ -109,3 +122,38 @@ Chronological record. Append new sessions at the bottom; do not rewrite history.
 - `npx tsc --noEmit` → exit 0 (typecheck PASS).
 - `npm run build` (vite) → exit 0, single-file `dist/index.html` 409.04 kB.
 - Secret grep → no real secrets.
+
+---
+
+## Session 02 — Authentication + Authorization (foundation)
+
+- **Date:** 2026-09-07
+- **Objective:** Add auth + RBAC foundation to the backend in `rajrani-web`.
+- **Repo note:** Owner consolidated everything into one repo `rajrani-web`
+  (docs + landing-page + backend at root), with continuous-push after each
+  meaningful change.
+
+### Delivered
+- Prisma `user_sessions` model for refresh-token registry + 2 migrations
+  (`20260907115442_add_user_sessions`, `20260907115613_sessions_unique_refresh`;
+  both recorded in DB — total 4 migrations).
+- `src/auth/`: register, login, refresh (rotation + reuse detection), logout,
+  me. Access tokens are JWTs (short TTL); refresh tokens are opaque random,
+  stored hashed (sha256) in DB.
+- `JwtAuthGuard` (Bearer access-token verification → `req.auth`),
+  `RolesGuard` + `@Roles(...)`, `@CurrentUserId`.
+- Auth API live: `/api/v1/auth/{register,login,refresh,logout,me}`.
+- Unit tests added for auth.service + roles.guard.
+
+### Verification (executed)
+- `npm run typecheck` → exit 0; `npm run build` → exit 0.
+- `npm test` → 4 suites / 12 tests PASS.
+- Live E2E curl: register ✓; me with token ✓; me without token → 401 ✓;
+  refresh rotation (new token differs) ✓; refresh-token reuse → UNAUTHORIZED ✓
+  and post-reuse new token also revoked ✓.
+- Pushed to GitHub `rajrani-web` → commit `fcc6682`.
+
+### Notes / debt
+- bcryptjs (pure JS) used for password hashing.
+- ABAC / org–tenant isolation / step-up auth deferred to later work.
+- `.env` local only (gitignored); GitHub token must be rotated by owner.
