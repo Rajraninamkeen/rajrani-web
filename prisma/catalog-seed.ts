@@ -1,0 +1,212 @@
+// Bilokat catalog seed content (local dev/test fixtures only).
+// Mirrors landing-page/src/data/products.ts so the API can serve the SAME data
+// the frontend currently hardcodes. Category slugs match the landing filter tabs.
+
+export interface SeedProduct {
+  id: string;
+  slug: string;
+  name: string;
+  tagline: string;
+  description: string;
+  category: 'bestseller' | 'spicy' | 'mixtures' | 'healthy' | 'gifts';
+  price: number;
+  originalPrice: number;
+  weight: string;
+  rating: number;
+  reviewCount: number;
+  image: string;
+  spiceLevel: 1 | 2 | 3 | 4; // 1=MILD 2=MEDIUM 3=SPICY 4=FIERY
+  isNew?: boolean;
+  isBestseller?: boolean;
+  stockLeft: number;
+  regionOrigin: string;
+  ingredients: string[];
+  nutritional: { calories: string; protein: string; fat: string; carbs: string };
+  pairingSuggestion: string;
+  customerFavTag: string;
+}
+
+export const SEED_CATEGORIES: { name: string; slug: string; description: string }[] = [
+  { name: 'Bestsellers', slug: 'bestseller', description: 'India’s most-loved Bilokat namkeens' },
+  { name: 'Spicy', slug: 'spicy', description: 'Fiery, clove & pepper-infused snacks' },
+  { name: 'Mixtures', slug: 'mixtures', description: 'Crunchy traditional Indian mixtures' },
+  { name: 'Healthy', slug: 'healthy', description: 'Roasted, protein-rich & zero-oil bites' },
+  { name: 'Gifts', slug: 'gifts', description: 'Festive hampers & luxury gift boxes' },
+];
+
+export const SEED_PRODUCTS: SeedProduct[] = [
+  {
+    id: 'ratlami-sev',
+    slug: 'bilokat-royal-ratlami-sev',
+    name: 'Bilokat Royal Ratlami Sev',
+    tagline: 'Signature Clove-Infused Melt-in-Mouth Sev',
+    price: 189,
+    originalPrice: 240,
+    weight: '400g Zip-Pouch',
+    rating: 4.9,
+    reviewCount: 3820,
+    image: '/images/bilokat-hero-pack.jpg',
+    category: 'spicy',
+    spiceLevel: 4,
+    isBestseller: true,
+    stockLeft: 12,
+    regionOrigin: 'Ratlam, Madhya Pradesh',
+    ingredients: ['Gram Flour (Besan)', '100% Pure Cold-Pressed Peanut Oil', 'Heirloom Laung (Clove)', 'Kali Mirch (Black Pepper)', 'Ajwain', 'Rock Salt'],
+    nutritional: { calories: '162 kcal / 30g', protein: '4.2g', fat: '9.8g (0g Trans Fat)', carbs: '13.5g' },
+    description: 'Craved across all 28 states of India! Handcrafted using the legendary century-old Ratlam recipe with rich clove notes, spicy pepper kick, and zero palm oil.',
+    pairingSuggestion: 'Perfect topping for Poha, Sev Tamatar Sabzi, or simply with hot Ginger Masala Chai.',
+    customerFavTag: '#1 Best Seller in India',
+  },
+  {
+    id: 'shahi-kaju-mixture',
+    slug: 'bilokat-shahi-rajwadi-kaju-blend',
+    name: 'Bilokat Shahi Rajwadi Kaju Blend',
+    tagline: 'Rich Roasted Cashews, Almonds & Crisp Flakes',
+    price: 299,
+    originalPrice: 399,
+    weight: '350g Zip-Pouch',
+    rating: 4.9,
+    reviewCount: 2450,
+    image: '/images/bilokat-assorted-box.jpg',
+    category: 'bestseller',
+    spiceLevel: 2,
+    isBestseller: true,
+    stockLeft: 8,
+    regionOrigin: 'Rajwadi Jodhpur Heritage',
+    ingredients: ['Jumbo Goa Cashews (25%)', 'California Almonds (15%)', 'Spiced Poha Flakes', 'Melon Seeds', 'Black Raisins', 'Amchur', 'Cold-Pressed Peanut Oil'],
+    nutritional: { calories: '175 kcal / 30g', protein: '5.1g', fat: '11.2g', carbs: '12.0g' },
+    description: 'The ultimate royal indulgence. Loaded with premium Whole Roasted Cashews and California Almonds tossed with sweet & savory aromatic spices.',
+    pairingSuggestion: 'Must-have for evening party hosting, festive celebrations & luxury cocktail hours.',
+    customerFavTag: 'Party Favorite',
+  },
+  {
+    id: 'khatta-meetha-delight',
+    slug: 'bilokat-malwa-khatta-meetha-mixture',
+    name: 'Bilokat Malwa Khatta Meetha Mixture',
+    tagline: 'Sweet, Tangy & Irresistibly Crunchy Blend',
+    price: 169,
+    originalPrice: 220,
+    weight: '400g Zip-Pouch',
+    rating: 4.8,
+    reviewCount: 1890,
+    image: 'https://images.pexels.com/photos/9557672/pexels-photo-9557672.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940',
+    category: 'mixtures',
+    spiceLevel: 1,
+    isBestseller: true,
+    stockLeft: 19,
+    regionOrigin: 'Indore Malwa Special',
+    ingredients: ['Crispy Sev', 'Fried Peanuts', 'Sweet Raisins', 'Crispy Rice Flakes', 'Tangy Mango Powder', 'Organic Jaggery Spice Mix'],
+    nutritional: { calories: '150 kcal / 30g', protein: '3.8g', fat: '8.2g', carbs: '15.1g' },
+    description: 'The golden balance of tangy dry mango, sweet raisins, and crunchy savory flakes. Loved by kids and grandparents alike!',
+    pairingSuggestion: 'Enjoy as a guilt-free 4 PM office snack or movie night accompaniment.',
+    customerFavTag: 'All-Age Favorite',
+  },
+  {
+    id: 'bikaneri-aloo-bhujia',
+    slug: 'bilokat-bikaneri-royal-aloo-bhujia',
+    name: 'Bilokat Bikaneri Royal Aloo Bhujia',
+    tagline: 'Super Crisp Potato & Moth Bean Crisps',
+    price: 159,
+    originalPrice: 199,
+    weight: '400g Zip-Pouch',
+    rating: 4.9,
+    reviewCount: 2980,
+    image: 'https://images.pexels.com/photos/34217297/pexels-photo-34217297.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940',
+    category: 'spicy',
+    spiceLevel: 3,
+    isBestseller: true,
+    stockLeft: 15,
+    regionOrigin: 'Bikaner, Rajasthan',
+    ingredients: ['Fresh Potato Starch', 'Moth Bean Flour', 'Ghee Infused Spice Dust', 'Peanut Oil', 'Hing (Asafoetida)', 'Sendha Namak'],
+    nutritional: { calories: '158 kcal / 30g', protein: '3.5g', fat: '9.0g', carbs: '14.2g' },
+    description: 'Extruded to paper-thin crispness, fried to light golden hue in pure peanut oil, and dusted with hing and tangy mint pepper.',
+    pairingSuggestion: 'Scatter over Uttapam, Parathas, Cheese Toast, or eat straight out of the pack.',
+    customerFavTag: 'Crunch Champions',
+  },
+  {
+    id: 'roasted-peri-makhana',
+    slug: 'bilokat-roasted-peri-peri-foxnut',
+    name: 'Bilokat Roasted Peri-Peri Foxnut (Makhana)',
+    tagline: '100% Roasted, Zero Oil, Protein-Packed Crunch',
+    price: 249,
+    originalPrice: 320,
+    weight: '150g Jar Pack',
+    rating: 4.8,
+    reviewCount: 1120,
+    image: 'https://images.pexels.com/photos/18301125/pexels-photo-18301125.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940',
+    category: 'healthy',
+    spiceLevel: 2,
+    isNew: true,
+    stockLeft: 23,
+    regionOrigin: 'Mithila Bihar Artisanal',
+    ingredients: ['Jumbo Foxnuts (Phool Makhana)', 'Cold-Pressed Olive Oil Spray', 'Fiery Peri-Peri Spice Mix', 'Himalayan Pink Salt', 'Garlic & Herb Seasoning'],
+    nutritional: { calories: '110 kcal / 30g', protein: '4.8g', fat: '3.1g', carbs: '16.0g' },
+    description: 'Jumbo premium Foxnuts roasted with olive oil spray and dusted with spicy tangy Peri Peri spices. Zero guilt, high fiber & protein.',
+    pairingSuggestion: 'Ideal for workout sessions, late-night study marathons & keto diets.',
+    customerFavTag: 'Fitness Enthusiast Pick',
+  },
+  {
+    id: 'nylon-sev-gujarati',
+    slug: 'bilokat-silk-nylon-sev',
+    name: 'Bilokat Silk Nylon Sev (Chaat Special)',
+    tagline: 'Extra Fine Ultra-Crisp Golden Filament Sev',
+    price: 139,
+    originalPrice: 175,
+    weight: '350g Zip-Pouch',
+    rating: 4.9,
+    reviewCount: 1640,
+    image: 'https://images.pexels.com/photos/38453276/pexels-photo-38453276.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940',
+    category: 'mixtures',
+    spiceLevel: 1,
+    stockLeft: 31,
+    regionOrigin: 'Surat, Gujarat',
+    ingredients: ['Refined Gram Flour', 'Pure Peanut Oil', 'Turmeric', 'Sea Salt', 'Mild Hing'],
+    nutritional: { calories: '152 kcal / 30g', protein: '4.0g', fat: '8.8g', carbs: '13.8g' },
+    description: 'Feather-light, whisper-thin golden nylon sev made specifically for street-style Bhel Puri, Sev Puri, Dahi Puri & Papdi Chaat at home.',
+    pairingSuggestion: 'The essential garnish for all home-made Indian street snacks and salads.',
+    customerFavTag: 'Chaat Master Must-Have',
+  },
+  {
+    id: 'roasted-diet-chana',
+    slug: 'bilokat-hing-jeera-roasted-chana',
+    name: 'Bilokat Hing Jeera Slow-Roasted Chana',
+    tagline: 'Crisp Roasted Black Chickpeas with Asafoetida & Cumin',
+    price: 149,
+    originalPrice: 189,
+    weight: '400g Zip-Pouch',
+    rating: 4.7,
+    reviewCount: 940,
+    image: 'https://images.pexels.com/photos/36631827/pexels-photo-36631827.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940',
+    category: 'healthy',
+    spiceLevel: 2,
+    stockLeft: 18,
+    regionOrigin: 'Kanpur Desi Roastery',
+    ingredients: ['Black Chickpeas (Kala Chana)', 'Roasted Cumin Powder', 'Pure Hing', 'Dry Mango Powder', 'Sendha Namak'],
+    nutritional: { calories: '125 kcal / 30g', protein: '6.8g', fat: '2.4g', carbs: '18.2g' },
+    description: 'Sand-roasted black chickpeas loaded with natural plant protein, dietary fiber, and seasoned with digestive cumin and hing.',
+    pairingSuggestion: 'Great for diabetics, gym-goers, and high-protein diet snackers.',
+    customerFavTag: 'High Protein Hero',
+  },
+  {
+    id: 'festive-royale-box',
+    slug: 'bilokat-grand-festive-gift-hamper',
+    name: 'Bilokat Grand All-India Festive Gift Hamper',
+    tagline: 'Luxury Wooden Box with 6 Handpicked Iconic Namkeens',
+    price: 899,
+    originalPrice: 1299,
+    weight: '1.8 kg Luxury Box',
+    rating: 5.0,
+    reviewCount: 880,
+    image: '/images/bilokat-assorted-box.jpg',
+    category: 'gifts',
+    spiceLevel: 2,
+    isBestseller: true,
+    stockLeft: 5,
+    regionOrigin: 'Royal Pan-India Collection',
+    ingredients: ['Ratlami Sev', 'Shahi Kaju Blend', 'Khatta Meetha Mixture', 'Bikaneri Aloo Bhujia', 'Peri Peri Makhana', 'Nylon Sev'],
+    nutritional: { calories: 'Varies by pack', protein: 'Assorted', fat: 'Zero Palm Oil', carbs: 'Assorted' },
+    description: 'An extraordinary gift box featuring India’s top 6 regional namkeens in air-tight tin containers with custom gold foil greeting card.',
+    pairingSuggestion: 'Ideal gift for Weddings, Diwali, Corporate Gifting & Family Gatherings.',
+    customerFavTag: 'Top Rated Gift Item',
+  },
+];

@@ -182,16 +182,23 @@ model Product {
   regionOrigin    String? // seller-declared origin
   status          ProductStatus    @default(DRAFT)
   visibility      VisibilityStatus @default(HIDDEN)
-  // Reference prices (source of truth for display). Variant-level prices live on variants.
+  // Selling price (authoritative source of truth). originalPrice is the MRP
+  // shown as strike-through. weightLabel is the pack weight for the default unit.
   basePrice       Decimal          @db.Decimal(10, 2)
-  // Weight options handled via variants.
+  originalPrice   Decimal?         @db.Decimal(10, 2)
+  weightLabel     String? // e.g. "400g Zip-Pouch"
   spiceLevel      SpiceLevel?
   ingredients     String[]         @default([]) // stored as JSON array column
   nutritional     Json? // calories/protein/fat/carbs
+  // Aggregate review snapshot (kept current by the reviews service when present).
+  ratingAvg       Float            @default(0)
+  reviewCount     Int              @default(0)
   stockStatus     StockStatus      @default(OUT_OF_STOCK)
   stockOnHand     Int              @default(0)
   isBestseller    Boolean          @default(false)
   isNew           Boolean          @default(false)
+  pairingSuggestion String?
+  customerFavTag  String?
   publishedAt     DateTime?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
