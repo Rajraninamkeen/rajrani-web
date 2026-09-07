@@ -150,6 +150,7 @@ model User {
   sessions  UserSession[]
   carts     Cart[]
   orders    Order[]
+  codVerifications CodVerification[]
 
   @@map("users")
 }
@@ -399,6 +400,8 @@ model Order {
 
   items   OrderItem[]
   history OrderStatusHistory[]
+  payment Payment?
+  codVerification CodVerification?
 
   @@index([userId])
   @@index([status])
@@ -437,3 +440,121 @@ model OrderStatusHistory {
   @@map("order_status_history")
 }
 
+
+// --- Session 05: online payment intent + COD verification (DB-Design §§64-71) ---
+
+enum PaymentState {
+  INITIATED
+  PENDING
+  AUTHORIZED
+  CONFIRMED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentTransactionType {
+  CHARGE
+  CAPTURE
+  REFUND
+  REVERSAL
+}
+
+enum CodVerificationStatus {
+  PENDING_CUSTOMER_OTP
+  OTP_VERIFIED
+  CONFIRMED
+  REJECTED
+  EXPIRED
+}
+
+// Server-authoritative record of a payment intent for an order.
+// Never store raw card/credentials here (DB-Design §64).
+model Payment {
+  id                String   @id @default(cuid())
+  orderId           String   @unique
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentReference  String   @unique // internal PAY-XXXX reference
+  provider          String   @default("sandbox") // pluggable gateway (sandbox/razorpay/...)
+  method            PaymentMethod
+  state             PaymentState @default(PENDING)
+  amount            Decimal  @db.Decimal(12, 2)
+  currency          String   @default("INR")
+  providerPaymentId String? // gateway-side payment/intent id
+  providerCaptureId String?
+  idempotencyKey    String?  @unique // to safely retry confirm/capture
+  errorCode         String?
+  errorMessage      String?
+  expiresAt         DateTime?
+  confirmedAt       DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  transactions PaymentTransaction[]
+  webhooks     PaymentWebhook[]
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+// Ledger-style record of each authoritative gateway transaction (DB-Design §68).
+model PaymentTransaction {
+  id                String                @id @default(cuid())
+  paymentId         String
+  payment           Payment               @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  transactionType   PaymentTransactionType
+  amount            Decimal               @db.Decimal(12, 2)
+  currency          String                @default("INR")
+  providerReference String?
+  status            String                @default("SUCCESS") // SUCCESS | FAILED
+  metadata          Json?
+  createdAt         DateTime              @default(now())
+
+  @@index([paymentId])
+  @@map("payment_transactions")
+}
+
+// Immutable inbound webhook/confirm event log. UNIQUE(provider, providerEventId)
+// provides idempotency; signature_verified + payload_hash support audit (DB-Design §67).
+model PaymentWebhook {
+  id                String   @id @default(cuid())
+  paymentId         String?
+  payment           Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  provider          String   @default("sandbox")
+  providerEventId   String
+  eventType         String
+  signatureVerified Boolean  @default(false)
+  payloadHash       String?
+  processingStatus  String   @default("RECEIVED") // RECEIVED | PROCESSED | FAILED | IGNORED
+  failureReason     String?
+  receivedAt        DateTime @default(now())
+  processedAt       DateTime?
+
+  @@unique([provider, providerEventId])
+  @@map("payment_webhooks")
+}
+
+// COD verification record (DB-Design §69). Only a hash of the OTP is stored and
+// it is expired quickly; the raw code is never persisted.
+model CodVerification {
+  id                String                 @id @default(cuid())
+  orderId           String                 @unique
+  order             Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User                   @relation(fields: [userId], references: [id])
+  primaryContact    String?
+  secondaryContact  String?                // the mobile being OTP-verified
+  status            CodVerificationStatus  @default(PENDING_CUSTOMER_OTP)
+  otpHash           String?
+  otpExpiresAt      DateTime?
+  otpAttempts       Int                    @default(0)
+  decision          String?
+  decisionReason    String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  completedAt       DateTime?
+
+  @@index([orderId])
+  @@map("cod_verifications")
+}
