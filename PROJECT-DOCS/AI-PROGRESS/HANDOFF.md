@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Tech upgrade — Prisma 6→7.10 (stable) |
-| STATUS | COMPLETE (verified end-to-end) |
-| NEXT SESSION | Session 04 — Commerce: cart + checkout + orders |
-| NEXT WORKFLOW | Backend cart (guest/user) → checkout → order creation + status; reuse catalog source-of-truth for pricing |
+| CURRENT SESSION | Session 04 — Commerce: cart + checkout + orders (server-authoritative) |
+| STATUS | COMPLETE (unit tests 26 pass; live order place/cancel verified) |
+| NEXT SESSION | Reviews, or next commerce/payments module per priority |
+| NEXT WORKFLOW | Product reviews (rating avg refresh), or multi-seller split-cart / buy-now / payments; reuse commerce source-of-truth pricing + transactional patterns |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It
@@ -30,20 +30,23 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
 - Schema datasource has NO `url` (Prisma 7). CLI URL in `prisma.config.ts`;
   runtime passes `adapter: new PrismaPg({ connectionString })` to PrismaClient.
 - Add a field/model → `prisma generate`; migrate via `prisma migrate dev`
-  (interactive) or in sandbox `prisma migrate diff --from-url ... --to-schema-datamodel`
-  then psql apply + record in `_prisma_migrations`; if `migrate deploy` complains,
-  remove stray rows and `prisma migrate resolve --applied <name>`.
+  (interactive) or in sandbox `prisma migrate diff --from-config-datasource
+  --to-schema prisma/schema.prisma --script` (`--from-url` was removed in Prisma 7),
+  then psql apply + record a row in `_prisma_migrations` (sha256 checksum,
+  applied_steps_count 1); if `migrate deploy` complains, remove stray rows and
+  `prisma migrate resolve --applied <name>`.
 
-## WHAT WAS VERIFIED (most recent pass)
-- `prisma validate`/`generate`/`migrate deploy` clean (5 migrations, no pending).
-- `npm run typecheck` 0; `npm run build` 0; `npm test` 5 suites / 15 PASS.
-- `prisma db seed` -> 5 categories / 8 products.
-- Live: health postgres up; catalog list/detail; auth register+login via adapter.
-- Pushed GitHub `rajrani-web` main (`06bfecd`); backup branch
-  `backup/session03-before-upgrade` exists.
+## WHAT WAS VERIFIED (most recent pass — Session 04)
+- `npm run typecheck` 0; `npm run build` 0; `npm test` 7 suites / 26 PASS.
+- `prisma migrate deploy` clean (7 migrations, no pending); coupons seeded.
+- Live: guest cart + merge-on-login; over-stock rejected; checkout preview with
+  coupon folding into grandTotal; place COD order (stock decrement, coupon usage,
+  cart CONVERTED, PLACED + history); list/get order; cancel restores stock.
+- Pushed GitHub `rajrani-web` main (latest `3348021`).
 
 ## WHAT WAS NOT VERIFIED
-- Cart/checkout/orders (Session 04). Product write/admin APIs. customer-web app.
+- Reviews, returns/refunds, payments gateway, multi-seller split-cart, buy-now,
+  fulfilment/delivery, product write/admin APIs, customer-web app.
 - Integration/E2E/security/load tests; no Docker runtime in sandbox.
 - `npm audit`: 6 findings, 5 high (dev/CLI tooling incl. Prisma `deepmerge-ts`
   + `@prisma/streams-local` requiring node>=22) — runtime not blocked; review Session 15.
@@ -61,10 +64,16 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
 - `src/prisma/prisma.service.ts`, `src/auth/auth.service.ts`,
   `src/catalog/catalog.service.ts` (generated-client imports + adapter)
 
-## DOCUMENTS TO READ (Session 04 — Commerce)
-- `00-MASTER-SPEC.md` (§28–§31 cart/buy-now/multi-seller cart/pricing, §33 checkout,
-  §38–§39 order + state machine)
-- `02-BUSINESS-WORKFLOWS.md` (§7 shopping workflow, §11–§18 cart/checkout/address)
-- `03-DATABASE-DESIGN.md` (commerce / payment / order table groups)
-- `04-API-SPECIFICATION.md` (§41–§50 cart/checkout/order APIs)
-- `09-SECURITY-SPEC.md` (§34 checkout integrity, §36 order state security)
+## FILES CHANGED (Session 04 — Commerce)
+- `prisma/schema.prisma` + migrations `commerce_models`, `cart_status_merged` +
+  `prisma/seed.ts` (coupons)
+- `src/commerce/*` (types, cart dto/service/controller, checkout dto,
+  order service, checkout controller, module)
+- `src/auth/guards/optional-jwt-auth.guard.ts`, `src/auth/auth.module.ts`,
+  `src/app.module.ts`
+- Tests: `src/commerce/cart.service.spec.ts`, `src/commerce/order.service.spec.ts`
+
+## DOCUMENTS TO READ (Session 05)
+- Reviews (rating refresh keeping `ratingAvg`/`reviewCount` in sync with orders),
+  or payments/COD workflow + delivery per `00-MASTER-SPEC.md`, `03-DATABASE-DESIGN.md`,
+  `04-API-SPECIFICATION.md`, `02-BUSINESS-WORKFLOWS.md`, `09-SECURITY-SPEC.md`.

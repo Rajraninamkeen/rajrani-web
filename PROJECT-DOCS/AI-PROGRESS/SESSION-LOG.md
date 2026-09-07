@@ -259,3 +259,47 @@ Chronological record. Append new sessions at the bottom; do not rewrite history.
 - `src/generated/` not committed; run `npx prisma generate` before `npm run build`.
 - Runtime Node require(esm) fine; Jest issue only affected a NestJS-12 path that
   was reverted.
+
+## Session 04 — Commerce (cart, checkout, orders) — 2026-09-07, `/home/user/rajrani-web`
+
+- **Objective:** Server-authoritative cart (guest + authenticated with
+  merge-on-login), checkout quote, and order creation/cancel with state history.
+  Backend never trusts frontend prices — always re-derives from product
+  `basePrice` and asserts stock.
+
+### What was delivered
+- **Schema/migrations:** commerce enums (`CartStatus` incl. `MERGED`,
+  `PaymentMethod`, `PaymentStatus`, `OrderStatus`, `OrderActor`) + models
+  `Cart`, `CartItem`, `Order`, `OrderItem`, `OrderStatusHistory`; `User`/`Product`
+  back-relations. 2 migrations applied+recorded: `commerce_models`,
+  `cart_status_merged` (total recorded = 7).
+- **Cart** (`/api/v1/cart`): guest (via `x-guest-session-id`) + authenticated
+  carts, `OptionalJwtAuthGuard` allows tokenless guest; merge guest→user on first
+  login marking old cart `MERGED`; add/update/remove/clear/get; only
+  APPROVED+LIVE products purchasable; stock asserted; reads always pull fresh
+  product price/media.
+- **Checkout/orders** (`/api/v1/checkout/preview`, `/checkout`,
+  `/orders`, `/orders/:id`, `/orders/:id/cancel`): preview quote computes
+  subtotal/discount/tax(5%)/delivery(flat ₹49, free ≥ ₹499)/coupon; coupon folds
+  into `grandTotal`; transactional checkout reserves stock via atomic decrement
+  (`updateMany where stockOnHand gte`), validates + increments coupon usage,
+  snapshots address, writes order + items + status history, marks cart
+  `CONVERTED`. Cancel only from PLACED/CONFIRMED, restores stock, records history.
+- **Coupons:** dev coupons seeded/upserted (`BILOKAT20`, `FLAT50`, `SAVE10`).
+- **Tests:** `cart.service.spec.ts`, `order.service.spec.ts` (price math, stock
+  guard, coupon → grandTotal). 26 tests passing across 7 suites.
+
+### Verification (executed)
+See VERIFICATION Session 04 table. Live E2E run: user register/login → add cart
+items → checkout preview (coupon reflected) → place COD order (stock decremented,
+coupon usage 1, cart CONVERTED, status PLACED) → list/get order → cancel (status
+CANCELLED, stock restored). Guest over-stock rejected; guest→login merge OK.
+
+### Decisions / fixes during session
+- Cart ids are cuid strings (DB `@default(cuid())`), so checkout `cartId` relaxed
+  from `@IsUUID()` to string — carts are not UUIDs.
+- Coupon fields consolidated into `PriceBreakdown` so preview/order `grandTotal`
+  reflects the coupon; removed duplicate top-level coupon fields.
+- NestJS 12 ESM + Jest remains unsuitable (reverted in prior pass); still on
+  NestJS 11/Jest CJS.
+

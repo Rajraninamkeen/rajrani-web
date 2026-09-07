@@ -101,3 +101,25 @@
 | live catalog + auth (register/login) via adapter | success |
 | `npm audit` | 6 findings incl. 5 high (largely Prisma CLI/`deepmerge-ts`-style dev tooling + `@prisma/streams-local` node>=22); runtime not blocked. Deferred to Session 15 review. |
 | NestJS 12 ESM + Jest | FAILED (reverted to NestJS 11; recorded) |
+
+## Session 04 — commerce (2026-09-07, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| migrations `commerce_models`, `cart_status_merged` (manual apply + record) | 7 migrations recorded in DB |
+| `npm run typecheck` | exit 0 |
+| `npm run build` | exit 0 |
+| `npm test` | 7 suites / 26 tests PASS (added cart.service, order.service) |
+| seed coupons upsert | BILOKAT20 (20%), FLAT50 (₹50), SAVE10 (10%) ACTIVE |
+| register + login user (Bearer) | success; customer role |
+| `GET /cart` (auth) → add items | empty cart created; subtotal 437 after 2 items |
+| over-stock add (qty 99 vs stock 12) | BAD_REQUEST "Only 12 units ... in stock" |
+| guest cart create + add | subtotal 567 (ratlami x3) |
+| authenticated `GET /cart` + guest header (merge) | items carried over; guest cart → MERGED |
+| `GET /checkout/preview?cartId&couponCode=BILOKAT20` | couponDiscount 87.4; grandTotal 420.45 (coupon applied) |
+| `POST /checkout` (COD + BILOKAT20) | order PLACED, orderNumber BK-*, paymentStatus COD_PENDING, grandTotal 420.45 |
+| DB post-order | nylon sev stock 31→29, bhujia 15→14; coupon usageCount 1; cart status CONVERTED |
+| `GET /orders` + `GET /orders/:id` | list 1; detail PLACED/COD/420.45 |
+| `POST /orders/:id/cancel` | status CANCELLED; stock restored (29→31, 14→15) |
+| `git push origin main` | commits `7424840`, `d8c6205`, `3037e31`, `3348021` pushed |
+

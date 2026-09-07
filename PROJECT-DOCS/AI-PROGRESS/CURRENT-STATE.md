@@ -11,14 +11,14 @@
 | Branch | `main` |
 | Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
 | Stack (final) | **NestJS 11.2.3 + TypeScript 5.9.3 + Prisma ORM 7.10.0** (driver adapter, prisma.config.ts) + PostgreSQL 17 |
-| Current session | Session: Tech upgrade — Prisma 6→7.10 (kept NestJS 11/TS 5.9 after research) |
-| Current phase | Backend modernization (Prisma 7) done; commerce feature modules remain |
-| Overall status | Backend (foundation + auth/RBAC + catalog API) on Prisma 7; all verified |
-| Completed sessions | 00 (audit), 01 (foundation), 02 (auth), 03 (catalog API), upgrade pass |
-| Next session | Session 04 — Commerce: cart + checkout + orders |
+| Current session | Session 04 — Commerce: cart + checkout + orders (server-authoritative) |
+| Current phase | Commerce (cart/checkout/orders) done; reviews + remaining platform modules deferred |
+| Overall status | Backend (foundation + auth/RBAC + catalog + commerce cart/checkout/orders) on Prisma 7; all verified |
+| Completed sessions | 00 (audit), 01 (foundation), 02 (auth), 03 (catalog API), upgrade pass, 04 (commerce cart/checkout/orders) |
+| Next session | Reviews, or further commerce/payments per priority |
 | Active blockers | Owner to rotate GitHub token; keep `rajrani-web` canonical |
 | Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored (run `prisma generate` before build) |
-| Last verification | typecheck/build OK; `npm test` 15 passing; `prisma migrate deploy` clean (5 migrations); live endpoints OK (2026-09-07) |
+| Last verification | typecheck/build OK; `npm test` 26 passing; migrations clean (7 recorded); live cart→checkout→order→cancel E2E OK (2026-09-07) |
 | Repository health | pushed to GitHub (`06bfecd`); no committed secrets |
 
 > ## IMPORTANT PRODUCT DECISION (owner)
@@ -52,16 +52,27 @@ multi-app platform.
     the landing-page catalog. Product schema gained display fields
     (originalPrice, weightLabel, ratingAvg, reviewCount, pairingSuggestion,
     customerFavTag). Migration `20260907120621_product_catalog_display_fields`.
+  - Session 04: **Commerce — cart, checkout, orders** (server-authoritative):
+    guest + authenticated carts with merge-on-login (`OptionalJwtAuthGuard` +
+    `x-guest-session-id`), cart add/update/remove/clear under `/api/v1/cart`;
+    checkout quote/preview that always re-derives price from DB product
+    `basePrice` + asserts stock; transactional order placement (stock reserve via
+    atomic decrement, coupon validate+usage++, address snapshot, order items,
+    status history, cart → CONVERTED); list/get/cancel orders (cancel restores
+    stock). Dev coupons seeded (`BILOKAT20`, `FLAT50`, `SAVE10`). Commerce tables
+    via 2 migrations (`commerce_models`, `cart_status_merged`).
 
 ### Absent (per spec) / deferred
-- No cart/checkout/order endpoints yet (Session 04+).
+- No reviews, returns/refunds, payments gateway, multi-seller split-checkout,
+  fulfilment/delivery, or buy-now yet.
 - No ABAC/organization/tenant isolation, step-up auth (deferred to later auth work).
 - No `customer-web` full application (multi-page with account, orders, etc.).
 - No `seller-web`, `catalog-publishing-web`, `support-web`, `delivery-web`,
   `finance-web`, `control-web`, `analytics-web` applications.
 - No Redis-backed caching/jobs, no event bus / outbox yet.
-- No payments, COD, delivery, returns, refunds, settlements, AI, analytics, or
-  audit implementation.
+- No payments gateway integration, COD cash-collection workflow, delivery,
+  returns, refunds, settlements, AI, analytics, or audit implementation.
+  (Order placement supports COD/PREPAID intent with `COD_PENDING`/`PENDING`.)
 - No integration/E2E/security tests yet (only backend unit tests exist).
 - No CI/CD, no Docker runtime available in sandbox (docker-compose file is
   written; Postgres 17 + Redis used locally).
