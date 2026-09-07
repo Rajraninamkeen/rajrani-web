@@ -103,3 +103,29 @@ export interface CodVerificationPublic {
   devOtp?: string | null; // SANDBOX only: simulated OTP for local/dev verification
   completedAt?: string | null;
 }
+
+export interface RefundPublic {
+  id: string;
+  refundReference: string;
+  amount: number;
+  currency: string;
+  method: string;
+  status: string;
+  gatewayRef?: string | null;
+  initiatedAt: string;
+  completedAt?: string | null;
+}
+
+export interface ReturnRequestPublic {
+  id: string;
+  orderId: string;
+  orderNumber?: string;
+  status: string;
+  reasonCode: string;
+  reasonNote?: string | null;
+  requestedAt: string;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
+  decisionReason?: string | null;
+  refund?: RefundPublic | null;
+}
