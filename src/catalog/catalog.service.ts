@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { CategoryStatus, Product, Prisma, SpiceLevel, VisibilityStatus } from '@prisma/client';
+import { CategoryStatus, Product, Prisma, SpiceLevel, VisibilityStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListProductsQuery } from './dto/list-products.query';
 import {

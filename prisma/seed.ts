@@ -1,10 +1,18 @@
 // Bilokat local development seed (fixtures only — never used as production data).
 // Populates categories + products that mirror the landing-page catalog so the
 // public API can serve the SAME data the frontend currently hardcodes.
-import { PrismaClient, Prisma, ProductStatus, VisibilityStatus, SpiceLevel, StockStatus } from '@prisma/client';
+import { PrismaClient, Prisma, ProductStatus, VisibilityStatus, SpiceLevel, StockStatus } from '../src/generated/prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { SEED_CATEGORIES, SEED_PRODUCTS } from './catalog-seed';
 
-const prisma = new PrismaClient();
+// Prisma ORM 7 requires a driver adapter for the connection.
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({
+    connectionString:
+      process.env.DATABASE_URL ??
+      'postgresql://bilokat:bilokat_dev@localhost:5432/bilokat',
+  }),
+});
 
 const NUM_TO_SPICE: Record<number, SpiceLevel> = {
   1: 'MILD',

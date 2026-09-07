@@ -1,13 +1,27 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '../generated/prisma/client';
 
+// Prisma ORM 7: the client is Rust-free and requires a driver adapter for the
+// connection. We supply PrismaPg built from the configured DATABASE_URL.
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
 
+  constructor(config: ConfigService) {
+    super({
+      adapter: new PrismaPg({
+        connectionString:
+          config.get<string>('databaseUrl') ??
+          'postgresql://bilokat:bilokat_dev@localhost:5432/bilokat',
+      }),
+    });
+  }
+
   async onModuleInit(): Promise<void> {
     await this.$connect();
-    this.logger.log('Connected to PostgreSQL');
+    this.logger.log('Connected to PostgreSQL (Prisma 7 + PrismaPg adapter)');
   }
 
   async onModuleDestroy(): Promise<void> {
