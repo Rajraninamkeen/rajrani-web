@@ -1,5 +1,26 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { OrderService } from './order.service';
+
+function orderRow(id = 'o1') {
+  return {
+    id,
+    orderNumber: 'BK-X',
+    userId: 'u1',
+    status: 'PLACED',
+    paymentMethod: 'COD',
+    paymentStatus: 'COD_PENDING',
+    placedAt: new Date('2026-09-07T10:00:00Z'),
+    subtotal: dec(437),
+    discountTotal: dec(0),
+    taxTotal: dec(21.85),
+    deliveryTotal: dec(49),
+    grandTotal: dec(507.85),
+    couponDiscount: dec(0),
+    couponCode: null,
+    addressSnapshot: {},
+    items: [],
+  };
+}
 
 function dec(n: number) {
   const minus = (b: { toNumber(): number }) => dec(n - b.toNumber());
@@ -31,14 +52,14 @@ describe('OrderService', () => {
   let prisma: any;
   let service: OrderService;
 
-  function buildTx(rows: any[], stockSucceeds = true) {
+  function buildTx(rows: any[], stockSucceeds = true, cartClaimable = true) {
     tx = {
       cartItem: { findMany: jest.fn().mockResolvedValue(rows) },
       product: { updateMany: jest.fn().mockResolvedValue({ count: stockSucceeds ? 1 : 0 }) },
       coupon: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
       orderItem: { findMany: jest.fn().mockResolvedValue([]) },
       orderStatusHistory: { create: jest.fn() },
-      cart: { update: jest.fn() },
+      cart: { updateMany: jest.fn().mockResolvedValue({ count: cartClaimable ? 1 : 0 }) },
       order: {
         create: jest.fn(async (args: any) => ({
           id: 'o1',
@@ -66,7 +87,7 @@ describe('OrderService', () => {
     prisma = {
       cart: { findFirst: jest.fn().mockResolvedValue({ id: 'c1', status: 'ACTIVE' }) },
       coupon: { findUnique: jest.fn() },
-      order: { findMany: jest.fn(), findFirst: jest.fn() },
+      order: { findMany: jest.fn(), findFirst: jest.fn(), count: jest.fn() },
       orderItem: { findMany: jest.fn() },
       product: { update: jest.fn() },
       orderStatusHistory: { create: jest.fn() },
@@ -153,5 +174,69 @@ describe('OrderService', () => {
     expect(result.price.couponDiscount).toBe(50);
     expect(result.price.grandTotal).toBe(314);
     expect(t.coupon.update).toHaveBeenCalled(); // usage increment
+  });
+
+  it('conflicts when the cart is not active (e.g. already converted)', async () => {
+    prisma.cart.findFirst.mockResolvedValue({ id: 'c1', status: 'CONVERTED' });
+    const t = buildTx([], true);
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(t));
+    await expect(
+      service.checkout('u1', { cartId: 'c1', paymentMethod: 'COD', address: addr() } as never),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('conflicts when the cart was already claimed inside the transaction (double-checkout race)', async () => {
+    const rows = [
+      { id: 'i1', quantity: 1, product: productRow({ id: 'p1', name: 'Sev', price: 100, stock: 50 }) },
+    ];
+    // Cart is ACTIVE up front but the in-transaction claim fails => another checkout won.
+    const t = buildTx(rows, true, false);
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(t));
+    await expect(
+      service.checkout('u1', { cartId: 'c1', paymentMethod: 'COD', address: addr() } as never),
+    ).rejects.toThrow(ConflictException);
+    expect(t.cart.updateMany).toHaveBeenCalled();
+  });
+
+  it('lists user orders with pagination and total', async () => {
+    prisma.order.findMany.mockResolvedValue([orderRow('o1'), orderRow('o2')]);
+    prisma.order.count.mockResolvedValue(2);
+    const result = await service.listUserOrders('u1', { page: 1, limit: 1 });
+    expect(result.orders.length).toBe(2);
+    expect(result.total).toBe(2);
+    expect(result.page).toBe(1);
+    expect(result.limit).toBe(1);
+    expect(result.totalPages).toBe(2);
+    // status filter is forwarded to the query
+    await service.listUserOrders('u1', { status: 'CANCELLED' as never });
+    expect(prisma.order.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: { userId: 'u1', status: 'CANCELLED' } }),
+    );
+  });
+
+  it('rejects cancelling an order that is no longer cancellable', async () => {
+    prisma.order.findFirst.mockResolvedValue({ ...orderRow(), status: 'DELIVERED' });
+    await expect(service.cancelOrder('u1', 'o1')).rejects.toThrow(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('does not double-restore stock when a concurrent cancel already won', async () => {
+    prisma.order.findFirst.mockResolvedValue(orderRow());
+    const items = [
+      { productId: 'p1', quantity: 2 },
+      { productId: 'p2', quantity: 1 },
+    ];
+    const t = {
+      order: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }), // guarded transition lost
+        findUniqueOrThrow: jest.fn(),
+      },
+      orderItem: { findMany: jest.fn().mockResolvedValue(items) },
+      product: { update: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+    };
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(t));
+    await expect(service.cancelOrder('u1', 'o1')).rejects.toThrow(ConflictException);
+    expect(t.product.update).not.toHaveBeenCalled(); // stock untouched on lost race
   });
 });

@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { OrderService } from './order.service';
+import { OrderListQuery } from './commerce.types';
 import { CheckoutDto } from './dto/checkout.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUserId } from '../auth/decorators/current-user.decorator';
@@ -23,8 +24,17 @@ export class CheckoutController {
   }
 
   @Get('orders')
-  list(@CurrentUserId() userId: string) {
-    return this.orders.listUserOrders(userId);
+  list(
+    @CurrentUserId() userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.orders.listUserOrders(userId, {
+      page: page !== undefined ? Number(page) : undefined,
+      limit: limit !== undefined ? Number(limit) : undefined,
+      status: status as OrderListQuery['status'],
+    });
   }
 
   @Get('orders/:id')

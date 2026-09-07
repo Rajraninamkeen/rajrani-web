@@ -1,10 +1,12 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import {
   Cart,
+  CartStatus,
   Coupon,
   CouponStatus,
   CouponType,
@@ -17,7 +19,13 @@ import {
   Prisma,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrderItemPublic, OrderPublic, PriceBreakdown } from './commerce.types';
+import {
+  OrderItemPublic,
+  OrderListQuery,
+  OrderListResult,
+  OrderPublic,
+  PriceBreakdown,
+} from './commerce.types';
 import { CheckoutDto } from './dto/checkout.dto';
 
 const TAX_RATE = 0.05; // 5% GST on namkeen (India)
@@ -44,9 +52,21 @@ export class OrderService {
 
   /** Place an order transactionally: price, coupon, reserve stock, snapshot, history. */
   async checkout(userId: string, dto: CheckoutDto): Promise<OrderPublic> {
-    const cart = await this.ownActiveCart(userId, dto.cartId);
+    // Verify ownership + active status up front (distinct from "not found").
+    const cart = await this.assertClaimableCart(userId, dto.cartId);
 
     return this.prisma.$transaction(async (tx) => {
+      // Atomically claim the cart (ACTIVE -> CONVERTED). If another concurrent
+      // checkout already claimed it, this one aborts. The whole transaction rolls
+      // back on any later failure, so a failed checkout leaves the cart ACTIVE.
+      const claimed = await tx.cart.updateMany({
+        where: { id: cart.id, userId, status: 'ACTIVE' },
+        data: { status: 'CONVERTED' },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException('This cart has already been checked out');
+      }
+
       const quote = await this.calcQuote(tx, cart);
 
       let coupon: Coupon | undefined;
@@ -113,19 +133,41 @@ export class OrderService {
         include: { items: true },
       });
 
-      await tx.cart.update({ where: { id: cart.id }, data: { status: 'CONVERTED' } });
       return this.toPublic(order);
     });
   }
 
-  async listUserOrders(userId: string): Promise<OrderPublic[]> {
-    const orders = await this.prisma.order.findMany({
-      where: { userId },
-      include: { items: true },
-      orderBy: { placedAt: 'desc' },
-      take: 50,
-    });
-    return orders.map((o) => this.toPublic(o));
+  async listUserOrders(userId: string, query: OrderListQuery = {}): Promise<OrderListResult> {
+    const page = Math.max(1, Math.floor(query.page ?? 1));
+    const limit = Math.min(100, Math.max(1, Math.floor(query.limit ?? 20)));
+
+    const where: Prisma.OrderWhereInput = { userId };
+    if (query.status) {
+      const valid = Object.values(OrderStatus) as string[];
+      if (!valid.includes(query.status)) {
+        throw new BadRequestException(`Invalid order status "${query.status}"`);
+      }
+      where.status = query.status;
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: { items: true },
+        orderBy: { placedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return {
+      orders: rows.map((o) => this.toPublic(o)),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async getOrder(userId: string, id: string): Promise<OrderPublic> {
@@ -142,21 +184,26 @@ export class OrderService {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      const items = await tx.orderItem.findMany({ where: { orderId: order.id } });
+      // Guarded transition: only one cancellation can win, so a concurrent
+      // cancel cannot restore stock twice.
+      const cancelled = await tx.order.updateMany({
+        where: { id, userId, status: { in: [OrderStatus.PLACED, OrderStatus.CONFIRMED] } },
+        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() },
+      });
+      if (cancelled.count === 0) {
+        throw new ConflictException('Order is no longer cancellable');
+      }
+
+      const items = await tx.orderItem.findMany({ where: { orderId: id } });
       for (const it of items) {
         await tx.product.update({
           where: { id: it.productId },
           data: { stockOnHand: { increment: it.quantity } },
         });
       }
-      const up = await tx.order.update({
-        where: { id: order.id },
-        data: { status: OrderStatus.CANCELLED, cancelledAt: new Date() },
-        include: { items: true },
-      });
       await tx.orderStatusHistory.create({
         data: {
-          orderId: order.id,
+          orderId: id,
           fromStatus: order.status,
           toStatus: OrderStatus.CANCELLED,
           actor: OrderActor.CUSTOMER,
@@ -164,6 +211,7 @@ export class OrderService {
           reason: reason ?? 'Cancelled by customer',
         },
       });
+      const up = await tx.order.findUniqueOrThrow({ where: { id }, include: { items: true } });
       return up;
     });
     return this.toPublic(updated);
@@ -176,6 +224,16 @@ export class OrderService {
       where: { id: cartId, userId, status: 'ACTIVE' },
     });
     if (!cart) throw new NotFoundException('Cart not found');
+    return cart;
+  }
+
+  /** Ownership + active check for checkout, distinguishing missing vs stale cart. */
+  private async assertClaimableCart(userId: string, cartId: string): Promise<Cart> {
+    const cart = await this.prisma.cart.findFirst({ where: { id: cartId, userId } });
+    if (!cart) throw new NotFoundException('Cart not found');
+    if (cart.status !== CartStatus.ACTIVE) {
+      throw new ConflictException('This cart is not active or has already been checked out');
+    }
     return cart;
   }
 

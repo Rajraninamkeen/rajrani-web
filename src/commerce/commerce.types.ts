@@ -60,3 +60,17 @@ export interface OrderPublic {
   items: OrderItemPublic[];
   price: PriceBreakdown;
 }
+
+export interface OrderListQuery {
+  page?: number;
+  limit?: number;
+  status?: OrderStatus;
+}
+
+export interface OrderListResult {
+  orders: OrderPublic[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
