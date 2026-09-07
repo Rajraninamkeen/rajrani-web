@@ -398,6 +398,13 @@ Live E2E run — see VERIFICATION Session 05 table.
 ---
 
 ## Session 07 — Returns + refunds
+> **SUPERSEDED by Session 08:** Session 07 implemented a whole-order
+> (RequestRequest-wide) return/refund model. Session 08 reworked returns to be
+> item-level (select specific order items + quantities) with a full
+> pickup/scheduling + per-line inspection + per-item refund + `return_events`
+> audit lifecycle, and an order only becomes `REFUNDED` once the aggregate of its
+> refunds equals its grand total. Treat Session 08's flow as canonical; this whole-
+> order shape is superseded and is kept below only as an historical record.
 - **Date:** 2026-09-07
 - **Objective:** Open the exception transitions out of DELIVERED/RETURNED per the
   order state machine (§39/§40) and implement a backend-authoritative return &
@@ -436,3 +443,57 @@ Live E2E run — see VERIFICATION Session 05 table.
   paymentStatus REFUNDED / ledger shows CAPTURE + REFUND SUCCESS / ReturnRequest
   COMPLETED; double-complete 409; customer calling decision 403. See VERIFICATION
   Session 07 table.
+
+## Session 08 — Item-level returns + full pickup/inspection lifecycle
+- **Date:** 2026-09-07
+- **Objective:** Replace the whole-order return (Session 07) with item-level,
+  partial returns under the two Session 08 design decisions: (1) refunds are the
+  **proportional share of the order's grand total** allocated by line value and
+  server-authoritative (a full return of every line sums exactly to grandTotal);
+  (2) the full pickup + inspection + events lifecycle (DB-Design §§85-92 maps).
+- **Design decisions confirmed by owner (custom answers, not defaults):** refund
+  model = proportional share of grand total; workflow depth = full lifecycle
+  (events + pickup + inspection), over reviews / split-checkout / real gateway.
+- **Schema/migration `20260907134000_return_item_lifecycle`:** `ReturnStatus`
+  expanded to 9 states (…PICKUP_SCHEDULED/PICKED_UP/INSPECTION/
+  APPROVED_FOR_REFUND/CANCELLED); enums `InspectionVerdict`(PASS/PARTIAL_PASS/FAIL),
+  `ReturnEventType`, `ReturnItemStatus`, `RefundState` gained PROCESSING/SUCCESS/
+  FAILED; models `ReturnItem`(return_items), `ReturnEvent`(return_events),
+  `ReturnInspection`(return_inspections), `RefundTransaction`
+  (refund_transactions); `OrderItem.returnItems` rel and
+  `@@unique([returnRequestId, orderItemId])`. 10 migrations total; `migrate
+  deploy` clean.
+- **ReturnsService (canonical flow):** customer `request` selects order items +
+  quantities (ownership + DELIVERED + window + per-order-item already-in-flight
+  guards; `ReturnRequest` idempotency). Operator: `decision` approve/reject
+  (reject-reason mandatory) → `schedulePickup`/confirm → `markPickedUp` →
+  `inspect` per line PASS/PARTIAL_PASS(50%)/FAIL → auto
+  `APPROVED_FOR_REFUND` with server-amounted per-item refund
+  (`INSPECTION_PARTIAL_PASS_RATE = 0.5`; a PASS line refunds its share; a FAIL
+  line is removed from refundable) → `initiateRefund` (GATEWAY for PREPAID / COD
+  for cash; guard so cumulative never exceeds grand across partials) → sandbox
+  `completeRefund` writes `refund_transactions` SUCCESS and, only when the sum of
+  COMPLETED refunds reaches grandTotal, flips the order to
+  `REFUNDED`/`paymentStatus REFUNDED` + ReturnRequest `COMPLETED`. Partial
+  returns leave the order `DELIVERED`. `return_events` audit every transition
+  (REQUESTED→APPROVED→PICKUP_SCHEDULED→PICKED_UP→APPROVED_FOR_REFUND
+  →REFUND_INITIATED→REFUND_COMPLETED; sentinel `APPROVED_FOR_REFUND` reason
+  "Inspection complete"). Audit fix this session: in a fully-passing inspection
+  the redundant `INSPECTION` event was removed so `APPROVED_FOR_REFUND` is the
+  single recorded sentinel.
+- **Public API additions:** customer order items now expose `orderItemId` (the DB
+  order-item id) so customers can issue item-scoped returns; item-level
+  `CreateReturnDto`/`ReturnDecisionDto`/`InspectionDto`; `ReturnItemPublic`,
+  extended `ReturnRequestPublic`. RBAC: requests/decisions operator-gated; a
+  non-operator customer hitting the inspection endpoint is `403 FORBIDDEN`.
+- **Tests:** returns.service.spec rebuilt to item-level (17 cases): create scoped
+  to an order item+quantity, duplicate-in-flight, decision approve/reject, pickup
+  state guards, per-line inspect PASS/PARTIAL_PASS(50%)/FAIL, proportional refund
+  amount, aggregate full-return == grandTotal, initiate never exceeding grand
+  across partials, complete refund → order REFUNDED only when aggregate covers
+  grand. Full suite now 11 suites / 66 tests; typecheck + build clean.
+- **Live E2E:** product `khatta-meetha-delight` (2-unit PREPAID order grand ₹403.90
+  incl. delivery): Return #1 qty1 PASS → refund ₹201.95 COMPLETED, order stayed
+  DELIVERED/PAID; Return #2 remaining qty PASS → ₹201.95; cumulative 403.90 ==
+  grand → order auto-flipped to REFUNDED/REFUNDED. `refund_transactions` each
+  SUCCESS; customer-facing RBAC 403 verified. See VERIFICATION Session 08 table.

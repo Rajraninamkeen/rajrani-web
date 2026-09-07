@@ -204,3 +204,28 @@
 | `return_requests` | one REJECTED (DEFECTIVE) + one COMPLETED (QUALITY_ISSUE) |
 | `order_status_history` | full audit: PLACED→…→DELIVERED→RETURN_REQUESTED→DELIVERED→RETURN_REQUESTED→RETURNED→REFUND_PENDING→REFUNDED (customer + CONTROL actors) |
 | `git push origin main` | schema+backend+tests `20fb712` (+ AI-PROGRESS commit) pushed |
+
+## Session 08 — item-level returns + full pickup/inspection lifecycle (2026-09-07, `/home/user/rajrani-web`)
+
+> Supersedes Session 07's whole-order return model. Live evidence below uses
+> order `cmtr9ht8c0006k8nzbb2xerr3` (PREPAID, DELIVERED, grand ₹1887.90, single
+> line qty 2 @ ₹899) and the earlier two-partial order `cmtrbhlgm000276nztebf4vvr`
+> (grand ₹403.90) already held by the same two partial returns.
+
+| Command / check | Result |
+|---|---|
+| `npx prisma validate` / `generate` | schema valid; client regenerated |
+| migration `20260907134000_return_item_lifecycle` apply + ledger | applied; `prisma migrate deploy` clean (10) |
+| `npm test` | 11 suites / **66 tests** PASS (returns.service.spec rebuilt item-level — 17 tests) |
+| `npm run typecheck` / `build` | exit 0 |
+| customer `POST /api/v1/orders/:orderId/returns` with item+quantity (qty1/2) | ReturnRequest `REQUESTED`; `return_items` row (orderItemId, qty 1) |
+| non-operator calls inspection endpoint | 403 FORBIDDEN (RBAC) |
+| operator decision approve (with reason) | `APPROVED` |
+| operator `pickup` → `picked-up` | `PICKUP_SCHEDULED` → `PICKED_UP` |
+| operator inspection **PASS** (full pass path) | auto `APPROVED_FOR_REFUND`; per-item refundAmount **₹943.95** = half grand (proportional, qty1/2) |
+| operator `refund` initiate | Refund ₹943.95 GATEWAY PENDING |
+| operator `refund/complete` | Refund `COMPLETED`; ReturnRequest `COMPLETED`; `refund_transactions` SUCCESS 943.95 |
+| order after this partial return | still `DELIVERED` / `PAID` (not flipped — partial) |
+| `return_events` on a full-pass inspection (audit-fix regression) | `REQUESTED → APPROVED → PICKUP_SCHEDULED → PICKED_UP → APPROVED_FOR_REFUND → REFUND_INITIATED → REFUND_COMPLETED` — **no stray INSPECTION event** (pre-fix it appeared after APPROVED_FOR_REFUND) |
+| two-partial order `cmtrbhlgm000276nztebf4vvr` | Return#1 qty1 ₹201.95 + Return#2 qty1 ₹201.95; 2×201.95 = ₹403.90 == grand → order auto `REFUNDED`/`REFUNDED`; both refunds COMPLETED; both `refund_transactions` SUCCESS |
+| `git push origin main` | schema+backend+tests `f439879`; AI-PROGRESS docs in a following commit |
