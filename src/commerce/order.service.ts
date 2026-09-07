@@ -593,6 +593,11 @@ export class OrderService {
         itemCount: (o.items ?? []).filter((i) => i.sellerOrderId === so.id).length,
         subtotal: so.subtotal.toNumber(),
         grandTotal: so.grandTotal.toNumber(),
+        acceptedAt: so.acceptedAt?.toISOString() ?? null,
+        rejectedAt: so.rejectedAt?.toISOString() ?? null,
+        rejectionReason: so.rejectionReason ?? null,
+        shippedAt: so.shippedAt?.toISOString() ?? null,
+        deliveredAt: so.deliveredAt?.toISOString() ?? null,
       }));
     }
     return out;

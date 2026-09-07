@@ -11,14 +11,14 @@
 | Branch | `main` |
 | Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
 | Stack (final) | **NestJS 11.2.3 + TypeScript 5.9.3 + Prisma ORM 7.10.0** (driver adapter, prisma.config.ts) + PostgreSQL 17 |
-| Current session | Session 09 — Seller orgs + multi-seller catalog + split-checkout (seller_orders) core |
-| Current phase | Split-checkout core (B) done; seller onboarding/KYC, seller fulfilment-gating, per-seller delivery, payables/settlements, reviews, replacement remain |
-| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery, returns/refunds incl. item-level, multi-seller split-checkout + seller-ops) on Prisma 7; all verified |
-| Completed sessions | 00–04, upgrade pass, 05 (buy-now + payments + COD), 06 (fulfilment/delivery), 07 (returns/refunds), 08 (item-level returns + pickup/inspection lifecycle), 09 (seller orgs + split-checkout + seller-ops core) |
-| Next session | Seller onboarding/KYC + orgs, per-seller delivery/settlement/payables, replacement vs refund, reviews, or real payment-gateway provider |
+| Current session | Session 10 — Per-seller fulfilment gating + delivery markers |
+| Current phase | Seller split-checkout + per-seller fulfilment gate done; seller onboarding/KYC, settlements/payables, per-slice delivery/replacement, reviews remain |
+| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery, returns/refunds incl. item-level, multi-seller split-checkout + seller-ops + per-seller fulfilment gate) on Prisma 7; all verified |
+| Completed sessions | 00–04, upgrade pass, 05 (buy-now + payments + COD), 06 (fulfilment/delivery), 07 (returns/refunds), 08 (item-level returns + pickup/inspection lifecycle), 09 (seller orgs + split-checkout + seller-ops core), 10 (per-seller fulfilment gating + delivery markers) |
+| Next session | Seller onboarding/KYC + orgs, per-seller delivery/settlement/payables (incl. rejected-slice resolution), replacement vs refund, reviews, or real payment-gateway provider |
 | Active blockers | Owner to rotate GitHub token; keep `rajrani-web` canonical |
-| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments use the built-in **sandbox** gateway (pluggable provider) — real gateway + real refund execution deferred. Fulfilment/returns gated behind `OPERATOR`/`ADMIN`; SELLER role added for seller_orders ops (no onboarding/KYC or per-seller delivery/settlement yet). Seller onboarding/KYC, replacement vs refund, evidence upload, seller payables/settlements not implemented. |
-| Last verification | typecheck/build OK; `npm test` 76 passing (12 suites); migrate deploy clean (11); live multi-seller split-checkout: one COD order grand ₹710.85 split into seller_orders ₹396.90 (Bilokat) + ₹313.95 (Rajrani), Σ == grand; per-item seller names; seller1 accept→ACCEPTED, seller2 reject(with reason)→REJECTED, cross-seller 404, empty-reject 400, buyer 403, re-accept 400; order cancel cascades seller_orders→CANCELLED (buy-now single-seller 1 seller_order too); returns/refunds regression green (2026-09-07) |
+| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments use the built-in **sandbox** gateway (pluggable provider) — real gateway + real refund execution deferred. Fulfilment/returns gated behind `OPERATOR`/`ADMIN`; SELLER role added for seller_orders ops (no onboarding/KYC; seller_orders are single-level accept/reject; no per-slice settlement/payout ledger yet). Seller onboarding/KYC, replacement vs refund, evidence upload, seller payables/settlements not implemented. |
+| Last verification | typecheck/build OK; `npm test` 81 passing (12 suites); migrate deploy clean (12); live per-seller fulfilment gate: multi-seller order at PACKED, operator SHIPPED → 400 "Every seller must accept their slice… Not ready: Bilokat Kitchens (PLACED), Rajrani Select (PLACED)"; after both sellers ACCEPTED, SHIPPED → 200 then DELIVERED → 200; per-seller shippedAt & deliveredAt stamped (both slices); seller-ops order projection exposes the markers (2026-09-07) |
 | Repository health | pushed to GitHub (`main`); no committed secrets |
 
 > ## IMPORTANT PRODUCT DECISION (owner)
@@ -115,19 +115,30 @@ multi-app platform.
     seller's slices with order context, and `accept`/`reject` (reason mandatory)
     drive the seller_order lifecycle PLACED→ACCEPTED/REJECTED. Order cancellation
     cascades open seller_orders → CANCELLED. Returns/refunds/fulfilment keep
-    working on the order/orderItem level unchanged. Seller onboarding/KYC, per-seller
-    fulfilment gating + delivery, payables/settlements are consciously deferred.
+    working on the order/orderItem level unchanged.
+  - Session 10: **Per-seller fulfilment gating + delivery markers**. Migration
+    `20260907143713_seller_fulfilment_markers` adds `shippedAt`/`deliveredAt` to
+    seller_orders. The operator `fulfilment/advance` now enforces a per-seller
+    **acceptance gate**: before an order may reach SHIPPED / OUT_FOR_DELIVERY /
+    DELIVERED, every non-cancelled seller slice must be `ACCEPTED` — a still-`PLACED`
+    or `REJECTED` slice blocks shipping and the error names the blockers. When the
+    order is SHIPPED / DELIVERED the service stamps `shippedAt`/`deliveredAt` on the
+    accepted slices (order-level delivery covers accepted slices together). New
+    fields exposed on the order view and the seller-ops order projections.
+    Returns/refunds/order-level money unchanged.
 
 ### Absent (per spec) / deferred
 - No seller onboarding/KYC (applications/documents/status-history) or
-  org/organization_members, no per-seller delivery/fulfilment gating or
-  seller payables/settlement ledger (seller_amount on seller_order is a
-  placeholder basis), no reviews, no real payment-gateway provider
-  (razorpay/stripe) with live refund execution, and no real delivery-courier
-  integration yet.
+  org/organization_members, no per-slice shipment/delivery model or courier
+  handoff, no seller payables/settlement ledger (seller_amount on seller_order is
+  a placeholder basis; rejected-slice resolution path deferred), no reviews, no
+  real payment-gateway provider (razorpay/stripe) with live refund execution, and
+  no real delivery-courier integration yet.
 - Split-checkout core (multi-seller seller_orders + seller accept/reject + money
-  reconciliation) is done (Session 09); seller-facing order management beyond
-  accept/reject and read surfaces is not yet exposed.
+  reconciliation) is done (Session 09); seller_orders do not yet gate the order —
+  see Session 10: operator shipping now requires every non-cancelled seller slice
+  to be ACCEPTED (blocked by PLACED/REJECTED), with per-seller shippedAt/deliveredAt
+  markers stamped at order SHIPPED/DELIVERED.
 - Fulfilment/delivery/returns/refunds exist as internal operator flows
   (`OPERATOR`/`ADMIN`); no dedicated delivery/seller/finance role or real courier
   handoff yet.

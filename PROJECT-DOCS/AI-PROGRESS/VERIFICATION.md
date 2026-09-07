@@ -251,3 +251,18 @@
 | buy-now (single seller, nylon-sev) | order `CANCELLED` for cleanup; created exactly **1** seller_order |
 | returns/refunds/fulfilment regression | existing order-level flows green (suite) |
 | `git push origin main` | schema+backend+tests pushed (Session 09 commits) |
+
+## Session 10 — Per-seller fulfilment gating + delivery markers (2026-09-07, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| migration `20260907143713_seller_fulfilment_markers` + ledger | applied (12 total); `prisma migrate deploy` clean |
+| `npm test` | 12 suites / **81 tests** PASS (fulfilment.service.spec +5 gate/marker cases) |
+| `npm run typecheck` / `build` | exit 0 |
+| multi-seller order (Bilokat + Rajrani) set to PACKED, seller slices PLACED | — |
+| operator `POST /orders/:id/fulfilment/advance` {SHIPPED} before any seller accepts | **400** `Every seller must accept their slice before shipping. Not ready: Bilokat Kitchens (PLACED), Rajrani Select (PLACED)` |
+| seller1 `accept` its slice → seller2 `accept` its slice | both `ACCEPTED` |
+| operator advance {SHIPPED} (after acceptance) | 200 → order `SHIPPED`; `shippedAt` stamped on both accepted slices |
+| operator advance {DELIVERED} | 200 → order `DELIVERED`; `deliveredAt` stamped on both accepted slices |
+| seller-ops `GET /seller/orders` for the order | seller_order shows `shippedAt: true, deliveredAt: true` |
+| `git push origin main` | schema+backend+tests pushed (Session 10 commit) |

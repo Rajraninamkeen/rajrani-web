@@ -10,10 +10,20 @@ import {
   PaymentMethod,
   PaymentStatus,
   Prisma,
+  SellerOrderStatus,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrderPublic } from './commerce.types';
 import { OrderService } from './order.service';
+
+// Stages at which goods physically leave the warehouse / reach the customer.
+// From here every fulfil-required seller slice must have been ACCEPTED, because
+// the current delivery model ships the accepted slices of an order together.
+const SHIPMENT_STAGES: OrderStatus[] = [
+  OrderStatus.SHIPPED,
+  OrderStatus.OUT_FOR_DELIVERY,
+  OrderStatus.DELIVERED,
+];
 
 // Legal forward transitions for the fulfilment/delivery lifecycle (Master-Spec §39,
 // mapped onto this repo's leaner OrderStatus set).
@@ -70,6 +80,28 @@ export class FulfilmentService {
       }
     }
 
+    // Per-seller acceptance gate (Session 10): before shipping/delivering, every
+    // non-cancelled seller slice must be ACCEPTED. If a seller is still PLACED
+    // (hasn't accepted) or REJECTED (declined), the shared shipment can't go out.
+    let fulfilRequiredSellers: { id: string }[] = [];
+    if (SHIPMENT_STAGES.includes(to)) {
+      const slices = await this.prisma.sellerOrder.findMany({
+        where: { orderId },
+        include: { seller: true },
+      });
+      const toFulfil = slices.filter((so) => so.status !== SellerOrderStatus.CANCELLED);
+      const blockers = toFulfil.filter((so) => so.status !== SellerOrderStatus.ACCEPTED);
+      if (blockers.length > 0) {
+        const detail = blockers
+          .map((so) => `${so.seller.displayName} (${so.status})`)
+          .join(', ');
+        throw new BadRequestException(
+          `Every seller must accept their slice before shipping. Not ready: ${detail}`,
+        );
+      }
+      fulfilRequiredSellers = toFulfil.map((so) => ({ id: so.id }));
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const data: Prisma.OrderUpdateManyMutationInput = { status: to };
       if (to === OrderStatus.DELIVERED) {
@@ -83,6 +115,19 @@ export class FulfilmentService {
       // Guarded update so only a valid forward move wins (concurrency-safe).
       const res = await tx.order.updateMany({ where: { id: orderId, status: order.status }, data });
       if (res.count === 0) throw new ConflictException('Order state changed; please retry');
+
+      // Stamp each accepted seller slice with the shipment/delivery point-in-time.
+      if (to === OrderStatus.SHIPPED && fulfilRequiredSellers.length) {
+        await tx.sellerOrder.updateMany({
+          where: { orderId, status: SellerOrderStatus.ACCEPTED },
+          data: { shippedAt: new Date() },
+        });
+      } else if (to === OrderStatus.DELIVERED && fulfilRequiredSellers.length) {
+        await tx.sellerOrder.updateMany({
+          where: { orderId, status: SellerOrderStatus.ACCEPTED },
+          data: { deliveredAt: new Date() },
+        });
+      }
 
       await tx.orderStatusHistory.create({
         data: {

@@ -144,6 +144,8 @@ export class SellerOpsService {
       acceptedAt: so.acceptedAt?.toISOString() ?? null,
       rejectedAt: so.rejectedAt?.toISOString() ?? null,
       rejectionReason: so.rejectionReason ?? null,
+      shippedAt: so.shippedAt?.toISOString() ?? null,
+      deliveredAt: so.deliveredAt?.toISOString() ?? null,
       items: (so.items ?? []).map((i) => ({
         orderItemId: i.id,
         productName: i.productNameSnapshot,

@@ -546,3 +546,31 @@ Live E2E run — see VERIFICATION Session 05 table.
   Order cancel → seller_orders CANCELLED (ACCEPTED slice), REJECTED slice stays.
   buy-now (single seller) → exactly 1 seller_order. Returns/refunds/fulfilment
   regression green. See VERIFICATION Session 09.
+
+## Session 10 — Per-seller fulfilment gating + delivery markers
+- **Date:** 2026-09-07
+- **Objective (owner-selected):** connect the existing order-level fulfilment/delivery
+  machine to sellers — require every non-cancelled seller slice to be ACCEPTED
+  before an order ships/delivers, and record a per-seller shipment/delivery
+  point-in-time.
+- **Schema/migration `20260907143713_seller_fulfilment_markers`:** adds
+  `shippedAt`/`deliveredAt` (nullable) to `seller_orders`. 12 migrations total;
+  `migrate deploy` clean.
+- **FulfilmentService gate:** `SHIPMENT_STAGES` = {SHIPPED, OUT_FOR_DELIVERY,
+  DELIVERED}. On any advance into those stages the service reads the order's
+  seller_orders and requires every non-CANCELLED slice to be `ACCEPTED`; a still-
+  `PLACED` or `REJECTED` slice throws BadRequest naming the sellers (`…Not ready:
+  <seller> (PLACED/REJECTED)`). On SHIPPED it stamps `shippedAt` on accepted slices;
+  on DELIVERED it stamps `deliveredAt`. Existing confirmation (payment/OTP) gate and
+  guarded `updateMany` transitions are unchanged.
+- **Projections:** order view and seller-ops order projections now expose
+  `shippedAt`/`deliveredAt` (and acceptedAt/rejectedAt/rejectionReason) per slice.
+- **Tests:** fulfilment.service.spec extended (5 new: blocks SHIPPED when a slice is
+  REJECTED naming it; blocks when still PLACED; allows SHIPPED when all accepted and
+  stamps shippedAt; ignores CANCELLED slices; stamps deliveredAt at DELIVERED). Full
+  suite 12 suites / **81 tests**; typecheck + build clean.
+- **Live E2E:** multi-seller PREPAID order (Bilokat + Rajrani) driven to PACKED;
+  operator SHIPPED → 400 naming both PLACED sellers; seller1 + seller2 ACCEPT →
+  both ACCEPTED; operator SHIPPED → 200; operator DELIVERED → 200; both slices have
+  shippedAt + deliveredAt set; seller-ops order projection shows them. See
+  VERIFICATION Session 10.

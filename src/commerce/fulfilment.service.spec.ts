@@ -26,8 +26,13 @@ describe('FulfilmentService', () => {
         updateMany: jest.fn(async ({ where }: any) => ({ count: where.status === order.status ? 1 : 0 })),
         findUniqueOrThrow: jest.fn(async () => order),
       },
+      sellerOrder: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       orderStatusHistory: { create: jest.fn() },
     };
+  }
+
+  function sellerSlice(over: Record<string, any> = {}) {
+    return { id: 'so1', status: 'ACCEPTED', seller: { displayName: 'Bilokat Kitchens' }, ...over };
   }
 
   beforeEach(() => {
@@ -35,6 +40,7 @@ describe('FulfilmentService', () => {
     prisma = {
       order: { findUnique: jest.fn() },
       codVerification: { findUnique: jest.fn() },
+      sellerOrder: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn(),
     };
     service = new FulfilmentService(prisma, orders);
@@ -116,5 +122,65 @@ describe('FulfilmentService', () => {
     const hist = tx.orderStatusHistory.create.mock.calls[0][0].data;
     expect(hist.reason).toBeTruthy();
     expect(hist.actorId).toBe('op1');
+  });
+
+  it('blocks SHIPPED when a seller slice is REJECTED (names the blocker)', async () => {
+    prisma.order.findUnique.mockResolvedValue(baseOrder({ status: 'PACKED' }));
+    prisma.sellerOrder.findMany.mockResolvedValue([sellerSlice({ status: 'REJECTED' })]);
+    await expect(service.advance('op1', 'o1', 'SHIPPED')).rejects.toThrow(
+      /Every seller must accept their slice before shipping/,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('blocks SHIPPED when a seller slice is still PLACED (not yet accepted)', async () => {
+    prisma.order.findUnique.mockResolvedValue(baseOrder({ status: 'PACKED' }));
+    prisma.sellerOrder.findMany.mockResolvedValue([sellerSlice({ status: 'PLACED' })]);
+    await expect(service.advance('op1', 'o1', 'SHIPPED')).rejects.toThrow(
+      /Not ready: Bilokat Kitchens \(PLACED\)/,
+    );
+  });
+
+  it('allows SHIPPED when all non-cancelled slices are ACCEPTED and stamps shippedAt', async () => {
+    const order = baseOrder({ status: 'PACKED' });
+    prisma.order.findUnique.mockResolvedValue(order);
+    prisma.sellerOrder.findMany.mockResolvedValue([
+      sellerSlice({ id: 'so1' }),
+      sellerSlice({ id: 'so2', status: 'ACCEPTED', seller: { displayName: 'Rajrani Select' } }),
+    ]);
+    const tx = mockTx(order);
+    tx.order.findUniqueOrThrow.mockResolvedValue({ ...order, status: 'SHIPPED' });
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+    const res = await service.advance('op1', 'o1', 'SHIPPED');
+    expect(res.status).toBe('SHIPPED');
+    expect(tx.sellerOrder.updateMany).toHaveBeenCalledWith({
+      where: { orderId: 'o1', status: 'ACCEPTED' },
+      data: { shippedAt: expect.any(Date) },
+    });
+  });
+
+  it('ignores CANCELLED slices in the shipping gate', async () => {
+    const order = baseOrder({ status: 'PACKED' });
+    prisma.order.findUnique.mockResolvedValue(order);
+    // only a cancelled slice remains => nothing blocking (empty/ignored)
+    prisma.sellerOrder.findMany.mockResolvedValue([sellerSlice({ status: 'CANCELLED' })]);
+    const tx = mockTx(order);
+    tx.order.findUniqueOrThrow.mockResolvedValue({ ...order, status: 'SHIPPED' });
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+    await expect(service.advance('op1', 'o1', 'SHIPPED')).resolves.toBeTruthy();
+  });
+
+  it('stamps deliveredAt on accepted slices at DELIVERED', async () => {
+    const order = baseOrder({ status: 'OUT_FOR_DELIVERY' });
+    prisma.order.findUnique.mockResolvedValue(order);
+    prisma.sellerOrder.findMany.mockResolvedValue([sellerSlice()]);
+    const tx = mockTx(order);
+    tx.order.findUniqueOrThrow.mockResolvedValue({ ...order, status: 'DELIVERED', deliveredAt: new Date() });
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+    await service.advance('op1', 'o1', 'DELIVERED');
+    expect(tx.sellerOrder.updateMany).toHaveBeenCalledWith({
+      where: { orderId: 'o1', status: 'ACCEPTED' },
+      data: { deliveredAt: expect.any(Date) },
+    });
   });
 });

@@ -836,6 +836,12 @@ model SellerOrder {
   acceptedAt       DateTime?
   rejectedAt       DateTime?
   rejectionReason  String?
+  // Per-seller fulfilment markers (Session 10): stamped when the order-level
+  // fulfilment reaches SHIPPED / DELIVERED (order-level delivery covers the
+  // accepted seller slices together). Fulfilment state lives on the order;
+  // these record each seller slice's ship/deliver point-in-time.
+  shippedAt        DateTime?
+  deliveredAt      DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 

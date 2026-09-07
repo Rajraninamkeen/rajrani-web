@@ -63,6 +63,11 @@ export interface SellerOrderPublic {
   itemCount: number;
   subtotal: number;
   grandTotal: number;
+  acceptedAt?: string | null;
+  rejectedAt?: string | null;
+  rejectionReason?: string | null;
+  shippedAt?: string | null;
+  deliveredAt?: string | null;
 }
 
 export interface OrderPublic {
