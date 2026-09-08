@@ -2,8 +2,10 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import {
@@ -18,6 +20,7 @@ import {
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettlementService } from './settlement.service';
+import { COURIER_PROVIDER, type CourierProvider } from './courier/courier-provider.interface';
 import {
   AssignSliceDto,
   DeliveryListQuery,
@@ -49,6 +52,9 @@ export class DeliveryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settlement: SettlementService,
+    // Session 30: external courier-provider (tracking + POD). Optional so legacy
+    // unit tests that `new DeliveryService(prisma, settlement)` keep working.
+    @Optional() @Inject(COURIER_PROVIDER) private readonly courier?: CourierProvider | null,
   ) {}
 
   // =============================== Partner registry (OPERATOR/ADMIN) ===============================
@@ -331,7 +337,50 @@ export class DeliveryService {
   }
 
   async pickup(userId: string, assignmentId: string) {
-    return this.partnerStep(userId, assignmentId, DeliveryAssignmentStatus.PICKED_UP, 'pickedUpAt', 'Pickup');
+    await this.partnerStep(userId, assignmentId, DeliveryAssignmentStatus.PICKED_UP, 'pickedUpAt', 'Pickup');
+    // Session 30: hand the parcel to the courier provider (book a tracking waybill).
+    await this.bookShipment(assignmentId, userId);
+    return this.assignmentPublic((await this.loadAssignment(assignmentId))!);
+  }
+
+  /**
+   * Session 30 — book a courier-provider shipment (waybill/tracking number) the
+   * moment a partner picks the parcel up. Best-effort: a provider outage must
+   * never fail the pickup — it is logged as a DeliveryEvent and the parcel is
+   * still tracked locally. No-op when no provider is configured or a waybill
+   * already exists.
+   */
+  private async bookShipment(assignmentId: string, actorId: string) {
+    if (!this.courier) return;
+    const a = await this.loadCourierTask(assignmentId);
+    if (!a || a.trackingNumber) return;
+    const addr = (a.order?.addressSnapshot ?? null) as any;
+    try {
+      const ship = await this.courier.createShipment({
+        ref: a.assignmentNumber,
+        kind: 'parcel',
+        description: a.sellerOrder?.sellerOrderNumber ? `Slice ${a.sellerOrder.sellerOrderNumber}` : null,
+        recipientName: a.order?.user?.fullName ?? addr?.name ?? null,
+        phone: addr?.phone ?? null,
+        line1: addr?.line1 ?? null,
+        city: addr?.city ?? null,
+        state: addr?.state ?? null,
+        pincode: addr?.pincode ?? null,
+      });
+      await this.prisma.deliveryAssignment.update({
+        where: { id: a.id },
+        data: {
+          carrier: ship.carrier,
+          trackingNumber: ship.trackingNumber,
+          trackingUrl: ship.trackingUrl ?? null,
+        },
+      });
+      await this.audit(null, a.id, 'SHIPMENT_BOOKED', 'SYSTEM', actorId,
+        `Courier ${ship.carrier} waybill ${ship.trackingNumber}`);
+    } catch (e) {
+      await this.audit(null, a.id, 'SHIPMENT_BOOK_FAILED', 'SYSTEM', actorId,
+        `Courier booking failed: ${(e as Error).message}`);
+    }
   }
 
   async outForDelivery(userId: string, assignmentId: string) {
@@ -370,6 +419,23 @@ export class DeliveryService {
       throw new ConflictException(`Order is not in a courier-delivery stage (${order.status})`);
     }
 
+    // Session 30: capture proof-of-delivery (POD) from the courier provider. This
+    // external call stays OUTSIDE the DB transaction so a provider hiccup can never
+    // roll back the local finalization. Best-effort when a provider/waybill exists.
+    let pod: { podRef?: string | null; podSignedBy?: string | null; podAt?: Date | null } = {};
+    if (this.courier && a.trackingNumber) {
+      try {
+        const p = await this.courier.confirmDelivery(a.trackingNumber);
+        pod = {
+          podRef: p.podRef ?? null,
+          podSignedBy: p.signedBy ?? null,
+          podAt: p.at ? new Date(p.at) : new Date(),
+        };
+      } catch {
+        /* best-effort POD — delivery still finalises locally */
+      }
+    }
+
     await this.prisma.$transaction(async (tx) => {
       // Mark the slice delivered.
       await tx.sellerOrder.update({
@@ -378,7 +444,7 @@ export class DeliveryService {
       });
       await tx.deliveryAssignment.update({
         where: { id: a.id },
-        data: { status: DeliveryAssignmentStatus.DELIVERED, deliveredAt: new Date() },
+        data: { status: DeliveryAssignmentStatus.DELIVERED, deliveredAt: new Date(), ...pod },
       });
       await this.audit(tx, a.id, 'DELIVERED', 'DELIVERY', userId, 'Slice delivered');
 
@@ -506,6 +572,13 @@ export class DeliveryService {
       rejectedAt: a.rejectedAt?.toISOString?.() ?? null,
       failureReason: a.failureReason,
       cancelledAt: a.cancelledAt?.toISOString?.() ?? null,
+      // Session 30 — external courier tracking + POD.
+      carrier: a.carrier ?? null,
+      trackingNumber: a.trackingNumber ?? null,
+      trackingUrl: a.trackingUrl ?? null,
+      podRef: a.podRef ?? null,
+      podSignedBy: a.podSignedBy ?? null,
+      podAt: a.podAt?.toISOString?.() ?? null,
     };
   }
 

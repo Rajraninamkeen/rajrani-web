@@ -162,4 +162,61 @@ describe('DeliveryService (Session 15)', () => {
       data: expect.objectContaining({ status: 'FAILED' }),
     }));
   });
+
+  // ===== Session 30 — courier-provider tracking/POD =====
+  function courier(over: any = {}) {
+    return {
+      name: 'Sandbox Courier',
+      createShipment: jest.fn().mockResolvedValue({ carrier: 'Sandbox Courier', trackingNumber: 'SWB-ABC', status: 'CREATED' }),
+      track: jest.fn().mockResolvedValue({ trackingNumber: 'SWB-ABC', carrier: 'Sandbox Courier', status: 'DELIVERED', events: [] }),
+      confirmDelivery: jest.fn().mockResolvedValue({ podRef: 'POD-TRACK', signedBy: 'Sandbox Courier', at: '2026-09-08T00:00:00.000Z' }),
+      ...over,
+    };
+  }
+
+  it('pickup books a courier shipment and records the waybill (Session 30)', async () => {
+    service = new DeliveryService(prisma, settlement, courier() as any);
+    prisma.deliveryAssignment.findUnique.mockResolvedValue(assignment({ status: 'ACCEPTED' }));
+    prisma.deliveryAssignment.update.mockResolvedValue(assignment({ status: 'PICKED_UP', trackingNumber: 'SWB-ABC' }));
+    prisma.deliveryEvent.create.mockResolvedValue({});
+    await service.pickup('u-deliv', 'a1');
+    expect(prisma.deliveryAssignment.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ trackingNumber: 'SWB-ABC', carrier: 'Sandbox Courier' }),
+    }));
+    expect(prisma.deliveryEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ eventType: 'SHIPMENT_BOOKED' }),
+    }));
+  });
+
+  it('pickup still succeeds when the courier provider errors (best-effort booking) (Session 30)', async () => {
+    const badCourier = courier({ createShipment: jest.fn().mockRejectedValue(new Error('courier down')) });
+    service = new DeliveryService(prisma, settlement, badCourier as any);
+    prisma.deliveryAssignment.findUnique.mockResolvedValue(assignment({ status: 'ACCEPTED' }));
+    prisma.deliveryAssignment.update.mockResolvedValue(assignment({ status: 'PICKED_UP' }));
+    prisma.deliveryEvent.create.mockResolvedValue({});
+    await expect(service.pickup('u-deliv', 'a1')).resolves.toBeTruthy();
+    expect(badCourier.createShipment).toHaveBeenCalled();
+    expect(prisma.deliveryEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ eventType: 'SHIPMENT_BOOK_FAILED' }),
+    }));
+  });
+
+  it('deliver records POD from the courier provider when a waybill exists (Session 30)', async () => {
+    const c = courier();
+    service = new DeliveryService(prisma, settlement, c as any);
+    prisma.deliveryAssignment.findUnique.mockResolvedValue(
+      assignment({ status: 'OUT_FOR_DELIVERY', trackingNumber: 'SWB-ABC', carrier: 'Sandbox Courier' }),
+    );
+    prisma.sellerOrder.findUniqueOrThrow.mockResolvedValue(sellerOrder());
+    tx.sellerOrder.findMany.mockResolvedValue([{ id: 'so2' }]); // not last slice
+    tx.sellerOrder.update.mockResolvedValue({});
+    tx.deliveryAssignment.update.mockResolvedValue({});
+    tx.deliveryEvent.create.mockResolvedValue({});
+    await service.deliver('u-deliv', 'a1');
+    expect(c.confirmDelivery).toHaveBeenCalledWith('SWB-ABC');
+    const call = tx.deliveryAssignment.update.mock.calls.find(
+      (x: any) => x[0]?.data?.status === 'DELIVERED',
+    );
+    expect(call[0].data).toMatchObject({ podRef: 'POD-TRACK', podSignedBy: 'Sandbox Courier' });
+  });
 });

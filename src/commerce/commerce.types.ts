@@ -188,6 +188,13 @@ export interface ReplacementAssignmentPublic {
   rejectedAt: string | null;
   failureReason: string | null;
   cancelledAt: string | null;
+  // Session 30 — external courier tracking + POD on a replacement assignment.
+  carrier?: string | null;
+  trackingNumber?: string | null;
+  trackingUrl?: string | null;
+  podRef?: string | null;
+  podSignedBy?: string | null;
+  podAt?: string | null;
   // Operational delivery detail (DELIVERY partner / operator task view). From the
   // original order's address snapshot. Not exposed on the customer-facing return.
   customer?: {

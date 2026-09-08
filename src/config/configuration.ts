@@ -21,6 +21,15 @@ export interface AppConfig {
       baseUrl: string; // overridable (used to point at a local Razorpay-protocol mock)
     };
   };
+  courier: {
+    provider: string; // sandbox | http (Session 30 — external courier provider for tracking/POD)
+    sandbox: { carrier: string };
+    http: {
+      carrier: string;
+      baseUrl: string; // overridable (used to point at a local courier-protocol mock / real courier)
+      apiKey: string; // secret; env-only, never committed
+    };
+  };
 }
 
 export default (): AppConfig => ({
@@ -50,6 +59,15 @@ export default (): AppConfig => ({
       keySecret: process.env.RAZORPAY_KEY_SECRET ?? '',
       webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET ?? '',
       baseUrl: process.env.RAZORPAY_BASE_URL ?? 'https://api.razorpay.com',
+    },
+  },
+  courier: {
+    provider: process.env.COURIER_PROVIDER ?? 'sandbox',
+    sandbox: { carrier: process.env.COURIER_SANDBOX_CARRIER ?? 'Sandbox Courier' },
+    http: {
+      carrier: process.env.COURIER_CARRIER ?? 'External Courier',
+      baseUrl: process.env.COURIER_BASE_URL ?? 'http://localhost:9600',
+      apiKey: process.env.COURIER_API_KEY ?? '',
     },
   },
 });

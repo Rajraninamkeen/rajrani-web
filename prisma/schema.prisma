@@ -1397,6 +1397,13 @@ model DeliveryAssignment {
   cancelledAt       DateTime?
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
+  // Session 30 — external courier-provider tracking + proof-of-delivery (POD).
+  carrier          String? // courier provider name (e.g. 'Sandbox Courier', or the env-configured provider)
+  trackingNumber   String? // provider waybill / tracking number (booked once a parcel is picked up)
+  trackingUrl      String? // provider tracking page (optional)
+  podRef           String? // provider proof-of-delivery reference (recorded on the final deliver)
+  podSignedBy      String?
+  podAt            DateTime?
 
   events DeliveryEvent[]
 
@@ -1451,6 +1458,13 @@ model ReplacementAssignment {
   cancelledAt       DateTime?
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
+  // Session 30 — external courier-provider tracking + proof-of-delivery (POD).
+  carrier          String?
+  trackingNumber   String?
+  trackingUrl      String?
+  podRef           String?
+  podSignedBy      String?
+  podAt            DateTime?
 
   @@index([replacementId])
   @@index([orderId])

@@ -23,6 +23,7 @@ import { ReturnsService } from './returns.service';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
 import { PAYMENT_GATEWAY_PROVIDER } from './gateway/gateway.provider';
+import { COURIER_PROVIDER_TOKEN } from './courier/courier.provider';
 import { ReplacementCourierAdminController, ReplacementCourierPartnerController } from './replacement-courier.controller';
 import { ReplacementCourierService } from './replacement-courier.service';
 
@@ -59,7 +60,8 @@ import { ReplacementCourierService } from './replacement-courier.service';
     DeliveryService,
     ReplacementCourierService,
     PAYMENT_GATEWAY_PROVIDER,
+    COURIER_PROVIDER_TOKEN,
   ],
-  exports: [PaymentService, CodService, OrderService, DeliveryService, PAYMENT_GATEWAY_PROVIDER],
+  exports: [PaymentService, CodService, OrderService, DeliveryService, ReplacementCourierService, PAYMENT_GATEWAY_PROVIDER, COURIER_PROVIDER_TOKEN],
 })
 export class CommerceModule {}

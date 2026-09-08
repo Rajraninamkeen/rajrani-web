@@ -1,8 +1,10 @@
 import {
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import {
@@ -14,6 +16,7 @@ import {
   ReturnEventType,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { COURIER_PROVIDER, type CourierProvider } from './courier/courier-provider.interface';
 import type { ReplacementAssignmentPublic } from './commerce.types';
 
 type Tx = Prisma.TransactionClient;
@@ -43,7 +46,12 @@ const PARTNER_ACTIVE: DeliveryAssignmentStatus[] = [
  */
 @Injectable()
 export class ReplacementCourierService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Session 30: external courier-provider (tracking + POD). Optional so legacy
+    // unit tests keep their `new ReplacementCourierService(prisma)` shape.
+    @Optional() @Inject(COURIER_PROVIDER) private readonly courier?: CourierProvider | null,
+  ) {}
 
   // =============================== OPERATOR / ADMIN ===============================
 
@@ -176,8 +184,45 @@ export class ReplacementCourierService {
   }
 
   async pickup(userId: string, assignmentId: string) {
-    return this.partnerStep(userId, assignmentId, DeliveryAssignmentStatus.PICKED_UP,
+    await this.partnerStep(userId, assignmentId, DeliveryAssignmentStatus.PICKED_UP,
       DeliveryAssignmentStatus.ACCEPTED, 'pickedUpAt', ReturnEventType.REPLACEMENT_COURIER_PICKED_UP, 'Courier collected replacement');
+    // Session 30: book a courier-provider shipment (waybill) on collection.
+    await this.bookShipment(assignmentId, userId);
+    return this.toPublic(await this.load(assignmentId));
+  }
+
+  /** Session 30 — book a courier-provider shipment for a replacement on collection. Best-effort. */
+  private async bookShipment(assignmentId: string, actorId: string) {
+    if (!this.courier) return;
+    const a = await this.load(assignmentId);
+    if (!a || a.trackingNumber) return;
+    const addr = (a.order?.addressSnapshot ?? null) as any;
+    try {
+      const ship = await this.courier.createShipment({
+        ref: a.assignmentNumber,
+        kind: 'replacement',
+        description: a.replacement?.replacementReference
+          ? `Replacement ${a.replacement.replacementReference}`
+          : null,
+        recipientName: a.order?.user?.fullName ?? addr?.name ?? null,
+        phone: addr?.phone ?? null,
+        line1: addr?.line1 ?? null,
+        city: addr?.city ?? null,
+        state: addr?.state ?? null,
+        pincode: addr?.pincode ?? null,
+      });
+      await this.prisma.replacementAssignment.update({
+        where: { id: a.id },
+        data: { carrier: ship.carrier, trackingNumber: ship.trackingNumber, trackingUrl: ship.trackingUrl ?? null },
+      });
+      await this.event(null, a.replacement.returnRequestId, ReturnEventType.REPLACEMENT_COURIER_PICKED_UP,
+        ReturnActorType.DELIVERY, actorId,
+        `Replacement handed to ${ship.carrier} (waybill ${ship.trackingNumber})`);
+    } catch (e) {
+      await this.event(null, a.replacement.returnRequestId, ReturnEventType.REPLACEMENT_COURIER_FAILED,
+        ReturnActorType.DELIVERY, actorId,
+        `Courier booking failed for replacement: ${(e as Error).message}`);
+    }
   }
 
   async outForDelivery(userId: string, assignmentId: string) {
@@ -218,10 +263,27 @@ export class ReplacementCourierService {
         `Replacement must be DISPATCHED to be delivered (it is ${a.replacement.status})`,
       );
     }
+
+    // Session 30: capture POD from the courier provider OUTSIDE the DB transaction
+    // (best-effort; a provider hiccup must never roll back the local completion).
+    let pod: { podRef?: string | null; podSignedBy?: string | null; podAt?: Date | null } = {};
+    if (this.courier && a.trackingNumber) {
+      try {
+        const p = await this.courier.confirmDelivery(a.trackingNumber);
+        pod = {
+          podRef: p.podRef ?? null,
+          podSignedBy: p.signedBy ?? null,
+          podAt: p.at ? new Date(p.at) : new Date(),
+        };
+      } catch {
+        /* best-effort POD */
+      }
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.replacementAssignment.update({
         where: { id: a.id },
-        data: { status: DeliveryAssignmentStatus.DELIVERED, deliveredAt: new Date() },
+        data: { status: DeliveryAssignmentStatus.DELIVERED, deliveredAt: new Date(), ...pod },
       });
       await tx.replacement.update({
         where: { id: a.replacementId },
@@ -322,6 +384,13 @@ export class ReplacementCourierService {
       rejectedAt: a.rejectedAt?.toISOString?.() ?? null,
       failureReason: a.failureReason ?? null,
       cancelledAt: a.cancelledAt?.toISOString?.() ?? null,
+      // Session 30 — external courier tracking + POD.
+      carrier: a.carrier ?? null,
+      trackingNumber: a.trackingNumber ?? null,
+      trackingUrl: a.trackingUrl ?? null,
+      podRef: a.podRef ?? null,
+      podSignedBy: a.podSignedBy ?? null,
+      podAt: a.podAt?.toISOString?.() ?? null,
       // Operational delivery detail from the original order's address snapshot.
       customer: addr
         ? {

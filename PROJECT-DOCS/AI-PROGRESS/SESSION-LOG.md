@@ -1401,3 +1401,35 @@ Verified live against the running API (`:4600`) + through the console Vite `/api
   in the courier console and stay clickable; ids recorded for targeted cleanup.
 - Backend typecheck/build + console build clean; API restarted on `:4600` to match the console proxy.
 - Sessions 28 + 29 committed and **pushed** to GitHub `origin/main` (`9b07533`).
+
+---
+
+## Session 30 — (in progress) pluggable courier-provider integration (tracking + POD)
+
+Scope (owner-chosen + confirmed): **pluggable courier provider (sandbox/mock default + real REST
+protocol) with tracking + proof-of-delivery (POD)**; seller earn stays at order level (per-slice payout
+explicitly deferred). Razorpay-gateway pattern mirrored.
+
+Increment landed this session (code + migration pushed):
+- Migration `20260908190000_courier_tracking` (≤36 chars, applied → 25 migrations): `carrier`,
+  `trackingNumber`, `trackingUrl`, `podRef`, `podSignedBy`, `podAt` on `delivery_assignments` +
+  `replacement_assignments`.
+- `src/config/configuration.ts` — new `courier` block (`COURIER_PROVIDER` sandbox|http,
+  `COURIER_CARRIER`, `COURIER_BASE_URL`, `COURIER_API_KEY` env-only, never committed).
+- `src/commerce/courier/` — `courier-provider.interface.ts` (`COURIER_PROVIDER` token + `CourierProvider`
+  createShipment/track/confirmDelivery), `sandbox-courier.provider.ts` (default deterministic, no I/O),
+  `http-courier.provider.ts` (real REST contract `POST /v1/shipments`, `GET …/track`, `POST …/pod`, base URL
+  overridable for a local mock), `courier.provider.ts` (factory). Registered/exported in `commerce.module.ts`.
+- Wiring (provider injected `@Optional`, inert in legacy unit tests):
+  - `delivery.service.ts` pickup → `bookShipment` (sandbox waybill on collection, `SHIPMENT_BOOKED` event,
+    best-effort on provider error); deliver → POD captured OUTSIDE the tx and persisted on the assignment.
+  - `replacement-courier.service.ts` pickup/deliver identical (replacement assignments).
+  - Assignment serializers expose carrier/trackingNumber/trackingUrl/podRef/podSignedBy/podAt
+    (`ReplacementAssignmentPublic` extended).
+- Tests: new `courier-provider.spec.ts` (6) + delivery-service pickup-booking/POD tests (3) → **22 suites /
+  214 tests green**; typecheck + `nest build` clean.
+- Live (non-money, sandbox provider): picking up the demo slice parcel (`DLVA-08BA1C54`) + replacement
+  (`RDLA-996C06BF`) each booked a `SWB-…` waybill (`Sandbox Courier`) recorded on the task + a
+  `SHIPMENT_BOOKED` DeliveryEvent.
+- Remaining: courier-mock HTTP E2E (run an API with `COURIER_PROVIDER=http` against a local courier-protocol
+  mock), optionally a customer/operator tracking read over `provider.track`, docs completion, final push.
