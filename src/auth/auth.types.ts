@@ -6,6 +6,7 @@ export const ROLES = {
   CATALOG_EDITOR: 'CATALOG_EDITOR',
   CATALOG_REVIEWER: 'CATALOG_REVIEWER',
   REVIEWER: 'REVIEWER', // Session 14: seller onboarding / KYC review only
+  DELIVERY: 'DELIVERY', // Session 15: courier / delivery partner (last-mile, per-slice)
   SUPPORT: 'SUPPORT',
   FINANCE: 'FINANCE',
   CONTROL: 'CONTROL',

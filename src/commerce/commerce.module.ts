@@ -14,6 +14,8 @@ import { ReturnOpsController } from './return-ops.controller';
 import { SellerOpsController } from './seller-ops.controller';
 import { SellerOpsService } from './seller-ops.service';
 import { SettlementService } from './settlement.service';
+import { DeliveryService } from './delivery.service';
+import { DeliveryAdminController, DeliveryPartnerController } from './delivery.controller';
 import { FinanceOpsController, SellerSettlementController } from './settlement-ops.controller';
 import { ReturnsController } from './returns.controller';
 import { ReturnsService } from './returns.service';
@@ -35,6 +37,8 @@ import { PaymentService } from './payment.service';
     OrderResolutionController,
     FinanceOpsController,
     SellerSettlementController,
+    DeliveryAdminController,
+    DeliveryPartnerController,
   ],
   providers: [
     CartService,
@@ -45,7 +49,8 @@ import { PaymentService } from './payment.service';
     ReturnsService,
     SellerOpsService,
     SettlementService,
+    DeliveryService,
   ],
-  exports: [PaymentService, CodService, OrderService],
+  exports: [PaymentService, CodService, OrderService, DeliveryService],
 })
 export class CommerceModule {}

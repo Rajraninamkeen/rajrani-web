@@ -146,6 +146,7 @@ model User {
   sellerId  String?
   seller    Seller?    @relation("SellerOperators", fields: [sellerId], references: [id])
   memberships OrganizationMember[] // Session 14: org memberships (seller operator owners)
+  deliveryPartner DeliveryPartner? // Session 15: DELIVERY-role partner profile
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   deletedAt DateTime?
@@ -410,6 +411,7 @@ model Order {
 
   items   OrderItem[]
   sellerOrders SellerOrder[]
+  deliveryAssignments DeliveryAssignment[] // Session 15
   history OrderStatusHistory[]
   payment Payment?
   codVerification CodVerification?
@@ -883,6 +885,7 @@ model SellerOrder {
   items   OrderItem[]
   refunds Refund[]
   payable SellerPayable? // Session 12: authoritative settlement basis for this slice
+  deliveryAssignments DeliveryAssignment[] // Session 15: per-slice courier handoff
 
   @@index([orderId])
   @@index([sellerId])
@@ -1231,4 +1234,92 @@ model SellerStatusHistory {
 
   @@index([sellerId])
   @@map("seller_status_history")
+}
+
+// ===================== Session 15: Per-slice delivery / courier handoff =====================
+// Courier last-mile model layered on the existing order-level delivery + money
+// trigger (owner decision: seller payables still auto-earn at order DELIVERED).
+// An operator assigns each ACCEPTED, not-yet-delivered seller slice to a DELIVERY
+// partner; the partner moves that slice's assignment through the courier lifecycle.
+// When the last outstanding slice is DELIVERED the order is finalized to DELIVERED
+// (existing earn/COD/audit path reused). This is additive; the legacy OPERATOR
+// order-level advance remains for back-office flow.
+
+enum DeliveryPartnerStatus {
+  REGISTERED
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum DeliveryAssignmentStatus {
+  ASSIGNED // operator assigned to a partner; awaiting partner acceptance
+  ACCEPTED // partner accepted the slice
+  PICKED_UP // partner collected the slice from the seller/warehouse
+  OUT_FOR_DELIVERY // in transit to the customer
+  DELIVERED // handed to the customer; drives per-slice deliveredAt
+  REJECTED // partner declined the assignment (operator reassigns)
+  FAILED // partner reported a failed delivery attempt
+  CANCELLED // operator cancelled the assignment
+}
+
+model DeliveryPartner {
+  id          String               @id @default(cuid())
+  userId      String               @unique
+  user        User                 @relation(fields: [userId], references: [id])
+  partnerCode String               @unique
+  status      DeliveryPartnerStatus @default(REGISTERED)
+  vehicleType String?
+  // live location optional (kept minimal; precise location per privacy rules)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  assignments DeliveryAssignment[]
+
+  @@index([status])
+  @@map("delivery_partners")
+}
+
+model DeliveryAssignment {
+  id               String                   @id @default(cuid())
+  orderId          String
+  order            Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sellerOrderId    String
+  sellerOrder      SellerOrder              @relation(fields: [sellerOrderId], references: [id], onDelete: Cascade)
+  deliveryPartnerId String?
+  deliveryPartner  DeliveryPartner?         @relation(fields: [deliveryPartnerId], references: [id], onDelete: SetNull)
+  assignmentNumber String                   @unique
+  status           DeliveryAssignmentStatus @default(ASSIGNED)
+  assignedAt       DateTime                 @default(now())
+  acceptedAt       DateTime?
+  pickedUpAt       DateTime?
+  outForDeliveryAt DateTime?
+  deliveredAt      DateTime?
+  rejectedAt       DateTime?
+  failureReason    String?
+  cancelledAt      DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  events DeliveryEvent[]
+
+  @@index([orderId])
+  @@index([sellerOrderId])
+  @@index([deliveryPartnerId])
+  @@index([status])
+  @@map("delivery_assignments")
+}
+
+model DeliveryEvent {
+  id                   String @id @default(cuid())
+  deliveryAssignmentId String
+  deliveryAssignment   DeliveryAssignment @relation(fields: [deliveryAssignmentId], references: [id], onDelete: Cascade)
+  eventType            String
+  actorType            String // CONTROL (operator) | DELIVERY (partner) | SYSTEM
+  actorId              String?
+  note                 String?
+  createdAt            DateTime @default(now())
+
+  @@index([deliveryAssignmentId])
+  @@map("delivery_events")
 }
