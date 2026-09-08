@@ -263,3 +263,17 @@ two-app scope.
 | Typecheck / unit tests / build | PASS | build PASS | 30 suites / 289 tests; backend+frontend builds clean |
 | Live verify | PASS | E2E PASS | curl API + headless login→wishlist/addresses/search, 0 errors |
 | Pushed | NOT YET | | working tree present; commit + push pending |
+
+---
+
+## Session 48 status — Registration + Notifications centre + mobile nav (2026-09-08)
+
+| customer-web feature | Status | Notes |
+|---|---|---|
+| Registration (Create account) | COMPLETE | Sign in/Create toggle → `POST /auth/register`, strong-password hint, phone optional |
+| Notifications centre | COMPLETE | #/notifications list + All/Orders/Returns filters + read/unread + mark read/all |
+| Mobile bottom nav | COMPLETE | Home/Wishlist/Cart/Orders/Account fixed bar <700px, cart badge, safe-area |
+| Desktop shell | UNCHANGED | Session 46 header/footer intact |
+| Backend needed | NONE new | register + customer-notifications already existed |
+| Build + live verify | COMPLETE | `vite build` clean; headless register + mobile-nav + notifications, 0 errors |
+| Pushed | NOT YET | commit + push pending |

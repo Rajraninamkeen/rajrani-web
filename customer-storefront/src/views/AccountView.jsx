@@ -10,17 +10,19 @@ export default function AccountView({ user, onLogin, onLogout }) {
 }
 
 function Login({ onLogin }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState('signin'); // 'signin' | 'register'
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [demo, setDemo] = useState('');
+  const [f, setF] = useState({ name: '', email: '', password: '', phone: '' });
 
   async function submit(e) {
     e.preventDefault();
     setBusy(true); setMsg('');
     try {
-      const d = await authApi.login(email.trim(), password);
+      const d = mode === 'signin'
+        ? await authApi.login(f.email.trim(), f.password)
+        : await authApi.register(f.name.trim(), f.email.trim(), f.password, f.phone.trim() || undefined);
       const user = d.user;
       if (user.role !== 'CUSTOMER') {
         setMsg('This storefront is for CUSTOMER accounts. Seller/staff accounts belong in the other consoles.');
@@ -28,25 +30,51 @@ function Login({ onLogin }) {
       }
       onLogin(d.tokens.accessToken, user);
     } catch (err) {
-      setMsg(err.message || 'Login failed');
+      setMsg(err.message || (mode === 'signin' ? 'Login failed' : 'Registration failed'));
     } finally {
       setBusy(false);
     }
   }
 
+  const pwHint = 'Min 8 chars with upper, lower, number & symbol.';
+  const canGo = mode === 'signin'
+    ? !!(f.email && f.password)
+    : !!(f.name && f.email && f.password);
+
   return (
     <div className="auth-wrap">
+      <div className="auth-switch" role="tablist">
+        <button role="tab" className={mode === 'signin' ? 'on' : ''} onClick={() => { setMode('signin'); setMsg(''); }}>Sign in</button>
+        <button role="tab" className={mode === 'register' ? 'on' : ''} onClick={() => { setMode('register'); setMsg(''); }}>Create account</button>
+      </div>
+
       <form className="auth" onSubmit={submit}>
-        <h2>Sign in</h2>
-        <p className="muted">A customer login lets you rate & review products you've actually received.</p>
-        {demo && <div className="alert ok">Use <b>{demo}</b></div>}
-        <input className="input" type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <input className="input" type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        {msg && <div className="alert err">{msg}</div>}
-        <button className="btn primary" disabled={busy || !email || !password}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        <button type="button" className="btn ghost" onClick={() => { setEmail('s12@example.com'); setPassword('Test@12345'); setDemo('s12@example.com / Test@12345'); }}>
-          Fill demo customer (has a delivered order)
-        </button>
+        {mode === 'signin' ? (
+          <>
+            <h2>Welcome back</h2>
+            <p className="muted">Sign in to save your wishlist, address book, orders &amp; reviews.</p>
+            {demo && <div className="alert ok">Use <b>{demo}</b></div>}
+            <input className="input" type="email" placeholder="Email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required />
+            <input className="input" type="password" placeholder="Password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required />
+            {msg && <div className="alert err">{msg}</div>}
+            <button className="btn primary" disabled={busy || !canGo}>{busy ? 'Signing in…' : 'Sign in'}</button>
+            <button type="button" className="btn ghost" onClick={() => { setF((x) => ({ ...x, email: 's12@example.com', password: 'Test@12345' })); setDemo('s12@example.com / Test@12345'); }}>
+              Fill demo customer (has a delivered order)
+            </button>
+          </>
+        ) : (
+          <>
+            <h2>Create your account</h2>
+            <p className="muted">Join Bilokat to shop, save favourites &amp; track orders across India.</p>
+            <input className="input" type="text" placeholder="Full name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} minLength={2} required />
+            <input className="input" type="email" placeholder="Email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required />
+            <input className="input" type="tel" placeholder="Mobile (optional)" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value.replace(/[^\d]/g, '').slice(0, 10) })} />
+            <input className="input" type="password" placeholder="Create a strong password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required />
+            <p className="hint">{pwHint}</p>
+            {msg && <div className="alert err">{msg}</div>}
+            <button className="btn primary" disabled={busy || !canGo}>{busy ? 'Creating…' : 'Create account'}</button>
+          </>
+        )}
       </form>
     </div>
   );
@@ -87,9 +115,10 @@ function MyReviews({ user, onLogout }) {
       </div>
 
       <div className="acct-quick">
+        <a className="btn ghost small" href="#/orders">📦 My orders</a>
         <a className="btn ghost small" href="#/wishlist">❤️ Wishlist</a>
         <a className="btn ghost small" href="#/addresses">📍 Address book</a>
-        <a className="btn ghost small" href="#/orders">📦 My orders</a>
+        <a className="btn ghost small" href="#/notifications">🔔 Notifications</a>
         <a className="btn ghost small" href="#/">🛒 Shop</a>
       </div>
 

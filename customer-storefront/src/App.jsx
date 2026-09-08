@@ -9,6 +9,7 @@ import OrdersView from './views/OrdersView.jsx';
 import OrderView from './views/OrderView.jsx';
 import WishlistView from './views/WishlistView.jsx';
 import AddressesView from './views/AddressesView.jsx';
+import NotificationsView from './views/NotificationsView.jsx';
 import NotificationsBell from './components/NotificationsBell.jsx';
 
 function parseHash() {
@@ -100,6 +101,7 @@ export default function App() {
     : route.view === 'order' ? <OrderView id={route.parts[1]} notify={notify} />
     : route.view === 'wishlist' ? <WishlistView user={user} onOpen={openProduct} notify={notify} onCartChange={setCartCount} />
     : route.view === 'addresses' ? <AddressesView user={user} notify={notify} />
+    : route.view === 'notifications' ? <NotificationsView user={user} />
     : route.view === 'account' ? <AccountView user={user} onLogin={handleLogin} onLogout={handleLogout} />
     : <HomeView onOpen={openProduct} />;
 
@@ -141,6 +143,21 @@ export default function App() {
       <main>
         {!ready ? <p className="muted center">…</p> : view}
       </main>
+
+      {/* Mobile bottom navigation (Home | Wishlist | Search-ish/Cart | Orders | Account) */}
+      <nav className="botnav" aria-label="Mobile">
+        <a className={route.view === 'home' || route.view === 'product' ? 'on' : ''} href="#/">
+          <span className="bn-ico">🏠</span><span className="bn-txt">Home</span></a>
+        <a className={route.view === 'wishlist' ? 'on' : ''} href="#/wishlist">
+          <span className="bn-ico">♡</span><span className="bn-txt">Wishlist</span></a>
+        <a className={'bn-cart ' + (route.view === 'cart' ? 'on' : '')} href="#/cart">
+          <span className="bn-ico">🛒{cartCount > 0 && <span className="cartcount">{cartCount}</span>}</span>
+          <span className="bn-txt">Cart</span></a>
+        <a className={route.view === 'orders' ? 'on' : ''} href="#/orders">
+          <span className="bn-ico">📦</span><span className="bn-txt">Orders</span></a>
+        <a className={route.view === 'account' || route.view === 'notifications' ? 'on' : ''} href="#/account">
+          <span className="bn-ico">👤</span><span className="bn-txt">{user ? 'Me' : 'Login'}</span></a>
+      </nav>
 
       <footer className="sitefoot">
         <div className="sitefoot-in">

@@ -2109,3 +2109,26 @@ Increment landed this session (code + migration pushed):
   ✓ Default, home shows 16 hearts with 2 filled matching saved state; search typing "sev" returns live suggestion
   rows; zero page-errors. Storefront `vite build` clean.
 - Session 47 complete; commit + push pending.
+
+## Session 48 — Registration + Notifications centre + mobile bottom nav (more of the customer-web spec)
+
+- **Date:** 2026-09-08
+- **Objective (owner: "add everything"):** continue closing the customer-web spec gaps that are supported by
+  the real backend. Session 47 added wishlist/address-book/search; this session adds account creation,
+  a notifications centre, and the mobile navigation shell.
+- **Storefront:**
+  - **Registration (Create account):** AccountView auth is now a Sign in / **Create account** toggle card.
+    Register posts to the existing `POST /auth/register` (`authApi.register`), fields fullName/email/phone/
+    password with inline strong-password hint; on success the returned token+user flow through `onLogin`.
+  - **Notifications centre:** new `NotificationsView` (#/notifications) over the existing
+    `/customer/notifications` API — category filters (All / Orders / Returns), read/unread dots, mark
+    one/all read, empty & signed-out states. Linked from the Account quick menu and reachable via mobile.
+  - **Mobile bottom navigation:** a fixed 5-tab bottom nav (Home | Wishlist | Cart | Orders | Account/Login)
+    shows under 700px with safe-area padding and content/footer clearance; live cart count badge. Desktop
+    header unchanged.
+- **API:** `authApi.register` added to the storefront api layer. (No new backend endpoints needed — register
+  and customer-notifications already existed.)
+- **Verify (headless Chromium):** register API ok (role CUSTOMER); auth card shows Sign in/Create tabs;
+  mobile viewport shows 5 bottom-nav items; logged-in #/notifications renders filters + empty state; zero
+  page-errors. Storefront `vite build` clean.
+- Session 48 complete; commit + push pending.

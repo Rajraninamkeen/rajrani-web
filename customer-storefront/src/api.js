@@ -96,6 +96,7 @@ export const addressesApi = {
 
 // Auth + CUSTOMER-only review authoring.
 export const authApi = {
+  register: (fullName, email, password, phone) => api('POST', '/auth/register', { body: { fullName, email, password, phone } }),
   login: (email, password) => api('POST', '/auth/login', { body: { email, password } }),
   me: () => api('GET', '/auth/me'),
 };

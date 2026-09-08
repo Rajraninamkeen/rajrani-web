@@ -625,3 +625,43 @@ main h1, .page-head h1, .page-head h2, .catalog-h, .lp-sec-h, .order-hero h1, .d
 .search-it:hover { background: #fbf0dd; }
 .search-it-name { font-size: 13.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .search-it-sub { font-size: 10px; font-weight: 800; color: var(--accent); letter-spacing: .6px; }
+
+/* ==================== Session 48 — Register + Notifications centre + mobile ==================== */
+/* auth sign-in / create tabs */
+.auth-switch { display: flex; gap: 4px; background: #fff; border: 1px solid #f0e0c0; border-radius: 999px;
+  padding: 4px; margin-bottom: 16px; }
+.auth-switch button { flex: 1; border: none; background: none; padding: 8px 14px; border-radius: 999px;
+  font-weight: 800; font-size: 14px; color: var(--muted); cursor: pointer; }
+.auth-switch button.on { background: linear-gradient(135deg, var(--brand-amber), var(--brand)); color: #fff;
+  box-shadow: 0 4px 10px rgba(179,65,42,.25); }
+
+/* notifications centre */
+.notif-list { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.notif { display: flex; gap: 12px; background: #fff; border: 1px solid #f0e0c0; border-radius: 14px;
+  padding: 12px 14px; align-items: flex-start; cursor: pointer; }
+.notif.unread { background: #fffdf5; border-color: #f2d9a0; }
+.notif-ico { font-size: 22px; width: 40px; height: 40px; display: grid; place-items: center; background: #fbf0dd;
+  border-radius: 12px; flex-shrink: 0; }
+.notif.unread .notif-ico { background: linear-gradient(135deg,#f6c75f,#e8a13a); }
+.notif-body { flex: 1; }
+.notif-title { font-weight: 800; font-size: 14px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
+.notif-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); display: inline-block; }
+.notif-msg { color: #5c4533; font-size: 13.5px; margin-top: 2px; }
+.notif-date { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+
+/* mobile bottom nav (hidden >= 700px) */
+.botnav { display: none; }
+@media (max-width: 700px) {
+  .botnav { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    background: rgba(253,246,234,.96); backdrop-filter: blur(10px); border-top: 1px solid #f0e0c0;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 18px rgba(90,60,20,.08); }
+  .botnav a { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 2px;
+    color: #7a6a5a; border-radius: 10px; font-size: 11px; font-weight: 700; position: relative; }
+  .botnav a.on { color: var(--brand); }
+  .botnav a .bn-ico { font-size: 20px; position: relative; line-height: 1.2; }
+  .botnav a .cartcount { position: absolute; top: -4px; right: -12px; background: #2d9d4e; color: #fff;
+    font-weight: 900; font-size: 9px; min-width: 15px; height: 15px; border-radius: 99px; display: grid;
+    place-items: center; border: 1.5px solid #fff; padding: 0 2px; }
+  main { padding-bottom: 78px; }
+  .sitefoot { padding-bottom: 66px; }
+}
