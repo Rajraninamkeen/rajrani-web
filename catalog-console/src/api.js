@@ -179,3 +179,17 @@ export const financeNotificationsApi = {
   outbox: (p) => api('GET', '/finance/notifications/outbox' + qs(p || {})),
   dispatch: () => api('POST', '/finance/notifications/dispatch', { body: {} }),
 };
+
+// Session 42 — read-only business analytics derived live from the transactional
+// OLTP store (source of truth). Staff/OPERATOR-ADMIN use the platform-wide
+// /analytics base; SELLER uses the scoped /seller/analytics base. `base` must end
+// with '/analytics' or '/seller/analytics' (no trailing slash).
+const analyticsApi = (base) => ({
+  overview: (p) => api('GET', `${base}/overview${qs(p)}`),
+  trend: (p) => api('GET', `${base}/trend${qs(p)}`),
+  products: (p) => api('GET', `${base}/products${qs(p)}`),
+  categories: (p) => api('GET', `${base}/categories${qs(p)}`),
+  sellers: (p) => api('GET', `${base}/sellers${qs(p)}`), // platform only
+});
+export const platformAnalyticsApi = analyticsApi('/analytics');
+export const sellerAnalyticsApi = analyticsApi('/seller/analytics');

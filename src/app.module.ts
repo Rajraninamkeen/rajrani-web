@@ -9,6 +9,7 @@ import { CommerceModule } from './commerce/commerce.module';
 import { SellerModule } from './seller/seller-onboarding.module';
 import { PublishingModule } from './publishing/publishing.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -26,6 +27,7 @@ import { AppController } from './app.controller';
     SellerModule,
     PublishingModule,
     ReviewsModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
 })

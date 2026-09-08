@@ -1876,3 +1876,53 @@ Increment landed this session (code + migration pushed):
   cleaned manually (its header comment overstates self-cleaning — it has no delete trailer), so re-runs
   against a dirty DB must be cleaned first.
 - Session 41 complete & pushed.
+
+## Session 42 — Read-only business analytics (OLAP-over-OLTP) + Analytics tab (two-app MVP)
+
+- **Date:** 2026-09-08
+- **Objective:** Begin the Analytics workstream (deferred matrix #13) *without* leaving the two-app MVP
+  scope — surface **read-only business analytics derived live from the transactional OLTP store** (the
+  source of truth, per 10-ANALYTICS-SPEC §2) as `analytics-*` GET endpoints plus an **Analytics** tab
+  inside the existing `catalog-console`. No separate web app, no event lake, no warehouse re-write; every
+  metric is computed on request over the existing Order/SellerOrder/OrderItem/SellerPayable/ReturnRequest/
+  Refund/refund tables. Role-scoped: OPERATOR/ADMIN see platform-wide; SELLER sees only their own seller
+  slice; CUSTOMER/DELIVERY have no analytics surface.
+- **Backend (`src/analytics/`, new module registered in `app.module.ts`):**
+  - `AnalyticsQueryDto`/`AnalyticsListQueryDto` — optional ISO `from`/`to` window (validated; invalid → 400;
+    default = trailing 30 days), optional `limit`/`granularity`; `resolveWindow` gives an inclusive range.
+  - `AnalyticsService` (read-only; aggregates live; money reported in whole rupees, 2 dp; daily series
+    UTC zero-filled) + `AnalyticsController` `@Roles(OPERATOR, ADMIN)` under `/api/v1/analytics`:
+    - `GET /overview` — orders (total/delivered/refunded/cancelled + full status breakdown), commerce
+      (GMV / delivered GMV / AOV / units / unique buyers / units-per-order), returns (requested/completed/
+      rejected/replacements + refunded amount).
+    - `GET /trend` — per-day order + GMV series, zero-filled across the range.
+    - `GET /products` (limit) — top products by GMV/units. `GET /categories` — GMV/units rolled up per
+      category (OrderItem snapshots productId only, so category is joined via a live product lookup).
+    - `GET /sellers` — per-seller money roll-up from the SellerPayable ledger (paid slices, goods,
+      commission, refunds, adjustments, net payable, net settled).
+  - `SellerAnalyticsController` `@Roles(SELLER)` under `/api/v1/seller/analytics` — `overview`/`trend`/
+    `products`, each resolved to the caller's own ACTIVE seller via `requireSellerId` and scoped by
+    seller slice (`sellerScope`). Platform `/sellers` is OPERATOR-only; a SELLER hitting a platform route
+    (and vice-versa) is 403.
+  - All methods are pure reads (no mutation, no money-model change, no migration — no schema diff).
+- **Tests:** new `src/analytics/analytics.service.spec.ts` (9 cases) covering platform GMV/AOV/units/
+  buyers & cancellation exclusion, seller-scope isolation (no cross-seller leakage incl. a defensive
+  `scopedOrders` filter), trend zero-filling, product ranking, category roll-up, seller-payable ledger
+  roll-up (paidSlices/netPayable/netSettled/refunds), `requireSellerId` active-seller resolution, and
+  400 on an invalid window. Typecheck + `nest build` clean.
+- **Live RBAC smoke (sandbox API `:4000`):** unauthenticated → 401; OPERATOR `overview/trend/products/
+  categories/sellers` → 200 with valid aggregate shapes; SELLER on a platform route → **403**; SELLER
+  `seller/analytics/overview` → 200; OPERATOR on a seller route → **403**; `from=garbage` → **400**.
+- **Analytics tab (`catalog-console/src/views/Analytics.jsx`, wired in `App.jsx` + `api.js`):** a
+  date-windowed dashboard (From/To + 7/30/90-day presets) rendered per role — OPERATOR/ADMIN "Business
+  Analytics" (Overview KPI grid, daily orders/GMV trend bars, order-status breakdown, returns & refunds,
+  Top products, Category bars, Seller-payout ledger) and SELLER "My Performance" (their own overview,
+  trend, and top products only). Console `vite build` clean (47 modules).
+- **Analytics demo fixture (`scripts/seed-analytics-demo.ts`, idempotent):** creates 28 internally
+  consistent historical orders across the two seeded sellers (money invariants honoured — slice grand =
+  subtotal+tax+delivery, goods = subtotal−discount, commission = rateBps/10000, net = goods−commission;
+  delivered slices EARN a SellerPayable, some SETTLED; 2 completed refunds with reduced payables) plus
+  two fixture-only buyers so the live dashboard has realistic data. Live aggregates verified: platform
+  GMV ≈ ₹16,800 / 27 orders / 3 buyers, AOV ≈ ₹622, 10% commission on Rajrani Select, product/category/
+  seller tables and per-seller scoping (17 + 10 = 27 orders, no leakage) all correct.
+- **Status:** Session 42 backend + console + tests + live RBAC/aggregation verify complete.

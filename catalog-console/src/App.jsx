@@ -9,6 +9,7 @@ import OperatorDashboard from './views/OperatorDashboard.jsx';
 import CourierTasks from './views/CourierTasks.jsx';
 import FinanceOps from './views/FinanceOps.jsx';
 import DeliveryOps from './views/DeliveryOps.jsx';
+import Analytics from './views/Analytics.jsx';
 
 // Role-based access: which console sections a signed-in role may open.
 const STAFF = new Set(['OPERATOR', 'ADMIN']);
@@ -67,8 +68,8 @@ export default function App() {
       : (!allowed.seller && allowed.staff) ? 'ops'
         : tab;
   const tabs = [
-    ...(allowed.seller ? [{ id: 'catalog', label: 'My Catalog' }, { id: 'dashboard', label: 'Sales & Payouts' }] : []),
-    ...(allowed.staff ? [{ id: 'ops', label: 'Operations' }, { id: 'delivery', label: 'Delivery Partners' }, { id: 'finance', label: 'Finance' }, { id: 'review', label: 'Publishing Review' }, { id: 'reviews', label: 'Review Moderation' }] : []),
+    ...(allowed.seller ? [{ id: 'catalog', label: 'My Catalog' }, { id: 'dashboard', label: 'Sales & Payouts' }, { id: 'analytics', label: 'Analytics' }] : []),
+    ...(allowed.staff ? [{ id: 'ops', label: 'Operations' }, { id: 'delivery', label: 'Delivery Partners' }, { id: 'finance', label: 'Finance' }, { id: 'analytics', label: 'Analytics' }, { id: 'review', label: 'Publishing Review' }, { id: 'reviews', label: 'Review Moderation' }] : []),
     ...(allowed.courier ? [{ id: 'courier', label: 'My Deliveries' }] : []),
   ];
 
@@ -93,7 +94,9 @@ export default function App() {
       <main className="content">
         {allowed.seller && effectiveTab === 'catalog' && <SellerCatalog notify={notify} />}
         {allowed.seller && effectiveTab === 'dashboard' && <SellerDashboard notify={notify} />}
+        {allowed.seller && effectiveTab === 'analytics' && <Analytics mode="seller" notify={notify} />}
         {allowed.staff && effectiveTab === 'ops' && <OperatorDashboard notify={notify} />}
+        {allowed.staff && effectiveTab === 'analytics' && <Analytics mode="platform" notify={notify} />}
         {allowed.staff && effectiveTab === 'delivery' && <DeliveryOps notify={notify} />}
         {allowed.staff && effectiveTab === 'finance' && <FinanceOps notify={notify} />}
         {allowed.staff && effectiveTab === 'review' && <StaffReview notify={notify} />}
