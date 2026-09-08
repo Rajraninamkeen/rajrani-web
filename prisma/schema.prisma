@@ -630,6 +630,7 @@ enum ReturnEventType {
   APPROVED_FOR_REFUND
   REFUND_INITIATED
   REFUND_COMPLETED
+  REFUND_PROCESSING // Session 18 (async gateway refund submitted)
   REPLACEMENT_ISSUED // Session 16
   REPLACEMENT_DISPATCHED // Session 17
   REPLACEMENT_COMPLETED // Session 17

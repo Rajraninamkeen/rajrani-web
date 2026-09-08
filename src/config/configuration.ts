@@ -12,6 +12,15 @@ export interface AppConfig {
     refreshTtl: number;
   };
   logLevel: string;
+  payments: {
+    provider: string; // sandbox | razorpay
+    razorpay: {
+      keyId: string;
+      keySecret: string;
+      webhookSecret: string;
+      baseUrl: string; // overridable (used to point at a local Razorpay-protocol mock)
+    };
+  };
 }
 
 export default (): AppConfig => ({
@@ -34,4 +43,13 @@ export default (): AppConfig => ({
     refreshTtl: parseInt(process.env.JWT_REFRESH_TTL ?? '1209600', 10),
   },
   logLevel: process.env.LOG_LEVEL ?? 'debug',
+  payments: {
+    provider: process.env.PAYMENT_GATEWAY_PROVIDER ?? 'sandbox',
+    razorpay: {
+      keyId: process.env.RAZORPAY_KEY_ID ?? '',
+      keySecret: process.env.RAZORPAY_KEY_SECRET ?? '',
+      webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET ?? '',
+      baseUrl: process.env.RAZORPAY_BASE_URL ?? 'https://api.razorpay.com',
+    },
+  },
 });

@@ -527,4 +527,70 @@ describe('ReturnsService (item-level)', () => {
     prisma.returnRequest.findUnique.mockResolvedValue(issuedRR({ status: 'COMPLETED' }));
     await expect(service.cancelReplacement('op1', 'rr1', { reason: 'why' })).rejects.toThrow(ConflictException);
   });
+
+describe('ReturnsService live gateway refund (Session 18)', () => {
+  let prisma: any;
+  let tx: any;
+  let settlement: any;
+  let gateway: any;
+  let service: ReturnsService;
+
+  beforeEach(() => {
+    tx = {
+      order: { update: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+      returnRequest: { update: jest.fn(), findUniqueOrThrow: jest.fn(async () => rr({ status: 'COMPLETED', items: [line()] })) },
+      refund: { update: jest.fn(), aggregate: jest.fn().mockResolvedValue({ _sum: { amount: dec(200) } }) },
+      refundTransaction: { create: jest.fn() },
+      returnEvent: { create: jest.fn() },
+    };
+    prisma = {
+      returnRequest: { findUnique: jest.fn() },
+      payment: { findUnique: jest.fn() },
+      $transaction: jest.fn((fn: any) => fn(tx)),
+    };
+    settlement = { debitReturnedGoodsForRefund: jest.fn().mockResolvedValue({ applied: 0, debits: [] }) };
+    gateway = {
+      provider: 'razorpay',
+      refund: jest.fn().mockResolvedValue({ gatewayRef: 'rfnd_REAL123', status: 'COMPLETED' }),
+      createGatewayIntent: jest.fn(),
+      parseWebhook: jest.fn(),
+    };
+    service = new ReturnsService(prisma, settlement, gateway);
+  });
+
+  it('executes a live gateway refund and records the real gatewayRef + provider', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(
+      rr({ status: 'APPROVED_FOR_REFUND', order: order(),
+        items: [line({ refundAmount: dec(200), orderItem: { id: 'oiA', sellerOrderId: 'soX', unitPrice: dec(200), quantity: 1 } })],
+        refund: { id: 'ref1', status: 'PENDING', paymentId: 'pay9', orderId: 'o1', returnRequestId: 'rr1', refundReference: 'RFD-x', amount: dec(200), currency: 'INR', method: 'GATEWAY', gatewayRef: null, initiatedAt: new Date(), completedAt: null, gatewayProvider: 'sandbox' } }),
+    );
+    prisma.payment.findUnique.mockResolvedValue({ id: 'pay9', providerCaptureId: 'pay_LIVE', providerPaymentId: 'order_ABC' });
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(rr({ status: 'COMPLETED', completedAt: new Date(), items: [line()] }));
+    const res = await service.completeRefund('op1', 'rr1');
+    expect(gateway.refund).toHaveBeenCalledWith(expect.objectContaining({
+      gatewayPaymentId: 'pay_LIVE',
+      amount: 200,
+      receipt: 'RFD-x',
+    }));
+    expect(tx.refund.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ gatewayRef: 'rfnd_REAL123', gatewayProvider: 'razorpay', status: 'COMPLETED' }),
+    }));
+    const txRow = tx.refundTransaction.create.mock.calls[0][0].data;
+    expect(txRow).toMatchObject({ provider: 'razorpay', providerReference: 'rfnd_REAL123', status: 'SUCCESS' });
+    expect(res.status).toBe('COMPLETED');
+  });
+
+  it('throws and does not settle when the gateway has no captured payment reference', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(
+      rr({ status: 'APPROVED_FOR_REFUND', order: order(), items: [line({ refundAmount: dec(200) })],
+        refund: { id: 'ref1', status: 'PENDING', paymentId: 'pay9', orderId: 'o1', returnRequestId: 'rr1', refundReference: 'RFD-x', amount: dec(200), currency: 'INR', method: 'GATEWAY', gatewayRef: null, initiatedAt: new Date(), completedAt: null, gatewayProvider: 'sandbox' } }),
+    );
+    prisma.payment.findUnique.mockResolvedValue({ id: 'pay9', providerCaptureId: null, providerPaymentId: null });
+    await expect(service.completeRefund('op1', 'rr1')).rejects.toThrow(ConflictException);
+    expect(gateway.refund).not.toHaveBeenCalled();
+  });
+});
+
+
 });

@@ -21,6 +21,7 @@ import { ReturnsController } from './returns.controller';
 import { ReturnsService } from './returns.service';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
+import { PAYMENT_GATEWAY_PROVIDER } from './gateway/gateway.provider';
 
 @Module({
   imports: [AuthModule], // for JwtModule (guards sign/verify) + exported guards
@@ -50,7 +51,8 @@ import { PaymentService } from './payment.service';
     SellerOpsService,
     SettlementService,
     DeliveryService,
+    PAYMENT_GATEWAY_PROVIDER,
   ],
-  exports: [PaymentService, CodService, OrderService, DeliveryService],
+  exports: [PaymentService, CodService, OrderService, DeliveryService, PAYMENT_GATEWAY_PROVIDER],
 })
 export class CommerceModule {}

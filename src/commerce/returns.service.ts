@@ -2,8 +2,10 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   InspectionResult,
@@ -21,6 +23,11 @@ import {
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettlementService } from './settlement.service';
+import {
+  PAYMENT_GATEWAY,
+  type PaymentGateway,
+} from './gateway/payment-gateway.interface';
+import { SandboxGateway } from './gateway/sandbox.gateway';
 import {
   CancelReplacementDto,
   CreateReturnDto,
@@ -61,7 +68,15 @@ export class ReturnsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settlement: SettlementService,
-  ) {}
+    @Optional() @Inject(PAYMENT_GATEWAY) private readonly gateway?: PaymentGateway | null,
+  ) {
+    // Live-refund seam: default to sandbox when no gateway injected (keeps the
+    // historical unit-test constructor `new ReturnsService(prisma, settlement)`
+    // and the sandbox default behaviour unchanged).
+    this._gateway = this.gateway ?? new SandboxGateway();
+  }
+
+  private readonly _gateway: PaymentGateway;
 
   // ================= CUSTOMER =================
 
@@ -517,7 +532,20 @@ export class ReturnsService {
     });
   }
 
-  /** Sandbox refund completion + ledger + terminal aggregate order update. */
+  /**
+   * Refund completion + ledger + terminal aggregate order update (Session 18:
+   * LIVE refund execution for GATEWAY refunds).
+   *
+   * For a GATEWAY refund we actually execute the money movement against the
+   * active gateway provider (idempotent on the refund reference) BEFORE the DB
+   * transaction, because an external call can never roll back with it. The real
+   * gateway refund reference is then persisted on the Refund row and as a
+   * RefundTransaction, replacing the historical fabricated sandbox ref. A
+   * synchronously-processed gateway refund completes the request; a refund the
+   * gateway still has in-flight (PROCESSING) is left PROCESSING and reconciled
+   * later via the gateway refund.processed webhook. COD refunds (operator-
+   * confirmed cash hand-back) never hit the gateway.
+   */
   async completeRefund(operatorId: string, returnRequestId: string) {
     const r = await this.loadStatus(returnRequestId, ReturnStatus.APPROVED_FOR_REFUND);
     if (!r.refund) throw new ConflictException('No refund has been initiated for this return');
@@ -526,27 +554,78 @@ export class ReturnsService {
     }
     const refund = r.refund;
 
+    // ---- LIVE gateway execution (only GATEWAY method, non-COD) ----
+    // A GATEWAY refund is executed through the ACTIVE provider (a stored default
+    // of 'sandbox' only reflects the historical sandbox; do not carry it forward
+    // onto a real gateway). COD refunds keep their provider as-is and skip this.
+    const gatewayProvider: string = refund.method === RefundMethod.GATEWAY ? this._gateway.provider : (refund.gatewayProvider ?? 'sandbox');
+    let gatewayRef: string | null = null;
+    let gatewayTerminal = true; // terminal (COMPLETED) unless gateway says in-flight
+    if (refund.method === RefundMethod.GATEWAY) {
+      // Resolve the captured gateway payment id so the refund targets the right
+      // charge. Sandbox provider fabricates (no id needed); a real gateway needs it.
+      let gatewayPaymentId: string | null | undefined;
+      if (this._gateway.provider !== 'sandbox') {
+        const pay = refund.paymentId
+          ? await this.prisma.payment.findUnique({ where: { id: refund.paymentId } })
+          : null;
+        gatewayPaymentId = pay?.providerCaptureId ?? pay?.providerPaymentId ?? null;
+        if (!gatewayPaymentId) {
+          throw new ConflictException(
+            'Cannot execute a live gateway refund: no captured gateway payment reference for this payment',
+          );
+        }
+      }
+      const amountR = refund.amount.toNumber();
+      const gres = await this._gateway.refund({
+        gatewayPaymentId: gatewayPaymentId ?? `sandbox-payment-${refund.refundReference}`,
+        amount: amountR,
+        currency: refund.currency,
+        receipt: refund.refundReference,
+        notes: { returnRequestId },
+      });
+      if (gres.status === 'FAILED') {
+        throw new ConflictException(`Gateway refused the refund: ${gres.failureReason ?? 'unknown'}`);
+      }
+      gatewayRef = gres.gatewayRef;
+      gatewayTerminal = gres.status !== 'PROCESSING';
+    }
+
+    const nextRefundState = gatewayTerminal ? RefundState.COMPLETED : RefundState.PROCESSING;
+
     return this.prisma.$transaction(async (tx) => {
-      const gatewayRef = `sndbox-refund-${RND()}`;
       await tx.refund.update({
         where: { id: refund.id },
-        data: { status: RefundState.COMPLETED, gatewayRef, completedAt: new Date() },
+        data: {
+          status: nextRefundState,
+          gatewayProvider,
+          gatewayRef,
+          completedAt: gatewayTerminal ? new Date() : null,
+        },
       });
       await tx.refundTransaction.create({
         data: {
           refundId: refund.id,
-          provider: refund.gatewayProvider ?? 'sandbox',
+          provider: gatewayProvider,
           providerReference: gatewayRef,
           amount: refund.amount,
-          status: 'SUCCESS',
-          completedAt: new Date(),
+          status: gatewayTerminal ? 'SUCCESS' : 'PENDING',
+          completedAt: gatewayTerminal ? new Date() : null,
         },
       });
+      // A refund still in-flight at the gateway is left PROCESSING and does NOT
+      // yet complete the return request nor net seller payables — those happen
+      // only once the gateway reports refund.processed (terminal).
+      if (!gatewayTerminal) {
+        await this.eventTx(tx, returnRequestId, ReturnEventType.REFUND_PROCESSING, ReturnActorType.OPERATOR, operatorId, `Refund submitted to ${gatewayProvider} (${gatewayRef})`);
+        const pending = await tx.returnRequest.findUniqueOrThrow({ where: { id: returnRequestId }, include: RETURN_INCLUDE });
+        return this.toPublic(pending);
+      }
       await tx.returnRequest.update({
         where: { id: returnRequestId },
         data: { status: ReturnStatus.COMPLETED, completedAt: new Date() },
       });
-      await this.eventTx(tx, returnRequestId, ReturnEventType.REFUND_COMPLETED, ReturnActorType.OPERATOR, operatorId, `Refund ₹${refund.amount.toNumber().toFixed(2)} completed`);
+      await this.eventTx(tx, returnRequestId, ReturnEventType.REFUND_COMPLETED, ReturnActorType.OPERATOR, operatorId, `Refund ₹${refund.amount.toNumber().toFixed(2)} completed via ${gatewayProvider} (${gatewayRef})`);
 
       // Session 13: auto-debit the delivered sellers' earned payables for the goods
       // that were returned & refunded (net-zero rule; only EARNED payables). Group the
