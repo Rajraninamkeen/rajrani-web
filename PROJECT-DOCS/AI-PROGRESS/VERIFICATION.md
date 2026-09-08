@@ -500,3 +500,27 @@ OPERATOR `pfop@example.com`/`Operator@123`, SELLER `seller1@example.com`/`Seller
 | audit | courier steps recorded as `ReturnEvent` (ReturnActorType DELIVERY) on the same return trail |
 | cleanup | E2E order/return/replacement/assignment/seller-payable rows deleted; 0 `replacement_assignments` remain |
 | `git push origin main` | Session 22 feature + docs committed and pushed (see git log) |
+
+## Session 29 — DELIVERY courier task console + enriched courier task surface (2026-09-08, `/home/user/rajrani-web`)
+
+API on `:4600` (`PORT=4600 node dist/main.js`) against the same dev DB; console Vite dev server on `:5173`
+proxying `/api` → `:4600`. Credentials: DELIVERY `delivery15@example.com`/`Delivery@123` (partner
+`DLV-DEMO15` ACTIVE), OPERATOR `pfop@example.com`/`Operator@123`, SELLER `seller1@example.com`/`Seller@123`,
+CUSTOMER `s12@example.com`/`Test@12345`.
+
+| Command / check | Result |
+|---|---|
+| `npx tsc --noEmit -p tsconfig.json` (backend) | exit 0 (PASS) |
+| `npm run build` (backend) | exit 0 (Nest build clean) |
+| `npm run build` (`catalog-console/`) | exit 0 (vite build; 42 modules) |
+| route mapping | running API logs show `{/api/v1/delivery/tasks/:assignmentId, GET}` mapped (DELIVERY) |
+| DELIVERY `/delivery/tasks` (read surface, RBAC probe `/tmp/verify_courier.mjs`) | 200 (list); bogus detail id → 404; DELIVERY on `/delivery/assignments` + `/delivery/partners` → 403; OPERATOR admin lists 200 (partners `DLV-DEMO15`, assignments total 0); OPERATOR on `/delivery/tasks` → 403 |
+| enriched slice detail | `GET /delivery/tasks/:assignmentId` returns orderNumber/paymentMethod/sellerName/sellerCode/items[] (productName/weight/sku/qty)/customer{name,phone,address} + events |
+| replacement detail | `GET /delivery/replacement-tasks/:assignmentId` returns replacementReference/quantityTotal/customer (replacement surface already carried context) |
+| cross-role detail | OPERATOR asks DELIVERY slice-task detail → 403; `fail` with empty body → 400 (reason required) |
+| demo seed | `node scripts/seed-courier-demo.mjs` → created 2 throwaway PREPAID orders; slice parcel `DLVA-08BA1C54` ACCEPTED (order BK-MTS7EXB5), replacement `RDLA-996C06BF` ACCEPTED (RPL-MTS7EXQS-WGP3); both courier-accepted (visible) |
+| console list via proxy | `GET /delivery/tasks` through `:5173/api/v1` → 1 parcel (ACCEPTED, orderNumber, itemCount 1, customer Kanpur); `/delivery/replacement-tasks` → 1 replacement (ACCEPTED, qty 1) |
+| `git push origin main` | Session 28 + 29 committed & pushed (`9b07533`, `cde0845..9b07533 HEAD -> main`) |
+
+Demo rows are intentionally left assigned+accepted (not delivered) so the courier console is populated for an
+interactive demo; ids for targeted cleanup are in the SESSION-LOG Session 29 entry.

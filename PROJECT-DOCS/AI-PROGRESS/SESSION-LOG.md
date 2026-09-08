@@ -1352,3 +1352,52 @@ correctly with RBAC (CUSTOMER `s12@example.com` → 403 on every /ops route). Ac
 409) — proving the buttons reach the real per-id routes. The one real PACKED order was left untouched, and
 no full delivery/return/refund mutation scenario was run on live rows (it would create seller payables /
 ledger); those mutation paths are covered by backend tests. Vite build clean; module hot-reloaded (200).
+
+---
+
+## Session 29 — DELIVERY courier task console (slice parcels + replacements)
+
+Gave the DELIVERY role a real courier task console in `catalog-console/` ("My Deliveries" tab) so a courier
+can run live last-mile tasks over the existing courier surfaces — slice parcels (`/delivery/tasks`) and
+outbound replacement deliveries (`/delivery/replacement-tasks`) — bound to their own partner profile. The
+console is not hollow: this session enriched the slice-task surface with order/customer/items context.
+
+Backend (owner-approved S28 additive-read pattern carried into the DELIVERY surface):
+- `src/commerce/delivery.service.ts`:
+  - `loadCourierTask()` + `courierTaskPublic()` — enrich a slice task with `orderNumber`, `paymentMethod`,
+    `sellerName`/`sellerCode`, `items[]` (productName/weight/sku/quantity) and
+    `customer{name,phone,address}` (from `Order.addressSnapshot` + `Order.user`).
+  - `partnerTask(userId, assignmentId)` — courier detail for one of their own active slice tasks (ownership
+    check + `PARTNER_ACTIVE` guard; 404 if not yours/unknown, 409 if not active) with the event timeline.
+  - `partnerTasks()` list now enriches each row with `orderNumber`, `itemCount` and
+    `customer{name,phone,city}`. List still returns only tasks for the authenticated partner.
+- `src/commerce/delivery.controller.ts` — new DELIVERY-role `GET /delivery/tasks/:assignmentId` detail route.
+- Field fix: seller select uses `seller.sellerCode` (not `partnerCode`). `typecheck` + `build` clean; route
+  confirmed mapped in the running API logs.
+
+Console (`catalog-console/`):
+- `src/api.js` — added `deliveryApi`: courier task list/detail/actions for both surfaces
+  (accept/reject(reason)/pickup/out-for-delivery/deliver/fail(reason); reject/fail bodies are `{ reason }`).
+- `src/views/CourierTasks.jsx` (new) — "My Deliveries": two-tab console (**Parcels** = `/delivery/tasks`,
+  **Replacements** = `/delivery/replacement-tasks`) with KPI header; expandable task cards that load the
+  per-id detail (order/seller/customer/address/items/timeline) and show only the buttons valid for the
+  current status (ASSIGNED→accept/reject; ACCEPTED→pickup/fail; PICKED_UP→out/fail;
+  OUT_FOR_DELIVERY→deliver/fail), with a reason prompt for reject/fail and a confirm for deliver.
+- `src/App.jsx` — DELIVERY role gets a "My Deliveries" tab (role-gated; OPERATOR/ADMIN/SELLER unchanged).
+  `src/styles.css` — courier delivery status badge colours + small UI tokens.
+- `npm run build` clean in `catalog-console/`.
+
+Verified live against the running API (`:4600`) + through the console Vite `/api` proxy:
+- RBAC/read: DELIVERY `delivery15@example.com` reads its own (initially empty) tasks; a bogus detail id →
+  404; DELIVERY hitting the OPERATOR admin `/delivery/*` lists → 403; OPERATOR `pfop@example.com` can read
+  the admin lists (partners `DLV-DEMO15` ACTIVE, assignments empty) but hitting the courier task surface →
+  403; detail cross-role → 403; `fail` without a reason → 400.
+- Enriched detail confirmed non-hollow: slice task returns orderNumber/paymentMethod/sellerName/sellerCode/
+  items[] (name/weight/sku/qty)/customer{name,phone,address}+events; replacement detail returns
+  replacementReference/quantityTotal/customer.
+- Demo rows created & left actionable via `scripts/seed-courier-demo.mjs` (2 fresh throwaway PREPAID
+  orders, courier **accept**ed, not delivered): slice parcel `DLVA-08BA1C54` ACCEPTED (order BK-MTS7EXB5,
+  1× Royal Ratlami Sev → Kanpur) and replacement `RDLA-996C06BF` ACCEPTED (RPL-MTS7EXQS-WGP3). Both appear
+  in the courier console and stay clickable; ids recorded for targeted cleanup.
+- Backend typecheck/build + console build clean; API restarted on `:4600` to match the console proxy.
+- Sessions 28 + 29 committed and **pushed** to GitHub `origin/main` (`9b07533`).

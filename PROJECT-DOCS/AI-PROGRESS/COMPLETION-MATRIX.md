@@ -60,3 +60,19 @@
   spec or SOURCE-OF-TRUTH rule. Marked DISCOVERED only.
 - Every feature in specs is unbuilt until a backend/app with tests and a clean
   build proves otherwise.
+
+---
+
+## Session 29 status — DELIVERY courier task console (2026-09-08)
+
+Adds the DELIVERY-role courier console to the connected React/Vite catalog console (workstream: per-slice
+courier delivery + courier last-mile replacement delivery + back-office console UIs).
+
+| Item | Status | Notes |
+|---|---|---|
+| Courier task console (UI) | COMPLETE/VERIFIED live | `catalog-console/` DELIVERY "My Deliveries" tab over `/delivery/tasks` (slice parcels) + `/delivery/replacement-tasks` (replacements); per-status actions accept/reject(reason)/pickup/out-for-delivery/deliver/fail(reason); detail drawer (customer/address/items/timeline) |
+| Enriched slice-task courier surface | COMPLETE/VERIFIED live | new DELIVERY `GET /delivery/tasks/:assignmentId` (orderNumber/paymentMethod/seller/items/customer+events); `partnerTasks` list adds orderNumber/itemCount/customer; RBAC + guards verified (404/403/409/400) |
+| Backend | COMPLETE | typecheck + `npm run build` clean; route mapped |
+| Console build | COMPLETE | `npm run build` clean in `catalog-console/` |
+| Delivery-workflow roll-up | COMPLETE | Sessions 15/22/29 cover per-slice + replacement last-mile delivery + courier console; remaining future work: real delivery-courier provider integration (tracking/POD/per-slice payout) |
+| Pushed | COMPLETE | Session 28 + 29 at `origin/main` `9b07533` |

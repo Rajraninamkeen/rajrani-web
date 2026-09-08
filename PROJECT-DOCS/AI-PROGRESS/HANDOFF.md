@@ -1,21 +1,23 @@
 # HANDOFF — BILOKAT
 
-> **NOTE (updated at Session 24 close, 2026-09-08):** The table below dates from the
-> Session 19 handoff. Sessions 20–24 have since shipped and been pushed. **`CURRENT-STATE.md`
-> is the authoritative live snapshot** — please read that (and `SESSION-LOG.md` for
-> Sessions 20–24 details) rather than this stale header. In short: Session 20 product
-> listing/publishing backend, Session 21 verified-buyer reviews/ratings backend, Session 22
-> courier last-mile delivery of a dispatched replacement, Session 23 **catalog console** UI
-> (`catalog-console/`), Session 24 **customer storefront** UI (`customer-storefront/`).
+> **NOTE (updated at Session 29 close, 2026-09-08):** The table below dates from the
+> Session 19 handoff. Sessions 20–29 have since shipped and been pushed. **`CURRENT-STATE.md`
+> is the authoritative live snapshot** — please read that (and `SESSION-LOG.md` for session
+> details) rather than this stale header. In short, Sessions 23–29 built a single connected,
+> role-aware React/Vite **catalog console** (`catalog-console/`) covering SELLER authoring +
+> publishing review, staff review-moderation, a SELLER sales & payouts dashboard, an OPERATOR
+> Operations console (order fulfilment + returns queues), and — Session 29 — a **DELIVERY
+> courier task console** (slice parcels + replacement last-mile) with an enriched
+> `GET /delivery/tasks/:assignmentId`; plus Session 24 `customer-storefront/`.
 
 For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 19 — Razorpay async refund reconciliation (`refund.processed`/`refund.failed` finalise in-flight PROCESSING refunds) |
-| STATUS | COMPLETE & **PUSHED** to GitHub (`main` up to `1bd86dd`; 18 suites / 173 tests; 21 migrations applied + recorded) |
-| NEXT SESSION | Product reviews, courier-delivering the dispatched replacement, or another owner-chosen priority |
-| NEXT WORKFLOW | Product reviews (ratingAvg refresh); flip the Razorpay provider to LIVE external keys (env-only — intent, capture, and BOTH sync + async refund paths are implemented & mock-E2E'd); real courier-provider integration + per-slice payout (earn currently stays order-level); courier-assign the dispatched replacement (currently an OPERATOR `replacement/…` action, non-money) |
+| CURRENT SESSION | Session 29 — DELIVERY courier task console (slice parcels + replacement last-mile) + enriched `GET /delivery/tasks/:assignmentId` |
+| STATUS | COMPLETE & **PUSHED** to GitHub (`origin/main` at `9b07533`); backend typecheck/build clean; console `npm run build` clean; courier RBAC/read + enriched detail verified live; demo slice + replacement tasks left actionable for an interactive demo |
+| NEXT SESSION | Session 30 (owner-chosen). Sessions 23–29 done & pushed |
+| NEXT WORKFLOW | Real delivery-courier provider integration (tracking/POD/per-slice payout) or another owner-chosen priority. (Courier console now covers per-slice parcels + replacement last-mile on the live DELIVERY-role task surfaces.) |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It
