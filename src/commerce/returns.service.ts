@@ -196,6 +196,39 @@ export class ReturnsService {
     return rows.map((r) => this.toPublic(r));
   }
 
+  /** Staff (OPERATOR/ADMIN) read: the returns/returns-ops queue across all customers. */
+  async listReturnsStaff(query: { status?: string; page?: number; limit?: number }) {
+    const page = Math.max(1, Math.floor(query.page ?? 1));
+    const limit = Math.min(100, Math.max(1, Math.floor(query.limit ?? 20)));
+    const where: any = {};
+    if (query.status) {
+      const valid = Object.values(ReturnStatus) as string[];
+      if (!valid.includes(query.status)) throw new BadRequestException(`Invalid return status "${query.status}"`);
+      where.status = query.status;
+    }
+    const [rows, total] = await Promise.all([
+      this.prisma.returnRequest.findMany({
+        where,
+        include: RETURN_INCLUDE,
+        orderBy: { createdAt: 'desc' as const },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.returnRequest.count({ where }),
+    ]);
+    return { returns: rows.map((r) => this.toPublic(r)), total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  /** Staff (OPERATOR/ADMIN) read of a single return request. */
+  async getReturnStaff(returnRequestId: string): Promise<ReturnRequestPublic> {
+    const r = await this.prisma.returnRequest.findUnique({
+      where: { id: returnRequestId },
+      include: RETURN_INCLUDE,
+    });
+    if (!r) throw new NotFoundException('Return request not found');
+    return this.toPublic(r);
+  }
+
   // ================= EVIDENCE (Session 16) =================
 
   /** Customer attaches evidence (photo/video) to their own return request. */

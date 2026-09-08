@@ -71,3 +71,25 @@ export const sellerOpsApi = {
   settlements: (status) => api('GET', '/seller/settlements' + (status ? `?status=${status}` : '')),
   settlement: (id) => api('GET', `/seller/settlements/${id}`),
 };
+
+// Session 28 — OPERATOR ops queues (/ops) + the per-id action routes they drive.
+export const opsApi = {
+  orders: (status) => api('GET', '/ops/orders' + (status ? `?status=${status}` : '')),
+  order: (id) => api('GET', `/ops/orders/${id}`),
+  returns: (status) => api('GET', '/ops/returns' + (status ? `?status=${status}` : '')),
+  returnDetail: (id) => api('GET', `/ops/returns/${id}`),
+  // fulfilment
+  advance: (orderId, toStatus, reason) => api('POST', `/orders/${orderId}/fulfilment/advance`, { body: reason ? { toStatus, reason } : { toStatus } }),
+  // return lifecycle (decision / pickup / inspection)
+  returnDecision: (id, approve, reason) => api('POST', `/return-requests/${id}/decision`, { body: { approve, reason } }),
+  returnPickup: (id) => api('POST', `/return-requests/${id}/pickup`, { body: {} }),
+  returnPickedUp: (id) => api('POST', `/return-requests/${id}/picked-up`, { body: {} }),
+  returnInspect: (id, items) => api('POST', `/return-requests/${id}/inspection`, { body: { items } }),
+  // refund
+  refundInitiate: (id) => api('POST', `/return-requests/${id}/refund`, { body: {} }),
+  refundComplete: (id) => api('POST', `/return-requests/${id}/refund/complete`, { body: {} }),
+  // replacement
+  replacementDispatch: (id, dispatchReference, dispatchNote) => api('POST', `/return-requests/${id}/replacement/dispatch`, { body: { dispatchReference, dispatchNote } }),
+  replacementComplete: (id) => api('POST', `/return-requests/${id}/replacement/complete`, { body: {} }),
+  replacementCancel: (id, reason) => api('POST', `/return-requests/${id}/replacement/cancel`, { body: { reason } }),
+};

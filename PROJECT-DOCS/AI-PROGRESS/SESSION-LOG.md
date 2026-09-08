@@ -1308,3 +1308,47 @@ ACTIVE), /seller/orders (8 slices: 1 PLACED + 7 ACCEPTED), /seller/payables (6 E
 accepted/rejected during the test (irreversible on live data); the mutation paths are covered by backend
 tests (`seller-ops.service.spec.ts` + `settlement.service.spec.ts`, 32/32 pass). Vite build clean; module
 hot-reloaded on the dev server.
+
+## Session 28 — OPERATOR Operations console (order fulfilment + returns queues)
+
+Added an OPERATOR/ADMIN "Operations" tab to `catalog-console/` so back-office staff can run the two main
+fulfilment workloads — order movement and customer returns — in one place. This session had two halves: a
+**small backend read surface** (because the pre-existing order/returns routes had no staff-wide queues) and
+the **console UI** that drives those reads plus the existing per-id action routes.
+
+Backend (approved S28 scope, "small staff read endpoints + full fulfilment/return ops console"):
+- `src/commerce/order.service.ts` — added `listOrders({status,page,limit})` (global order list, serialized
+  like the customer order view incl. items/price/sellerOrders) and `getOrderStaff(id)`.
+- `src/commerce/returns.service.ts` — added `listReturnsStaff({status,page,limit})` + `getReturnStaff(id)`
+  (full return serializer: status/resolution/reasonCode/items/evidence/refund/replacement + assignments).
+- `src/commerce/ops.controller.ts` (new) + registered in `commerce.module.ts` — `GET /ops/orders[?status]`,
+  `GET /ops/orders/:orderId`, `GET /ops/returns[?status]`, `GET /ops/returns/:returnRequestId`, all
+  OPERATOR/ADMIN (RolesGuard) → a CUSTOMER gets 403. Actions are unchanged and still run on the existing
+  routes (fulfilment advance, return decision/pickup/inspection/refund/replacement).
+- `npm run typecheck` + `npm run build` clean.
+
+Console (`catalog-console/`):
+- `src/api.js` — added `opsApi`: the four /ops queue/detail reads + the action calls the console drives
+  (advance, returnDecision approve/reject, pickup, picked-up, inspection per-item, refund initiate/complete,
+  replacement dispatch/complete/cancel).
+- `src/views/OperatorDashboard.jsx` (new) — two sub-sections with status-filter chips + KPI cards.
+  - **Orders**: queue (order #, payment method/status, placed, total, item count) with expandable rows
+    (items per seller + slice list) and, on a legally-advanceable order, an "Advance to {next}" button for
+    each legal next status (PLACED→CONFIRMED→PACKED→SHIPPED→OUT_FOR_DELIVERY/DELIVERED→DELIVERED) hitting
+    POST /orders/:id/fulfilment/advance.
+  - **Returns**: queue (order #, reason, resolution, status) with expandable rows (items + inspection
+    results/refund amounts, refund view, replacement view + courier assignments) and context actions driven
+    by the return state: Requested→Approve/Reject(reason); Approved→Schedule pickup;
+    Pickup scheduled→Mark picked up; Picked up→Record inspection (per-item PASS/PARTIAL_PASS/FAIL + notes);
+    Approved for refund→Initiate refund then Complete refund; Replacement pending-dispatch→Dispatch; a
+    Dispatched replacement→Complete. All hit the existing /return-requests/* routes.
+- `src/App.jsx` — added the `ops` tab (import + tab entry + render) for OPERATOR/ADMIN, made it the staff
+  default; `src/styles.css` — badge colours for order/return/replacement/refund statuses.
+
+Verified live (`/tmp/e2e-ops.mjs`, **18/18 ok**, operator `pfop@example.com`): both queues + details read
+correctly with RBAC (CUSTOMER `s12@example.com` → 403 on every /ops route). Action wiring confirmed
+(`/tmp/e2e-ops-wire.mjs`, **4/4 ok**) by firing the console's own action calls at terminal rows → clean
+409s ("Cannot transition from REFUNDED to SHIPPED"; decision/pickup on a COMPLETED return → state-guard
+409) — proving the buttons reach the real per-id routes. The one real PACKED order was left untouched, and
+no full delivery/return/refund mutation scenario was run on live rows (it would create seller payables /
+ledger); those mutation paths are covered by backend tests. Vite build clean; module hot-reloaded (200).

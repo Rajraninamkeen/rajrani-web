@@ -129,3 +129,14 @@ textarea { resize: vertical; }
 .badge.st-EARNED { background: #e6f6ec; color: #1e7d46; }
 .badge.st-IN_SETTLEMENT { background: #fff4e0; color: #a8670a; }
 .badge.st-SETTLED, .badge.st-PAID, .badge.st-RECONCILED { background: #e6f6ec; color: #1e7d46; }
+
+/* Session 28 — operations console (order + return queues) */
+.badge.st-CONFIRMED, .badge.st-PACKED { background: #e8f0fe; color: #1a73e8; }
+.badge.st-SHIPPED, .badge.st-OUT_FOR_DELIVERY { background: #eef4fb; color: #34558b; }
+.badge.st-DELIVERED, .badge.st-COMPLETED { background: #e6f6ec; color: #1e7d46; }
+.badge.st-PROCESSING { background: #fff4e0; color: #a8670a; }
+.badge.st-REFUND_PENDING, .badge.st-REFUNDED { background: #f3e8fd; color: #7b1fa2; }
+.badge.st-RETURN_REQUESTED, .badge.st-REQUESTED, .badge.st-APPROVED, .badge.st-APPROVED_FOR_REFUND { background: #e8f0fe; color: #1a73e8; }
+.badge.st-PICKUP_SCHEDULED, .badge.st-PICKED_UP, .badge.st-INSPECTION { background: #eef4fb; color: #34558b; }
+.badge.st-REPLACEMENT_ISSUED, .badge.st-PENDING_DISPATCH { background: #fff4e0; color: #a8670a; }
+.badge.st-DISPATCHED { background: #e8f0fe; color: #1a73e8; }

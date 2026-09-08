@@ -5,6 +5,7 @@ import SellerCatalog from './views/SellerCatalog.jsx';
 import SellerDashboard from './views/SellerDashboard.jsx';
 import StaffReview from './views/StaffReview.jsx';
 import StaffReviews from './views/StaffReviews.jsx';
+import OperatorDashboard from './views/OperatorDashboard.jsx';
 
 // Role-based access: which console sections a signed-in role may open.
 const STAFF = new Set(['OPERATOR', 'ADMIN']);
@@ -57,10 +58,10 @@ export default function App() {
   if (!user) return <Login onLogin={handleLogin} notify={notify} />;
 
   // Pick a sensible default tab for the signed-in role.
-  const effectiveTab = !allowed.seller && allowed.staff ? 'review' : tab;
+  const effectiveTab = !allowed.seller && allowed.staff ? 'ops' : tab;
   const tabs = [
     ...(allowed.seller ? [{ id: 'catalog', label: 'My Catalog' }, { id: 'dashboard', label: 'Sales & Payouts' }] : []),
-    ...(allowed.staff ? [{ id: 'review', label: 'Publishing Review' }, { id: 'reviews', label: 'Review Moderation' }] : []),
+    ...(allowed.staff ? [{ id: 'ops', label: 'Operations' }, { id: 'review', label: 'Publishing Review' }, { id: 'reviews', label: 'Review Moderation' }] : []),
   ];
 
   return (
@@ -84,6 +85,7 @@ export default function App() {
       <main className="content">
         {allowed.seller && effectiveTab === 'catalog' && <SellerCatalog notify={notify} />}
         {allowed.seller && effectiveTab === 'dashboard' && <SellerDashboard notify={notify} />}
+        {allowed.staff && effectiveTab === 'ops' && <OperatorDashboard notify={notify} />}
         {allowed.staff && effectiveTab === 'review' && <StaffReview notify={notify} />}
         {allowed.staff && effectiveTab === 'reviews' && <StaffReviews notify={notify} />}
         {(!allowed.seller && !allowed.staff) && (

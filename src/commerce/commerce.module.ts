@@ -10,6 +10,7 @@ import { FulfilmentController } from './fulfilment.controller';
 import { FulfilmentService } from './fulfilment.service';
 import { OrderService } from './order.service';
 import { OrderResolutionController } from './order-resolution.controller';
+import { OpsController } from './ops.controller';
 import { ReturnOpsController } from './return-ops.controller';
 import { SellerOpsController } from './seller-ops.controller';
 import { SellerOpsService } from './seller-ops.service';
@@ -38,6 +39,7 @@ import { ReplacementCourierService } from './replacement-courier.service';
     ReturnOpsController,
     SellerOpsController,
     OrderResolutionController,
+    OpsController,
     FinanceOpsController,
     SellerSettlementController,
     DeliveryAdminController,

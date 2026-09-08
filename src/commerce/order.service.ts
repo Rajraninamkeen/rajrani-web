@@ -152,6 +152,48 @@ export class OrderService {
     });
   }
 
+  /** Staff (OPERATOR/ADMIN) read: any order in the system, no user scoping. */
+  async listOrders(query: OrderListQuery = {}): Promise<OrderListResult> {
+    const page = Math.max(1, Math.floor(query.page ?? 1));
+    const limit = Math.min(100, Math.max(1, Math.floor(query.limit ?? 20)));
+
+    const where: Prisma.OrderWhereInput = {};
+    if (query.status) {
+      const valid = Object.values(OrderStatus) as string[];
+      if (!valid.includes(query.status)) throw new BadRequestException(`Invalid order status "${query.status}"`);
+      where.status = query.status;
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: { items: true, sellerOrders: { include: { seller: true } } },
+        orderBy: { placedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return {
+      orders: rows.map((o) => this.toPublic(o)),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /** Staff (OPERATOR/ADMIN) read of a single order by id. */
+  async getOrderStaff(orderId: string): Promise<OrderPublic> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, sellerOrders: { include: { seller: true } } },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    return this.toPublic(order);
+  }
+
   async listUserOrders(userId: string, query: OrderListQuery = {}): Promise<OrderListResult> {
     const page = Math.max(1, Math.floor(query.page ?? 1));
     const limit = Math.min(100, Math.max(1, Math.floor(query.limit ?? 20)));
