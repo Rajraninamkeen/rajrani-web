@@ -1793,3 +1793,41 @@ Increment landed this session (code + migration pushed):
   **SENT** with `sentAt` + attempt 1 (not SKIPPED); a second dispatch is a no-op (`processed:0`); rows
   deleted and re-query confirms clean.
 - Session 39 complete & pushed.
+
+## Session 40 — Buyer-side returns/refunds UI + customer notification feed (MVP close-the-loop)
+
+- **Date:** 2026-09-08
+- **Objective (owner-chosen):** the MVP = the two connected apps (`customer-storefront` buyer +
+  `catalog-console` staff/seller/delivery) over the shared backend; everything else is deferred. This
+  session **finishes the buyer → operator loop** that the storefront previously could not start, then
+  keeps going on that theme. Backend is source of truth; frontends drive the real routes.
+- **Customer returns UI (`customer-storefront`):** a new self-contained `ReturnsPanel` embedded on a
+  DELIVERED order's detail view (`OrderView`). It lists the order's prior/active returns (status,
+  resolution, per-item result, refund/replacement), lets the customer open a new **Refund** or
+  **Replacement** request with a per-item quantity picker + reason dropdown + note, submits via the
+  existing `POST /orders/:id/returns`, then offers an **evidence attach** step for a REPLACEMENT
+  (`POST /orders/:id/returns/:rid/evidence`, storage-intent object reference). New
+  `api.js` `returnApi` + format labels (reason/resolution/status). Pure frontend over already-verified
+  backend — no money-model change. Vite build clean.
+- **Customer notification feed (backend + UI):** buyer-facing categories `ORDER_STATUS`/`RETURN_STATUS`
+  added to the native PG enum (`20260908225000_cust_notif_cat`, applied + recorded) with compose
+  templates; `NotificationService` gains `title`/`message` overrides on `NotifySpec`. `ReturnsService`
+  now takes an optional `@Optional() NotificationService` and best-effort (post-commit, never-throwing)
+  enqueues a **RETURN_STATUS** notice when a customer submits a return and when an operator **rejects**
+  one — so the buyer is genuinely notified about their own return. New `CustomerNotificationsController`
+  (`/customer/notifications`, `@Roles(CUSTOMER)`: list / unread-count / mark-read / read-all), registered
+  in `commerce.module`. A `NotificationsBell` component in the storefront header (signed-in customers)
+  polls the feed and shows an unread badge + mark-one/all-read.
+- **Tests (+2, suites green):** `returns.service.spec.ts` gains RETURN_STATUS-emission assertions (on
+  request → enqueued for the buyer w/ category+title; on rejection → enqueued; on approval → no
+  rejection notice). Affected suites run green individually (returns 43, notification 13, settlement 25,
+  delivery 16, fulfilment 13, courier-payout 16); typecheck + `nest build` + storefront `vite build` clean.
+- **Live E2E (`scripts/e2e-customer-returns.mjs`, sandbox API `:4900`, 24/24 ok, self-cleaning):**
+  registers a throwaway CUSTOMER; places + sandbox-captures a fresh PREPAID order; seller accepts;
+  operator advances to DELIVERED (earns a seller payable); the customer requests a **REFUND** return →
+  status REQUESTED/REFUND; the buyer's `GET /customer/notifications` shows a **RETURN_STATUS** notice
+  (unread, refId = the return) and unread-count ≥ 1; mark-read flips it; OPERATOR on
+  `/customer/notifications` → 403; CUSTOMER on `/ops/returns` → 403 (unchanged). Throwaway order/seller
+  payable/return/notification/buyer + the consumed product stock are all cleaned afterwards (0 leftover;
+  `ratlami-sev` stock 5→6 restored).
+- Session 40 complete & pushed.

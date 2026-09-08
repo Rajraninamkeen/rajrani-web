@@ -117,6 +117,25 @@ export const orderApi = {
   tracking: (id) => api('GET', `/orders/${id}/tracking`),
 };
 
+// Buyer returns/refunds — drives the existing item-level return lifecycle
+// (ReturnsController/ReturnsService). GET lists the order's active/prior returns,
+// request() opens a new item-level return (REFUND default | REPLACEMENT), and the
+// customer may attach evidence to a request that requires it (Session 16).
+export const returnApi = {
+  listForOrder: (orderId) => api('GET', `/orders/${orderId}/returns`),
+  request: (orderId, payload) => api('POST', `/orders/${orderId}/returns`, { body: payload }),
+  uploadEvidence: (orderId, returnRequestId, payload) =>
+    api('POST', `/orders/${orderId}/returns/${returnRequestId}/evidence`, { body: payload }),
+};
+
+// Customer notifications (Session 38/39 in-app ledger, CUSTOMER read surface).
+export const notifyApi = {
+  list: (params) => api('GET', '/customer/notifications' + qs(params)),
+  unreadCount: () => api('GET', '/customer/notifications/unread-count'),
+  markRead: (id) => api('POST', `/customer/notifications/${id}/read`, { body: {} }),
+  markAllRead: () => api('POST', '/customer/notifications/read-all', { body: {} }),
+};
+
 // DEV-ONLY: simulate the sandbox gateway capture for a PREPAID order. Backend
 // refuses this in production; here it is only surfaced in the preview.
 export const devApi = {

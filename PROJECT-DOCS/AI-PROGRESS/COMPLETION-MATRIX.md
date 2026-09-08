@@ -131,3 +131,20 @@ integration → courier payout ledger (the deferred money leg).
 | Live money E2E | COMPLETE/VERIFIED | `/tmp/s32_payout_e2e.mjs` 18/18 on sandbox API `:4600`; money fully cleaned after (courier_payouts=0) |
 | Seller-earn invariant | COMPLETE | seller payables stay order-level (unchanged) |
 | Pushed | COMPLETE | Session 32 at `origin/main` (see git log) |
+
+## Session 40 status — buyer-side returns/refunds UI + customer notification feed (2026-09-08)
+
+MVP framing (owner): the connected `customer-storefront` (buyer) + `catalog-console` (SELLER/OPERATOR/
+ADMIN/DELIVERY) apps over the shared backend ARE the product; everything else in the 16-session matrix
+(analytics, AI, control panel, and the separate web apps) is **deferred**, not silently dropped.
+
+| Item | Status | Notes |
+|---|---|---|
+| Customer return/refund UI (buyer loop) | COMPLETE/VERIFIED live | `ReturnsPanel` on a DELIVERED order: lists prior/active returns, requests a REFUND or REPLACEMENT (per-item qty + reason + note) over the existing `/orders/:id/returns`, and attaches REPLACEMENT evidence. Pure frontend — no money-model change; storefront vite build clean |
+| Customer notification feed | COMPLETE/VERIFIED live | buyer categories `ORDER_STATUS`/`RETURN_STATUS` (native enum migration `20260908225000_cust_notif_cat`); `NotifySpec` title/message overrides; `ReturnsService` best-effort RETURN_STATUS notices on return request + rejection (optional `@Optional NotificationService`); `CustomerNotificationsController` `/customer/notifications` (CUSTOMER read/mark); `NotificationsBell` in the storefront header |
+| Unit tests | COMPLETE | returns.spec 43 (incl. +2 RETURN_STATUS), notification 13, settlement 25, delivery 16, fulfilment 13, courier-payout 16 — green; typecheck/build clean |
+| Live E2E | COMPLETE/VERIFIED | `scripts/e2e-customer-returns.mjs` 24/24 self-clean on `:4900`: place→capture→deliver a throwaway PREPAID order → customer REFUND return → buyer sees RETURN_STATUS notification → mark-read → RBAC 403s; rows + stock cleaned |
+| Pushed | COMPLETE | Session 40 at `origin/main` (see git log) |
+
+MVP close-the-loop is now underway across the two in-scope apps; a final integration/verification +
+docs + scope-freeze pass remains to declare the MVP COMPLETE.

@@ -33,6 +33,7 @@ import { CourierPartnerPayoutController, CourierPayoutAdminController } from './
 import { NotificationService } from './notification.service';
 import { NotificationGateway, NOTIFICATION_GATEWAY_TOKEN } from './notification.gateway';
 import {
+  CustomerNotificationsController,
   DeliveryNotificationsController,
   SellerNotificationsController,
   NotificationsAdminController,
@@ -63,6 +64,7 @@ import {
     CourierPayoutAdminController,
     DeliveryNotificationsController,
     SellerNotificationsController,
+    CustomerNotificationsController,
     NotificationsAdminController,
   ],
   providers: [

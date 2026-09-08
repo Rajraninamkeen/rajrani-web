@@ -43,6 +43,9 @@ const SETTLE_LABEL: Record<string, string> = {
 export interface NotifySpec {
   recipientUserId: string;
   category: NotificationCategory;
+  // Session 40 — buyer-facing notices (ORDER_STATUS / RETURN_STATUS) carry explicit text.
+  title?: string;
+  message?: string;
   // template data
   amount?: number;
   kind?: string; // courier leg kind (parcel/replacement)
@@ -107,6 +110,10 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
           title: `Settlement ${s.toLabel ?? ''}`.trim(),
           message: `Settlement ${s.settlementRef ?? ''} ${s.fromLabel ? `moved from ${s.fromLabel} to` : 'is now'} ${s.toLabel ?? ''}${amt ? ` · ${amt}` : ''}.`,
         };
+      // Session 40 — buyer-facing lifecycle notices carry explicit text.
+      case NotificationCategory.ORDER_STATUS:
+      case NotificationCategory.RETURN_STATUS:
+        return { title: s.title ?? 'Bilokat update', message: s.message ?? 'You have a new update.' };
       default:
         return { title: 'Bilokat update', message: 'You have a new update.' };
     }

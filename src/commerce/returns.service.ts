@@ -10,6 +10,7 @@ import {
 import {
   DeliveryAssignmentStatus,
   InspectionResult,
+  NotificationCategory,
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
@@ -23,6 +24,7 @@ import {
   ReturnStatus,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from './notification.service';
 import { SettlementService } from './settlement.service';
 import {
   PAYMENT_GATEWAY,
@@ -90,6 +92,8 @@ export class ReturnsService {
     private readonly prisma: PrismaService,
     private readonly settlement: SettlementService,
     @Optional() @Inject(PAYMENT_GATEWAY) private readonly gateway?: PaymentGateway | null,
+    // Session 40 — optional buyer notice feed (never affects the money/return tx).
+    @Optional() private readonly notifications?: NotificationService,
   ) {
     // Live-refund seam: default to sandbox when no gateway injected (keeps the
     // historical unit-test constructor `new ReturnsService(prisma, settlement)`
@@ -160,8 +164,8 @@ export class ReturnsService {
       uploadedBy: userId,
     }));
 
-    return this.prisma.$transaction(async (tx) => {
-      const rr = await tx.returnRequest.create({
+    const rr = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.returnRequest.create({
         data: {
           orderId,
           reasonCode: dto.reasonCode,
@@ -179,9 +183,23 @@ export class ReturnsService {
         },
         include: RETURN_INCLUDE,
       });
-      await this.eventTx(tx, rr.id, ReturnEventType.REQUESTED, ReturnActorType.CUSTOMER, userId, `Return requested (${dto.reasonCode}, remedy ${resolution.toLowerCase()})`);
-      return this.toPublic(rr);
+      await this.eventTx(tx, created.id, ReturnEventType.REQUESTED, ReturnActorType.CUSTOMER, userId, `Return requested (${dto.reasonCode}, remedy ${resolution.toLowerCase()})`);
+      return this.toPublic(created);
     });
+    // Session 40 — best-effort buyer notice (never affects the return tx).
+    if (this.notifications) {
+      try {
+        await this.notifications.enqueue({
+          recipientUserId: userId,
+          category: NotificationCategory.RETURN_STATUS,
+          title: 'Return requested',
+          message: `Your ${resolution === ReturnResolution.REPLACEMENT ? 'replacement (exchange)' : 'return/refund'} request for order ${order.orderNumber ?? ''} has been received. We'll update you as it progresses.`,
+          refKind: 'returnRequest',
+          refId: rr.id,
+        });
+      } catch { /* best-effort */ }
+    }
+    return rr;
   }
 
   /** The most recent return request(s) for one of the customer's orders. */
@@ -297,7 +315,7 @@ export class ReturnsService {
     if (!dto.approve && !dto.reason) {
       throw new BadRequestException('A reason is required to reject a return');
     }
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const to = dto.approve ? ReturnStatus.APPROVED : ReturnStatus.REJECTED;
       await tx.returnRequest.update({
         where: { id: returnRequestId },
@@ -316,6 +334,24 @@ export class ReturnsService {
       const updated = await tx.returnRequest.findUniqueOrThrow({ where: { id: returnRequestId }, include: RETURN_INCLUDE });
       return this.toPublic(updated);
     });
+    // Session 40 — best-effort buyer notice on a rejection (only terminal decision
+    // the customer acts on; approvals continue to operator pickup/inspection).
+    if (!dto.approve && this.notifications) {
+      try {
+        const buyerId = result.orderId ? (r.order?.userId as string | undefined) : undefined;
+        if (buyerId) {
+          await this.notifications.enqueue({
+            recipientUserId: buyerId,
+            category: NotificationCategory.RETURN_STATUS,
+            title: 'Return request rejected',
+            message: `Your return for order ${result.orderNumber ?? ''} was not approved${dto.reason ? `: ${dto.reason}` : ''}.`,
+            refKind: 'returnRequest',
+            refId: returnRequestId,
+          });
+        }
+      } catch { /* best-effort */ }
+    }
+    return result;
   }
 
   async schedulePickup(operatorId: string, returnRequestId: string) {

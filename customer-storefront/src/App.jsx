@@ -7,6 +7,7 @@ import CartView from './views/CartView.jsx';
 import CheckoutView from './views/CheckoutView.jsx';
 import OrdersView from './views/OrdersView.jsx';
 import OrderView from './views/OrderView.jsx';
+import NotificationsBell from './components/NotificationsBell.jsx';
 
 function parseHash() {
   const h = window.location.hash.replace(/^#/, '');
@@ -92,6 +93,7 @@ export default function App() {
           <a className={route.view === 'account' ? 'on' : ''} href="#/account">
             {user ? (user.fullName || user.email) : 'Sign in'}
           </a>
+          {user && <NotificationsBell />}
         </nav>
       </header>
 

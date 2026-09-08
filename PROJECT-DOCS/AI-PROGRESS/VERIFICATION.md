@@ -662,3 +662,17 @@ Run from repo root after `npm run build`.
 | Live E2E `scripts/e2e-notify-gateway.mjs` (sandbox API `:4600`, **7/7 ok**, self-clean) | DELIVERY (non-OPERATOR) `POST /finance/notifications/dispatch` → 403; OPERATOR dispatch on a PENDING EMAIL row → `{processed:1, sent:1, skipped:0, failed:0}`; outbox row is **SENT** with `sentAt` + attempt 1 (NOT SKIPPED); a second dispatch returns `processed:0`; rows self-cleaned and re-query confirms gone |
 | Config | `notify` block: email/sms `transport` (console default | http), `httpUrl`, `httpKey`, `from`/`sender`, `dispatchIntervalMs` (worker, off by default), `dispatchBatch` |
 | `git push origin main` | Session 39 feature + docs committed and pushed (see git log) |
+
+### Session 40 — buyer-side returns/refunds UI + customer notification feed
+
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| `npm run typecheck` / `npm run build` | clean |
+| `customer-storefront` `npm run build` | clean (43→44 modules, vite) |
+| `npx jest` (targeted, sequential) | `returns.service.spec.ts` **43/43** (incl. +2 RETURN_STATUS-emission), `notification.service.spec.ts` + `notification.gateway.spec.ts` **13/13**, `settlement.service.spec.ts` **25/25**, `delivery.service.spec.ts` **16/16**, `fulfilment.service.spec.ts` **13/13**, `courier-payout.service.spec.ts` **16/16** — all green |
+| Migration `20260908225000_cust_notif_cat` | `ALTER TYPE "NotificationCategory" ADD VALUE 'ORDER_STATUS'/'RETURN_STATUS'` applied + `_prisma_migrations` row recorded; enum now has 6 values |
+| Live E2E `scripts/e2e-customer-returns.mjs` (sandbox API `:4900`, **24/24 ok**, self-cleaning) | throwaway CUSTOMER → PREPAID buy-now → sandbox capture → seller accept → operator DELIVERED → customer REFUND return (REQUESTED/REFUND) → buyer `GET /customer/notifications` shows a RETURN_STATUS notice (unread, refId = return) + unread-count ≥ 1 → mark-read flips it → OPERATOR on `/customer/notifications` 403; CUSTOMER on `/ops/returns` 403. All throwaway rows + the consumed product stock cleaned (0 leftover; `ratlami-sev` stock restored) |
+| New routes | `GET /customer/notifications`, `GET /customer/notifications/unread-count`, `POST /customer/notifications/:id/read`, `POST /customer/notifications/read-all` (`@Roles(CUSTOMER)`) |
+| `git push origin main` | Session 40 feature + docs committed and pushed (see git log) |

@@ -186,6 +186,38 @@ describe('ReturnsService (item-level)', () => {
     expect(res.status).toBe('REJECTED');
   });
 
+  // ---- Session 40: buyer RETURN_STATUS notices ----
+  it('enqueues a RETURN_STATUS notice to the buyer when a return is requested', async () => {
+    const notifyMock = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    const svc = new ReturnsService(prisma, settlement, undefined as any, notifyMock as any);
+    prisma.order.findUnique.mockResolvedValue(order());
+    prisma.returnItem.findMany.mockResolvedValue([]);
+    tx.returnRequest.create.mockResolvedValue(rr({ status: 'REQUESTED', items: [line()] }));
+    await svc.request('u1', 'o1', { reasonCode: 'QUALITY_ISSUE' } as any);
+    expect(notifyMock.enqueue).toHaveBeenCalledTimes(1);
+    const arg = notifyMock.enqueue.mock.calls[0][0];
+    expect(arg.recipientUserId).toBe('u1');
+    expect(arg.category).toBe('RETURN_STATUS');
+    expect(arg.title).toContain('Return');
+    expect(arg.refKind).toBe('returnRequest');
+  });
+
+  it('enqueues a RETURN_STATUS rejection notice only when the request is rejected', async () => {
+    const notifyMock = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    const svc = new ReturnsService(prisma, settlement, undefined as any, notifyMock as any);
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'REQUESTED' }));
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(rr({ status: 'REJECTED', rejectedAt: new Date() }));
+    await svc.decide('op1', 'rr1', { approve: false, reason: 'policy' });
+    expect(notifyMock.enqueue).toHaveBeenCalledTimes(1);
+    expect(notifyMock.enqueue.mock.calls[0][0].title).toContain('rejected');
+
+    // Approval does not reject -> no rejection notice (returns its own flow).
+    notifyMock.enqueue.mockClear();
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(rr({ status: 'APPROVED', approvedAt: new Date() }));
+    await svc.decide('op1', 'rr1', { approve: true });
+    expect(notifyMock.enqueue).toHaveBeenCalledTimes(0);
+  });
+
   // ---- pickup ----
   it('walks APPROVED -> PICKUP_SCHEDULED -> PICKED_UP', async () => {
     prisma.returnRequest.findUnique.mockResolvedValueOnce(rr({ status: 'APPROVED' }))

@@ -93,3 +93,21 @@ export const PAYMENT_STATE_LABEL = {
 };
 
 export function orderStatusLabel(s) { return ORDER_STATUS_LABEL[s] || s; }
+
+export const RETURN_REASON_LABEL = {
+  DAMAGED: 'Damaged on arrival', DEFECTIVE: 'Defective / not working', WRONG_ITEM: 'Wrong item received',
+  MISSING_ITEM: 'Missing item(s)', NOT_AS_DESCRIBED: 'Not as described', QUALITY_ISSUE: 'Quality not satisfactory',
+  DELIVERY_LATE: 'Delivered too late', NO_LONGER_NEEDED: 'No longer needed', OTHER: 'Other reason',
+};
+export function returnReasonLabel(s) { return RETURN_REASON_LABEL[s] || s; }
+
+export const RETURN_RESOLUTION_LABEL = { REFUND: 'Refund', REPLACEMENT: 'Replacement (exchange)' };
+export function returnResolutionLabel(s) { return RETURN_RESOLUTION_LABEL[s] || s; }
+
+export const RETURN_STATUS_LABEL = {
+  REQUESTED: 'Return requested', APPROVED: 'Approved — pickup to be scheduled', REJECTED: 'Return rejected',
+  PICKUP_SCHEDULED: 'Pickup scheduled', PICKED_UP: 'Item picked up', INSPECTION: 'Being inspected',
+  APPROVED_FOR_REFUND: 'Refund approved', COMPLETED: 'Return completed',
+  CANCELLED: 'Return cancelled', REPLACEMENT_ISSUED: 'Replacement issued',
+};
+export function returnStatusLabel(s) { return RETURN_STATUS_LABEL[s] || s; }

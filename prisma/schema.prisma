@@ -1547,6 +1547,9 @@ enum NotificationCategory {
   COURIER_FEE_SETTLED
   PAYABLE_EARNED
   SETTLEMENT_ADVANCED
+  // Session 40 — buyer-facing lifecycle notices (refunds / returns / replacements)
+  ORDER_STATUS
+  RETURN_STATUS
 }
 
 enum NotificationChannel {

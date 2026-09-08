@@ -73,6 +73,38 @@ export class SellerNotificationsController {
   }
 }
 
+// CUSTOMER self-service notifications (base '/customer/notifications'). Session 40:
+// buyer-facing notices for their order/return lifecycle.
+@Controller('customer/notifications')
+@UseGuards(JwtAuthGuard, RolesGuard)
+export class CustomerNotificationsController {
+  constructor(private readonly notifications: NotificationService) {}
+
+  @Get()
+  @Roles('CUSTOMER')
+  mine(@CurrentUserId() userId: string, @Query() query: any) {
+    return this.notifications.forUser(userId, { page: query?.page, limit: query?.limit });
+  }
+
+  @Get('unread-count')
+  @Roles('CUSTOMER')
+  unread(@CurrentUserId() userId: string) {
+    return this.notifications.unreadCount(userId).then((unreadCount) => ({ unreadCount }));
+  }
+
+  @Post(':id/read')
+  @Roles('CUSTOMER')
+  read(@CurrentUserId() userId: string, @Param('id') id: string) {
+    return this.notifications.markRead(userId, id);
+  }
+
+  @Post('read-all')
+  @Roles('CUSTOMER')
+  readAll(@CurrentUserId() userId: string) {
+    return this.notifications.markAllRead(userId);
+  }
+}
+
 // Back-office oversight (base '/finance/notifications').
 @Controller('finance/notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)

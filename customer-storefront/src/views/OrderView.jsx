@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { orderApi, devApi } from '../api.js';
+import ReturnsPanel from '../components/ReturnsPanel.jsx';
 import {
   money, orderStatusLabel, PAYMENT_METHOD_LABEL, PAYMENT_STATUS_LABEL, PAYMENT_STATE_LABEL, dateStr,
 } from '../format.jsx';
@@ -80,6 +81,8 @@ export default function OrderView({ id, notify }) {
           }}>Cancel order</button>
         )}
       </section>
+
+      {order.status === 'DELIVERED' && <ReturnsPanel order={order} notify={notify} />}
     </div>
   );
 }
