@@ -1,23 +1,25 @@
 # HANDOFF — BILOKAT
 
-> **NOTE (updated at Session 29 close, 2026-09-08):** The table below dates from the
-> Session 19 handoff. Sessions 20–29 have since shipped and been pushed. **`CURRENT-STATE.md`
+> **NOTE (updated at Session 30 close, 2026-09-08):** The table below dates from the
+> Session 19 handoff. Sessions 20–30 have since shipped and been pushed. **`CURRENT-STATE.md`
 > is the authoritative live snapshot** — please read that (and `SESSION-LOG.md` for session
-> details) rather than this stale header. In short, Sessions 23–29 built a single connected,
-> role-aware React/Vite **catalog console** (`catalog-console/`) covering SELLER authoring +
+> details) rather than this stale header. In short: Sessions 23–29 built a connected,
+> role-aware React/Vite **catalog console** (`catalog-console/`) — SELLER authoring +
 > publishing review, staff review-moderation, a SELLER sales & payouts dashboard, an OPERATOR
-> Operations console (order fulfilment + returns queues), and — Session 29 — a **DELIVERY
-> courier task console** (slice parcels + replacement last-mile) with an enriched
-> `GET /delivery/tasks/:assignmentId`; plus Session 24 `customer-storefront/`.
+> Operations console (order fulfilment + returns queues), and a **DELIVERY courier task console**
+> (slice parcels + replacement last-mile, Session 29); Session 24 `customer-storefront/`.
+> Session 30 added a **pluggable courier-provider seam** (sandbox default + real REST http,
+> Razorpay-style) recording **tracking (pickup books a waybill) + POD (deliver)**, verified live
+> over sandbox and against a local courier-protocol mock (`scripts/courier-mock.mjs`).
 
 For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 29 — DELIVERY courier task console (slice parcels + replacement last-mile) + enriched `GET /delivery/tasks/:assignmentId` |
-| STATUS | COMPLETE & **PUSHED** to GitHub (`origin/main` at `9b07533`); backend typecheck/build clean; console `npm run build` clean; courier RBAC/read + enriched detail verified live; demo slice + replacement tasks left actionable for an interactive demo |
-| NEXT SESSION | Session 30 (owner-chosen). Sessions 23–29 done & pushed |
-| NEXT WORKFLOW | Real delivery-courier provider integration (tracking/POD/per-slice payout) or another owner-chosen priority. (Courier console now covers per-slice parcels + replacement last-mile on the live DELIVERY-role task surfaces.) |
+| CURRENT SESSION | Session 30 — pluggable courier-provider integration (tracking + POD) |
+| STATUS | COMPLETE & **PUSHED** (see git log / `origin/main`); provider seam + migration + tracking/POD wiring; verified live over sandbox AND real-HTTP against `scripts/courier-mock.mjs`; 22 suites / 214 tests; typecheck + build clean |
+| NEXT SESSION | Session 31 (owner-chosen). Sessions 23–30 done & pushed |
+| NEXT WORKFLOW | A customer/operator tracking-read surface over the new courier `track`; per-slice courier payout (the money leg — deferred from S30); or another owner-chosen priority |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It

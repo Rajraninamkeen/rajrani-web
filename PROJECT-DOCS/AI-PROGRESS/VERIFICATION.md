@@ -524,3 +524,20 @@ CUSTOMER `s12@example.com`/`Test@12345`.
 
 Demo rows are intentionally left assigned+accepted (not delivered) so the courier console is populated for an
 interactive demo; ids for targeted cleanup are in the SESSION-LOG Session 29 entry.
+
+## Session 30 — pluggable courier-provider integration (tracking + POD) (2026-09-08, `/home/user/rajrani-web`)
+
+Provider layer + migration + tracking/POD wiring; verified over BOTH the default sandbox provider and a
+real-HTTP provider against a local courier-protocol mock. Money untouched (seller earn stays order-level).
+
+| Command / check | Result |
+|---|---|
+| `npx prisma migrate deploy` | `20260908190000_courier_tracking` applied → **25 migrations** (carrier/trackingNumber/trackingUrl/podRef/podSignedBy/podAt on delivery + replacement assignments) |
+| `npx tsc --noEmit -p tsconfig.json` | exit 0 (PASS) |
+| `npm run build` | exit 0 (Nest build clean) |
+| `npx jest` | **22 suites / 214 tests** pass (new `courier-provider.spec` 6 + delivery-service booking/POD 3) |
+| sandbox live (API `:4600`, demo tasks) | pickup booked `SWB-…` (`Sandbox Courier`) on slice parcel + replacement, `SHIPMENT_BOOKED` event appended |
+| courier-protocol mock | `scripts/courier-mock.mjs` (incremental) listening on `:9600`: `POST /v1/shipments`, `GET …/track`, `POST …/pod`, `/_state` |
+| HTTP-provider live (`/tmp/s30_http_e2e.mjs`, API `:4700` with `COURIER_PROVIDER=http COURIER_BASE_URL=http://localhost:9600`, **8/8 ok**) | slice pickup books `MCK-F79C7047` (`Mock Courier`); replacement pickup books `MCK-84F6EF3E`; out-for-delivery → deliver captures `POD-MCK-84F6EF3E`; mock `/_state` + `/track` DELIVERED; DB shows replacement DELIVERED+POD+COMPLETED, slice parcel PICKED_UP w/ MCK waybill |
+| non-money | no seller payable/Refund touched by the HTTP-courier steps (slice left PICKED_UP; replacement delivery is the non-money leg) |
+| `git push origin main` | Session 30 increment pushed (see git log; `d2fb8b7` + follow-up) |

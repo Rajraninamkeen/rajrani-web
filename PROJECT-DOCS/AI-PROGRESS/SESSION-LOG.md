@@ -1433,3 +1433,9 @@ Increment landed this session (code + migration pushed):
   `SHIPMENT_BOOKED` DeliveryEvent.
 - Remaining: courier-mock HTTP E2E (run an API with `COURIER_PROVIDER=http` against a local courier-protocol
   mock), optionally a customer/operator tracking read over `provider.track`, docs completion, final push.
+- **Finalized the same session:** added `scripts/courier-mock.mjs` (local courier-protocol HTTP mock, incl.
+  `/_state` inspection) and verified the real-HTTP provider path live (`/tmp/s30_http_e2e.mjs`, **8/8 ok**,
+  API `:4700` with `COURIER_PROVIDER=http` → mock `:9600`): slice-parcel + replacement pickup each booked a
+  `MCK-…` waybill over real HTTP, replacement deliver captured `POD-MCK-…` and auto-completed
+  (DELIVERED+POD+COMPLETED in DB), and the mock `/track` returned DELIVERED — all non-money. Session 30
+  complete & pushed.

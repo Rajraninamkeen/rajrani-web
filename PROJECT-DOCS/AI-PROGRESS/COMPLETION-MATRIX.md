@@ -76,3 +76,21 @@ courier delivery + courier last-mile replacement delivery + back-office console 
 | Console build | COMPLETE | `npm run build` clean in `catalog-console/` |
 | Delivery-workflow roll-up | COMPLETE | Sessions 15/22/29 cover per-slice + replacement last-mile delivery + courier console; remaining future work: real delivery-courier provider integration (tracking/POD/per-slice payout) |
 | Pushed | COMPLETE | Session 28 + 29 at `origin/main` `9b07533` |
+
+---
+
+## Session 30 status — pluggable courier-provider integration (tracking + POD) (2026-09-08)
+
+Workstream: per-slice courier delivery + courier last-mile replacement delivery → external courier-provider
+integration.
+
+| Item | Status | Notes |
+|---|---|---|
+| Provider seam | COMPLETE/VERIFIED | `src/commerce/courier` `CourierProvider` (createShipment/track/confirmDelivery) + `COURIER_PROVIDER` token; Sandbox default (no I/O) + real REST Http provider (base URL overridable); DI factory in `commerce.module` |
+| Tracking + POD persistence | COMPLETE/VERIFIED | migration `courier_tracking` (carrier/trackingNumber/trackingUrl/podRef/podSignedBy/podAt on delivery + replacement assignments); pickup books waybill, deliver captures POD (both best-effort, POD outside the DB tx); serializers expose the fields |
+| Unit tests | COMPLETE | courier-provider.spec (6) + delivery-service booking/POD (3) → 22 suites / 214 tests green |
+| Build | COMPLETE | `tsc` exit 0, `nest build` clean |
+| Live verify (sandbox + real-HTTP mock) | COMPLETE | sandbox demo pickup booked `SWB-…`; real-HTTP E2E (`/tmp/s30_http_e2e.mjs`, 8/8) booked `MCK-…`, captured `POD-MCK-…`, replacement auto-completed — non-money |
+| Courier mock | COMPLETE | `scripts/courier-mock.mjs` (local courier-protocol HTTP server, `/_state` inspection) |
+| Per-slice payout | DEFERRED (owner) | seller earn stays order-level; courier per-slice payout is a future money session |
+| Pushed | COMPLETE | Session 30 at `origin/main` (see git log) |
