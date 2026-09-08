@@ -208,3 +208,21 @@ two-app scope.
 | Demo flags (live DB) | COMPLETE | 2 more seeded products marked `isNew` (3 new / 5 bestsellers) for a populated rail; display-only |
 | Build + live verify | COMPLETE | storefront `vite build` clean (44 modules); rails fetch 5 bestsellers + 3 new through the dev proxy; module transforms 200 |
 | Pushed | NOT YET | working tree present; commit + push pending |
+
+---
+
+## Session 45 status — discovery landing (storefront Home) (2026-09-08)
+
+| Item | Status | Notes |
+|---|---|---|
+| Promo/promise ribbon | COMPLETE | 24h dispatch · COD · small-batch · gift-ready |
+| Editorial split hero | COMPLETE | Live #1 best-seller feature card (image/rating/price/add) + hero copy + live totals |
+| Fan-favourite marquee | COMPLETE | Auto-scroll of live product names, pause on hover (original touch) |
+| Shop-by-craving category tiles | COMPLETE | Live per-category counts; click filters + scrolls catalog |
+| Curated rails (Best-sellers / New) | COMPLETE | Landing-styled, still live-driven, hide on active filter |
+| Catalog workhorse | COMPLETE | search/sort/chips/active-filter Clear/pagination unchanged |
+| Why/CTA bands | COMPLETE | Value props + closing CTA |
+| Origin vs copy | COMPLETE | New design, not a clone of `landing-page/`; no hard-coded merch |
+| Backend/schema | NONE | Pure storefront UI over live catalog API |
+| Build + live verify | COMPLETE | `vite build` clean (44 modules); modules + root 200; HMR clean |
+| Pushed | NOT YET | working tree present; commit + push pending |

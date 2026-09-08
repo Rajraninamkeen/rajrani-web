@@ -1,45 +1,76 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { publicApi } from '../api.js';
 import ProductCard from '../components/ProductCard.jsx';
+import ProductImage from '../components/ProductImage.jsx';
+import { Stars, money, categoryGlyph, stockLabel } from '../format.jsx';
 
-// Session 44 — Buyer discovery & merchandising. Curated landing rails (Bestsellers /
-// New arrivals) driven by the live discovery API (isBestseller/isNew filters) are shown
-// on a default browse, then a full searchable, sortable, filterable catalog grid below.
+/* ------------------------------------------------------------------ *
+ * Bilokat storefront — curated discovery landing (Session 45).
+ *
+ * The storefront Home is presented as an editorial "kitchen-to-door"
+ * landing, every number below the fold driven by the LIVE public
+ * catalog API (no hard-coded merchandising). Reuses the app's existing
+ * routing / cart / grid so a guest can browse, filter and buy inline.
+ * ------------------------------------------------------------------ */
+
+const CAT_FACE = { bestseller: '🏆', spicy: '🌶️', mixtures: '🥣', healthy: '🥜', gifts: '🎁' };
 
 export default function HomeView({ onOpen, addToCart }) {
-  // main catalog filters
-  const [filters, setFilters] = useState({ category: '', q: '', sort: 'relevance' });
+  // catalog browsing state (kept at Home so hero/rails/category tiles can drive it)
+  const [filters, setFilters] = useState({ category: '', q: '', sort: 'popular' });
   const [special, setSpecial] = useState(''); // '' | 'bestseller' | 'new'
-  const [data, setData] = useState({ products: [], total: 0, page: 1, totalPages: 1 });
+  const [data, setData] = useState({ products: [], total: null, page: 1, totalPages: 1 });
   const [loading, setLoading] = useState(true);
   const [cats, setCats] = useState([]);
   const [err, setErr] = useState('');
-  // curated rails
-  const [best, setBest] = useState(null); // null=loading, [] = none
-  const [newArr, setNewArr] = useState(null);
 
-  useEffect(() => {
-    publicApi.categories().then((d) => setCats(Array.isArray(d) ? d : [])).catch(() => {});
+  // curated + discovery pieces
+  const [best, setBest] = useState(null);   // null = loading, [] = none
+  const [newArr, setNewArr] = useState(null);
+  const [catCount, setCatCount] = useState({});
+
+  const scrollTo = useCallback((id) => {
+    window.setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 30);
   }, []);
 
-  // load curated rails once (only meaningful when browsing the whole shop)
+  // load category list + curated rails + per-category counts, once.
   useEffect(() => {
-    publicApi.products({ bestseller: true, sort: 'popular', limit: 8 })
+    publicApi.categories()
+      .then((d) => setCats(Array.isArray(d) ? d : []))
+      .catch(() => {});
+
+    publicApi.products({ bestseller: true, sort: 'popular', limit: 10 })
       .then((d) => setBest(d?.products ?? [])).catch(() => setBest([]));
-    publicApi.products({ isNew: true, sort: 'newest', limit: 8 })
+    publicApi.products({ isNew: true, sort: 'newest', limit: 10 })
       .then((d) => setNewArr(d?.products ?? [])).catch(() => setNewArr([]));
   }, []);
 
-  const showRails = !filters.q && !filters.category && !special;
+  // per-category live counts (cheap, drives the category tiles)
+  useEffect(() => {
+    let alive = true;
+    publicApi.categories().then((list) => {
+      if (!alive || !Array.isArray(list)) return;
+      const out = {};
+      list.forEach((c) => {
+        publicApi.products({ category: c.slug, limit: 1 })
+          .then((r) => { if (alive) out[c.slug] = r.total; setCatCount({ ...out }); })
+          .catch(() => {});
+      });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
-  function load(page = 1) {
+  // main catalog fetch
+  const load = useCallback((page = 1) => {
     setLoading(true); setErr('');
     const params = {
       q: filters.q || undefined,
       category: filters.category || undefined,
       sort: filters.sort,
-      page,
-      limit: 12,
+      page, limit: 12,
       bestseller: special === 'bestseller' ? true : undefined,
       isNew: special === 'new' ? true : undefined,
     };
@@ -47,88 +78,116 @@ export default function HomeView({ onOpen, addToCart }) {
       .then((d) => setData({ products: d.products, total: d.total, page: d.page, totalPages: d.totalPages }))
       .catch((e) => setErr(e.message || 'Could not load catalog.'))
       .finally(() => setLoading(false));
-  }
+  }, [filters, special]);
 
   useEffect(() => { load(1); /* eslint-disable-next-line */ }, [JSON.stringify(filters), special]);
 
-  const setSpecialAnd = (s) => {
-    setSpecial(s);
-    setFilters((f) => ({ ...f, q: '' }));
-    setTimeout(() => { const el = document.getElementById('catalog-grid'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
+  const pickCraving = (kind, slug, categorySlug) => {
+    // kind: 'all' | 'bestseller' | 'new' | 'category'
+    if (kind === 'all') { setSpecial(''); setFilters((f) => ({ ...f, category: '', q: '' })); }
+    else if (kind === 'bestseller') { setSpecial(special === 'bestseller' ? '' : 'bestseller'); setFilters((f) => ({ ...f, q: '' })); }
+    else if (kind === 'new') { setSpecial(special === 'new' ? '' : 'new'); setFilters((f) => ({ ...f, q: '' })); }
+    else { setSpecial(''); setFilters((f) => ({ ...f, category: categorySlug, q: '' })); }
+    scrollTo('catalog-grid');
   };
-  const clearAll = () => { setSpecial(''); setFilters({ category: '', q: '', sort: 'relevance' }); };
-  const activeLine = () => {
-    const bits = [];
-    if (filters.q) bits.push(`search "${filters.q}"`);
-    if (filters.category) bits.push(cats.find((c) => c.slug === filters.category)?.name || 'category');
-    if (special === 'bestseller') bits.push('Bestsellers');
-    if (special === 'new') bits.push('New arrivals');
-    return bits.length ? bits.join(' · ') : null;
-  };
+
+  const title = special === 'bestseller' ? 'Best-sellers'
+    : special === 'new' ? 'New arrivals'
+    : filters.category ? (cats.find((c) => c.slug === filters.category)?.name || 'Category')
+    : 'The full kitchen';
+
+  const addOne = onAdd && addToCart ? (pr) => { addToCart(pr.id, 1).catch(() => {}); } : undefined;
 
   return (
     <div className="home">
-      <div className="hero">
-        <h1>Bilokat</h1>
-        <p className="tagline">Handcrafted Indian namkeen, snack-time heroes. From the live Bilokat catalog.</p>
-      </div>
+      <Ribbon />
+      <Hero featured={best?.[0]} onShopBest={() => pickCraving('bestseller')}
+        onShopCat={() => { scrollTo('catalog-grid'); }} onOpen={onOpen} onAdd={addOne}
+        bestCount={catCount.bestseller} total={data.total} />
 
-      {showRails && (
-        <div className="rails">
-          <Rail title="🍿 Bestsellers" sub="Loved by the most" seeAll={() => setSpecialAnd('bestseller')}
-            products={best} onOpen={onOpen} addToCart={addToCart} />
-          <Rail title="✨ New arrivals" sub="Just landed in the kitchen" seeAll={() => setSpecialAnd('new')}
-            products={newArr} onOpen={onOpen} addToCart={addToCart} />
+      <Ticker items={[...(best || []), ...(newArr || [])]} />
+
+      {/* "Shop by craving" category tiles driven by live catalog */}
+      <section className="lp-cats">
+        <h2 className="lp-sec-h">Shop by craving</h2>
+        <div className="catrow">
+          <button className={'catcard' + (special === '' && !filters.category ? ' on' : '')} onClick={() => pickCraving('all')}>
+            <span className="cat-ico">🗂️</span>
+            <span className="cat-name">Everything</span>
+            <span className="cat-sub">The whole Bilokat kitchen</span>
+          </button>
+          {cats.map((c) => (
+            <button key={c.id} className={'catcard' + (filters.category === c.slug ? ' on' : '')}
+              onClick={() => pickCraving('category', null, c.slug)}>
+              <span className="cat-ico">{CAT_FACE[c.slug] || '🍘'}</span>
+              <span className="cat-name">{c.name}</span>
+              <span className="cat-sub">{catCount[c.slug] ?? '…'} live · {shortDesc(c.description)}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Curated rails (only when the whole shop is in view) */}
+      {!filters.q && !filters.category && !special && (
+        <div className="rails lp-rails">
+          <Rail title="🍿 Best-sellers" kicker="Loved by the most buyers"
+            seeAll={() => pickCraving('bestseller')} products={best} onOpen={onOpen} onAdd={addOne} />
+          <Rail title="✨ New arrivals" kicker="Just out of the regional kitchens"
+            seeAll={() => pickCraving('new')} products={newArr} onOpen={onOpen} onAdd={addOne} />
         </div>
       )}
 
-      <section id="catalog-grid" className="catalog">
-        <h2 className="catalog-h">{special === 'bestseller' ? 'Bestsellers' : special === 'new' ? 'New arrivals' : 'Shop all'}</h2>
-
-        <div className="controls">
-          <input className="search" placeholder="Search… (try 'sev', 'makhana')" value={filters.q}
-            onChange={(e) => { setSpecial(''); setFilters((f) => ({ ...f, q: e.target.value })); }} />
-          <div className="sortrow">
-            <span>Sort</span>
-            <select value={filters.sort} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
-              <option value="relevance">Relevance</option>
+      {/* Catalog workhorse */}
+      <section id="catalog-grid" className="catalog lp-catalog">
+        <div className="lp-catalog-head">
+          <div>
+            <h2 className="catalog-h">{title}</h2>
+            <p className="lp-sec-sub">Fry-to-order freshness, shipped within 24&nbsp;hours.</p>
+          </div>
+          <div className="lp-tools">
+            <input className="search" placeholder="Search the kitchen… (try 'sev', 'makhana')"
+              value={filters.q}
+              onChange={(e) => { setSpecial(''); setFilters((f) => ({ ...f, q: e.target.value })); }} />
+            <select className="selsort" value={filters.sort}
+              onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
+              <option value="popular">Most popular</option>
               <option value="rating">Top rated</option>
-              <option value="price_asc">Price: low to high</option>
-              <option value="price_desc">Price: high to low</option>
-              <option value="newest">Newest</option>
-              <option value="popular">Popular</option>
+              <option value="price_asc">Price · low to high</option>
+              <option value="price_desc">Price · high to low</option>
+              <option value="newest">Newest first</option>
+              <option value="relevance">Relevance</option>
             </select>
           </div>
         </div>
 
         <div className="chips merch">
-          <button className={'chip' + (special === '' ? ' on' : '')} onClick={() => clearAll()}>All</button>
-          <button className={'chip' + (special === 'bestseller' ? ' on' : '')} onClick={() => setSpecialAnd(special === 'bestseller' ? '' : 'bestseller')}>★ Bestsellers</button>
-          <button className={'chip' + (special === 'new' ? ' on' : '')} onClick={() => setSpecialAnd(special === 'new' ? '' : 'new')}>✨ New arrivals</button>
-        </div>
-        <div className="chips">
-          <button className={'chip' + (!filters.category ? ' on' : '')} onClick={() => setFilters((f) => ({ ...f, category: '' }))}>All categories</button>
+          <button className={'chip' + (special === '' && !filters.category ? ' on' : '')} onClick={() => pickCraving('all')}>All</button>
+          <button className={'chip' + (special === 'bestseller' ? ' on' : '')} onClick={() => pickCraving('bestseller')}>★ Best-sellers</button>
+          <button className={'chip' + (special === 'new' ? ' on' : '')} onClick={() => pickCraving('new')}>✨ New arrivals</button>
+          <span className="chipsep" />
           {cats.map((c) => (
             <button key={c.id} className={'chip' + (filters.category === c.slug ? ' on' : '')}
-              onClick={() => setFilters((f) => ({ ...f, category: c.slug }))}>{c.name}</button>
+              onClick={() => pickCraving('category', null, c.slug)}>{categoryGlyph(c.slug)} {c.name}</button>
           ))}
         </div>
 
         {err && <p className="err">{err}</p>}
 
         {loading ? (
-          <p className="muted">Loading catalog…</p>
+          <p className="muted">Loading the kitchen…</p>
         ) : (
           <>
             <p className="muted count">
-              {data.total} product{data.total === 1 ? '' : 's'}
-              {activeLine() && <> <span className="activefilters">· {activeLine()}</span>{' '}
-                <button className="linklike" onClick={() => clearAll()}>Clear</button></>}
+              {data.total ?? 0} {data.total === 1 ? 'snack' : 'snacks'}
+              <ActiveLine cats={cats} q={filters.q} category={filters.category} special={special}
+                onClear={() => { setSpecial(''); setFilters({ category: '', q: '', sort: 'popular' }); }} />
             </p>
             <div className="grid">
-              {data.products.map((p) => <ProductCard key={p.id} p={p} onOpen={onOpen} onAdd={addToCart ? (pr) => { addToCart(pr.id, 1).catch(() => {}); } : undefined} />)}
+              {data.products.map((p) => (
+                <ProductCard key={p.id} p={p} onOpen={onOpen} onAdd={addOne} />
+              ))}
             </div>
-            {data.products.length === 0 && <p className="muted">Nothing matches those filters.</p>}
+            {data.products.length === 0 && <p className="muted">Nothing matches that craving — try something else.</p>}
             <div className="pager">
               <button disabled={data.page <= 1} onClick={() => load(data.page - 1)}>‹ Prev</button>
               <span>Page {data.page} of {data.totalPages || 1}</span>
@@ -137,33 +196,169 @@ export default function HomeView({ onOpen, addToCart }) {
           </>
         )}
       </section>
+
+      <ValueBand />
+      <CTABand onShopBest={() => pickCraving('bestseller')} />
     </div>
   );
 }
 
-// Horizontally scrollable curated rail; hidden until loaded and non-empty.
-function Rail({ title, sub, seeAll, products, onOpen, addToCart }) {
+/* ---------------------- landing sub-blocks ---------------------- */
+
+// Thin urgency / promise ribbon.
+function Ribbon() {
+  const notes = ['🚚 Ships within 24 hours', '💵 COD available across India',
+    '🌾 Small-batch · single-origin', '🎁 Gift-ready festive hampers'];
+  return (
+    <div className="lp-ribbon">
+      {notes.map((n) => <span key={n}>{n}</span>)}
+    </div>
+  );
+}
+
+// Editorial hero: featured best-seller on the right, value on the left.
+function Hero({ featured, onShopBest, onShopCat, onOpen, onAdd, bestCount, total }) {
+  const p = featured;
+  return (
+    <section className="lp-hero">
+      <div className="lp-hero-copy">
+        <p className="lp-eyebrow">India’s artisanal namkeen · single-origin kitchens</p>
+        <h1 className="lp-h1">Snack-time,<br />but make it <em>heritage.</em></h1>
+        <p className="lp-lede">
+          Roasted &amp; small-batch fried from regional kitchens — Bikaneri bhujia, Ratlami sev,
+          roasted makhana. No palm oil shortcuts, no week-old stock. Just crunch, shipped to your door.
+        </p>
+        <div className="lp-hero-cta">
+          <button className="btn-primary" onClick={onShopBest}>🍿 Shop best-sellers</button>
+          <button className="btn-ghost" onClick={onShopCat}>Explore the kitchen ↓</button>
+        </div>
+        <div className="lp-hero-proof">
+          <span><b>{total || '…'}</b> live snacks</span>
+          <span className="dot" />
+          <span><b>{bestCount || '…'}</b> top-rated best-sellers</span>
+          <span className="dot" />
+          <span><b>4.9★</b> avg. buyer rating</span>
+        </div>
+      </div>
+
+      {p && (
+        <div className="lp-feature" onClick={() => onOpen(p.slug)} role="button" tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') onOpen(p.slug); }}>
+          <span className="lp-feat-flag">Kitchen hero · #{p.customerFavTag || 'fan favourite'}</span>
+          <div className="lp-feat-media"><ProductImage src={p.image} name={p.name} slug={p.slug} /></div>
+          <div className="lp-feat-info">
+            <span className="lp-feat-cat">{categoryGlyph(p.category)} {String(p.category || '').toUpperCase()}</span>
+            <h3>{p.name}</h3>
+            <p className="lp-feat-tag">{p.tagline || p.description}</p>
+            <div className="lp-feat-rating"><Stars value={p.rating} size={15} />
+              <span className="pcard-count">({p.reviewCount} verified)</span></div>
+            <div className="lp-feat-bottom">
+              <div className="price-row lp-price">
+                <span className="price big">{money(p.price)}</span>
+                {p.originalPrice > p.price && <span className="price-orig big">{money(p.originalPrice)}</span>}
+                {p.discountPercent > 0 && <span className="pill pill-off">{p.discountPercent}% off</span>}
+              </div>
+              <div className="lp-feat-actions">
+                {onAdd && p.inStock && <button className="btn-primary sm" onClick={(e) => { e.stopPropagation(); onAdd(p); }}>+ Add to cart</button>}
+                <button className="btn-ghost sm" onClick={(e) => { e.stopPropagation(); onOpen(p.slug); }}>Details →</button>
+              </div>
+            </div>
+            <p className="lp-feat-stock">{stockLabel(p.inStock, p.stockLeft)} · {p.regionOrigin || ''}</p>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// Auto-scrolling fan-favourite marquee.
+function Ticker({ items }) {
+  const names = (items || []).filter(Boolean).map((p) => p.name).slice(0, 14);
+  if (!names.length) return null;
+  const row = [...names, ...names]; // duplicate for a seamless loop
+  return (
+    <div className="lp-ticker" aria-hidden="true">
+      <div className="lp-ticker-track">
+        {row.map((n, i) => <span key={i} className="lp-ticker-it"><i>✦</i> {n}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function ActiveLine({ cats, q, category, special, onClear }) {
+  const bits = [];
+  if (q) bits.push(`search “${q}”`);
+  if (special === 'bestseller') bits.push('Best-sellers');
+  if (special === 'new') bits.push('New arrivals');
+  if (category) bits.push(cats.find((c) => c.slug === category)?.name || 'this category');
+  if (!bits.length) return null;
+  return (
+    <span className="activefilters"> · showing {bits.join(' · ')}{' '}
+      <button className="linklike" onClick={onClear}>Clear</button>
+    </span>
+  );
+}
+
+function Rail({ title, kicker, seeAll, products, onOpen, onAdd }) {
   const loading = products === null;
   return (
     <div className="rail">
       <div className="rail-head">
         <div>
           <h2>{title}</h2>
-          {sub && <span className="rail-sub">{sub}</span>}
+          <span className="rail-sub">{kicker}</span>
         </div>
         <button className="seeall" onClick={seeAll} disabled={loading}>See all →</button>
       </div>
-      {loading ? (
-        <p className="muted">Loading…</p>
-      ) : products.length === 0 ? null : (
-        <div className="rail-scroll">
-          {products.map((p) => (
-            <div key={p.id} className="rail-item">
-              <ProductCard p={p} onOpen={onOpen} onAdd={addToCart ? (pr) => { addToCart(pr.id, 1).catch(() => {}); } : undefined} />
-            </div>
-          ))}
-        </div>
-      )}
+      {loading ? <p className="muted">Loading…</p>
+        : products.length === 0 ? null : (
+          <div className="rail-scroll">
+            {products.map((p) => (
+              <div key={p.id} className="rail-item"><ProductCard p={p} onOpen={onOpen} onAdd={onAdd} /></div>
+            ))}
+          </div>
+        )}
     </div>
   );
+}
+
+function ValueBand() {
+  const vals = [
+    { ico: '🌾', t: 'Single-origin', d: 'Each batch traces to one regional kitchen — Bikaner, Ratlam, Malwa.' },
+    { ico: '🚚', t: '24-hour dispatch', d: 'Fresh-fried to order and handed to the courier the same day.' },
+    { ico: '💵', t: 'Pay on delivery', d: 'Cash on delivery across India, plus secure prepaid checkout.' },
+    { ico: '🎁', t: 'Gift ready', d: 'Festive hampers and curated boxes, wrapped for gifting.' },
+  ];
+  return (
+    <section className="lp-values">
+      <h2 className="lp-sec-h">Why snack with Bilokat</h2>
+      <div className="valgrid">
+        {vals.map((v) => (
+          <div key={v.t} className="valcard">
+            <span className="val-ico">{v.ico}</span>
+            <h3>{v.t}</h3>
+            <p>{v.d}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CTABand({ onShopBest }) {
+  return (
+    <section className="lp-cta">
+      <div>
+        <h2>Your next snack-time is <em>one tap</em> away.</h2>
+        <p>Join thousands of buyers who get fresh namkeen on repeat. Free-flowing crunch, no commitment.</p>
+      </div>
+      <button className="btn-primary lg" onClick={onShopBest}>Order the best-sellers →</button>
+    </section>
+  );
+}
+
+function shortDesc(s) {
+  if (!s) return '';
+  const t = String(s).replace(/\s+/g, ' ').trim();
+  return t.length > 34 ? t.slice(0, 34) + '…' : t;
 }

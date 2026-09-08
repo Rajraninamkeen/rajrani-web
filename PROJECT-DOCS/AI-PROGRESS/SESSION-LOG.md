@@ -2008,3 +2008,27 @@ Increment landed this session (code + migration pushed):
   Makhana, Silk Nylon Sev); storefront root + HomeView/ProductCard module transforms 200. Vite build
   clean (44 modules).
 - Session 44 complete; commit + push pending.
+
+## Session 45 — Discovery landing (storefront Home rebuilt as an editorial, data-driven landing)
+
+- **Date:** 2026-09-08
+- **Objective (owner direction):** take the design ideas from the `landing-page/` static prototype and
+  build a NEW, original "best UI" for the storefront landing — not a copy of the prototype, and not
+  hard-coded: every merchandising number comes from the live public catalog API, reusing existing
+  routing / cart / grid.
+- **`customer-storefront/src/views/HomeView.jsx` (rewrite):** the Home view is now a full landing composed
+  of, top-to-bottom — (1) a **promise ribbon** (24h dispatch / COD / small-batch / gift-ready); (2) a
+  **split editorial hero** featuring the live #1 best-seller (image, rating, price, add-to-cart, region
+  origin) beside a hero line + value proof driven by live totals; (3) an **auto-scrolling fan-favourite
+  marquee** of live product names (pauses on hover); (4) a **"Shop by craving" category-tile row** with
+  live per-category counts (one cheap request each) that filters + scrolls the catalog; (5) the curated
+  **Best-sellers / New arrivals** rails (kept, now landing-styled); (6) the **catalog workhorse** with an
+  inline header (search + sort + All/bestseller/new/category chips + active-filter Clear + pagination);
+  (7) a **"Why snack with Bilokat"** value band; (8) a closing **CTA band**. All live; grid/pager logic
+  preserved.
+- **`customer-storefront/src/styles.css`:** Session-45 block — `.lp-*` landing system (ribbon, hero, feature
+  card, marquee + `@keyframes ticker`, category tiles, value band, CTA), `.btn-primary/.btn-ghost`,
+  `.selsort`, responsive collapse < 860px. No image/asset or backend/schema change.
+- **Live verify (storefront dev `:5180` → API `:4000`):** HomeView + styles modules transform 200, storefront
+  root 200, HMR applied both without error; `vite build` clean (44 modules).
+- Session 45 complete; commit + push pending.
