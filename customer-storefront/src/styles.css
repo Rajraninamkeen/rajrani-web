@@ -405,3 +405,158 @@ main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 8px 18p
   .lp-h1 { font-size: 34px; }
   .lp-ribbon { gap: 12px 20px; border-radius: 14px; }
 }
+
+/* ==========================================================================
+   Session 46 — Bilokat design language (prototype-inspired, all pages coherent)
+   A global override/design layer applied on top of the app's primitives so
+   header, footer, buttons, cards, forms, alerts & the landing share one
+   distinctive warm identity — still fully backend-driven.
+   ========================================================================== */
+
+/* Brand palette + display type */
+:root {
+  --brand-deep: #7c2813;      /* brandy / maroon */
+  --brand: #b3412a;           /* chili */
+  --brand-amber: #e8a13a;     /* saffron */
+  --brand-gold: #f6c75f;
+  --cream: #fdf6ea;
+  --cream-2: #fbf0dd;
+  --ink-2: #3a2c1e;
+  --font-display: Georgia, 'Times New Roman', 'Iowan Old Style', serif;
+}
+html { scroll-behavior: smooth; }
+
+/* ---------- rich scrollbar ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--cream); }
+::-webkit-scrollbar-thumb { background: var(--brand-amber); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #d98a1a; }
+
+/* ---------- site header (prototype-style navbar) ---------- */
+.sitehead { position: sticky; top: 0; z-index: 30; background: rgba(253,246,234,.92);
+  backdrop-filter: blur(10px); border-bottom: 1px solid #f0dfc0; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.sitehead-in { max-width: 1200px; margin: 0 auto; display: flex; align-items: center;
+  justify-content: space-between; gap: 14px; padding: 10px 20px; flex-wrap: wrap; }
+.brand { display: inline-flex; align-items: center; gap: 10px; }
+.brand-tile { width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 900; font-size: 22px; color: #fff;
+  background: linear-gradient(135deg, var(--brand-amber), var(--brand) 60%, var(--brand-deep));
+  box-shadow: 0 6px 14px rgba(179,65,42,.28); border: 1px solid rgba(255,220,160,.6); }
+.brand-word { display: flex; flex-direction: column; line-height: 1.05; }
+.brand-name { font-family: var(--font-display); font-weight: 900; font-size: 20px; letter-spacing: .5px; color: #3a150a; }
+.brand-tag { font-size: 9px; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; color: var(--brand); }
+
+.sitehead-nav { display: flex; align-items: center; gap: 2px; }
+.sitehead-nav a { color: #5c4533; font-weight: 700; font-size: 14px; padding: 8px 13px; border-radius: 999px; }
+.sitehead-nav a:hover { background: var(--cream-2); color: var(--ink-2); }
+.sitehead-nav a.on { background: var(--brand); color: #fff; box-shadow: 0 4px 10px rgba(179,65,42,.25); }
+
+.sitehead-actions { display: flex; align-items: center; gap: 10px; }
+.cartpill { position: relative; display: inline-flex; align-items: center; gap: 7px;
+  background: linear-gradient(135deg, var(--brand-amber), var(--brand)); color: #fff;
+  font-weight: 800; font-size: 13px; padding: 9px 14px; border-radius: 999px;
+  box-shadow: 0 6px 14px rgba(179,65,42,.3); }
+.cartpill:hover { filter: brightness(1.05); }
+.cartpill-ico { font-size: 15px; }
+.cartpill .cartcount { position: absolute; top: -6px; right: -6px; background: #2d9d4e; color: #fff;
+  font-weight: 900; font-size: 11px; min-width: 19px; height: 19px; border-radius: 999px;
+  display: grid; place-items: center; border: 2px solid #fff; padding: 0 3px; }
+.cartpill.on { outline: 2px solid var(--brand-gold); }
+
+/* flash toast */
+.flash { background: linear-gradient(135deg, #3a150a, var(--brand-deep)); color: #ffd9a8;
+  border: 1px solid rgba(246,199,95,.4); }
+
+/* ---------- buttons ---------- */
+.btn { border-radius: 999px; padding: 11px 18px; font-weight: 800; font-size: 14px;
+  border: none; cursor: pointer; transition: transform .1s, box-shadow .1s; }
+.btn:active { transform: scale(.98); }
+.btn.primary { background: linear-gradient(135deg, var(--brand-amber), var(--brand) 55%, var(--brand-deep));
+  color: #fff; box-shadow: 0 8px 18px rgba(179,65,42,.28); }
+.btn.primary:hover { filter: brightness(1.05); box-shadow: 0 10px 22px rgba(179,65,42,.35); }
+.btn.ghost { background: #fff; color: var(--ink-2); border: 1.5px solid #ecd9b8; }
+.btn.ghost:hover { border-color: var(--brand-amber); color: var(--brand); }
+.btn.primary.block, .btn-primary.block { width: 100%; }
+.big-cta { font-size: 16px; padding: 14px 22px; }
+
+/* chips as pills */
+.chip { border-radius: 999px; border: 1.5px solid #ecd9b8; background: #fff; color: #5c4533;
+  padding: 6px 13px; font-size: 13px; cursor: pointer; font-weight: 700; }
+.chip:hover { border-color: var(--brand-amber); color: var(--brand); }
+.chip.on { background: linear-gradient(135deg, var(--brand), var(--brand-deep)); color: #fff;
+  border-color: transparent; box-shadow: 0 4px 10px rgba(179,65,42,.25); }
+
+/* search + inputs */
+.search, .input, select.input, input.input, textarea.input { border-radius: 12px; border: 1.5px solid #ecd9b8; }
+.search:focus, .input:focus { border-color: var(--brand-amber); box-shadow: 0 0 0 3px rgba(232,161,58,.15); }
+.selsort, select.selsort, .sortrow select { border-radius: 999px; border: 1.5px solid #ecd9b8; }
+
+/* ---------- cards ---------- */
+.pcard { background: #fff; border-radius: 18px; overflow: hidden; border: 1px solid #f0e0c0;
+  box-shadow: 0 4px 14px rgba(120,70,20,.06); }
+.pcard:hover { box-shadow: 0 14px 30px rgba(120,70,20,.16); transform: translateY(-3px); }
+.pcard-media { background: linear-gradient(160deg, #fff6e6, #ffe6b8); }
+.pcard-name { color: var(--ink-2); }
+.pcard-cat { letter-spacing: .9px; }
+.pcard-price .price { color: var(--brand-deep); }
+.miniadd { border-radius: 999px; background: linear-gradient(135deg, var(--brand-amber), var(--brand));
+  color: #fff; font-weight: 900; }
+
+/* panels / forms / summary cards */
+.panel { border-radius: 18px; border: 1px solid #f0e0c0; box-shadow: 0 6px 18px rgba(120,70,20,.06); }
+.summary, .cart-line, .rev, .plain-list { background: #fff; border: 1px solid #f0e0c0; border-radius: 16px; }
+.summary { box-shadow: 0 8px 22px rgba(120,70,20,.08); }
+.cart-thumb { border-radius: 12px; }
+
+/* order success / confirmation emphasis */
+.alert.ok { background: #e9f7ee; color: #14623a; border: 1px solid #bfe3cd; border-radius: 999px;
+  padding: 10px 16px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+.alert.err { border-radius: 12px; border: 1px solid #f2c6bd; }
+
+/* status pills on order screens */
+.pill.st.ok, .pill.st.success { background: #e9f7ee; color: #14623a; }
+.pill.st { border-radius: 999px; }
+
+/* page headings get the display serif */
+main h1, .page-head h1, .page-head h2, .catalog-h, .lp-sec-h, .order-hero h1, .detail-info h1,
+.account h2, .reviews h2, .lp-h1, .sitefoot h4 {
+  font-family: var(--font-display); letter-spacing: -.2px; color: #3a150a; }
+
+/* ---------- site footer (rich, prototype-like) ---------- */
+.sitefoot { background: #2b150b; color: #f3dcc0; margin-top: 46px; }
+.sitefoot-in { max-width: 1200px; margin: 0 auto; padding: 36px 20px 18px;
+  display: grid; grid-template-columns: 2fr 1fr 1fr 1.2fr; gap: 26px; }
+.sf-col { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.sf-brand .brand-name, .sitefoot .brand-name { color: #fff; }
+.sf-brand .brand-tag { color: var(--brand-gold); }
+.sf-col h4 { color: #fff; margin: 0 0 4px; font-family: var(--font-display); font-size: 15px; }
+.sf-col a { color: #e8cfa8; text-decoration: none; width: fit-content; }
+.sf-col a:hover { color: var(--brand-gold); }
+.sf-brand p { margin: 6px 0; color: #dcc39f; line-height: 1.6; }
+.sf-fine { font-weight: 800; color: var(--brand-gold) !important; letter-spacing: .3px; }
+.sitefoot-bar { border-top: 1px solid rgba(246,199,95,.15); text-align: center;
+  font-size: 12px; color: #b99f7a; padding: 12px; }
+.sitefoot .brand-tile { width: 38px; height: 38px; font-size: 20px; }
+
+@media (max-width: 780px) {
+  .sitehead-in { gap: 8px; }
+  .sitehead-nav a { padding: 7px 9px; font-size: 13px; }
+  .cartpill-txt { display: none; }
+  .sitefoot-in { grid-template-columns: 1fr 1fr; gap: 20px; }
+}
+
+/* ---------- order confirmation hero (payment-success UI) ---------- */
+.order-hero { display: flex; align-items: center; gap: 14px; margin: 14px 0;
+  background: linear-gradient(120deg, #fff6e6, #ffe7c0 55%, #ffd9a8);
+  border: 1px solid #f0d9a8; border-radius: 18px; padding: 16px 18px;
+  box-shadow: 0 10px 26px rgba(179,120,30,.14); }
+.order-hero-ico { font-size: 34px; display: grid; place-items: center; width: 56px; height: 56px;
+  background: #fff; border-radius: 16px; box-shadow: 0 6px 14px rgba(179,120,30,.18); }
+.order-hero h1 { margin: 0 0 2px; font-size: 24px; }
+.order-hero .order-badges { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* harmonize landing buttons with brand layer */
+.btn-primary { background: linear-gradient(135deg, var(--brand-amber), var(--brand) 55%, var(--brand-deep));
+  border-radius: 999px; color: #fff; box-shadow: 0 8px 18px rgba(179,65,42,.28); border: none; }
+.btn-primary:hover { filter: brightness(1.05); }
+.btn-ghost { border-radius: 999px; border: 1.5px solid #ecd9b8; }

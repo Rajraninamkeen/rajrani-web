@@ -2045,3 +2045,32 @@ Increment landed this session (code + migration pushed):
 - **Verify (headless Chromium 152):** page now renders fully — no pageerrors; scrollHeight 4188px;
   16 product cards, 8 rail items, 6 category tiles, hero + `#catalog-grid` present; catalog count "8 snacks".
   `vite build` clean.
+
+## Session 46 — Bilokat design language across the whole customer storefront (prototype-inspired)
+
+- **Date:** 2026-09-08
+- **Objective (owner):** study the `landing-page/` static prototype piece by piece (header, footer, colour
+  combo, card UI, payment-success UI, all screens) and bring the live storefront to that same distinctive,
+  coherent look — while keeping everything backend-driven and consistent across every page.
+- **Root design language from prototype:** warm Bilokat identity — cream `#fdf6ea` background, brandy/chili
+  `#7c2813/#b3412a` + saffron `#e8a13a`/gold, serif-display headings (Georgia stack, no external font so the
+  offline preview still renders), pill CTAs, amber→red gradients, soft warm shadows, rounded cards.
+- **`customer-storefront/src/App.jsx`:** shell rebuilt as a prototype-style branded header + rich footer.
+  Header: gradient **B** logo tile + **BILOKAT / "Swaad · India ka"** wordmark, pill nav (Shop/Cart/Orders/
+  account) with active pill, notification bell, and a gradient **cart pill** with a floating count badge.
+  Footer: brand column + Shop / Account / We-promise link columns, promise line, copyright bar. All links are
+  the existing `#/...` hash routes — no logic changed.
+- **`customer-storefront/src/styles.css`:** large Session-46 design layer overriding every shared primitive so
+  all pages share the identity — global tokens, amber scrollbar, `.sitehead`/`.cartpill`/`.sitefoot`,
+  `.btn`→pill gradient (incl. `.btn-primary` harmonised), `.chip` pills, input focus ring, `.pcard` (rounded +
+  warm shadow + cream image plate), `.panel/.summary/.cart-line/.rev`, success/error alert styling, display-serif
+  page headings, and a rich **order-confirmation hero**.
+- **`customer-storefront/src/views/OrderView.jsx`:** order hero upgraded to a branded confirmation card —
+  🎉/📦 icon tile + status + method/payment pills; CSS-driven (`.order-hero`), reflecting the prototype's
+  payment-success feel for PREPAID/COD flows.
+- **Backend note:** no backend/schema change (storefront UI only). Wishlist, standalone address book and
+  profile-edit are NOT in the current backend API, so they are not fabricated as "dynamic"; they would need
+  endpoints first (future backend session) — communicated to owner.
+- **Verify (headless Chromium 152):** routes `#/`, `#/cart`, `#/account`, `#/product/<slug>` all render with the
+  new shell, zero page-errors; header/footer present (brand tile + footer columns verified); `vite build` clean.
+- Session 46 complete; commit + push pending.

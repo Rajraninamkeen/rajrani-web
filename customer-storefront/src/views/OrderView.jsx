@@ -37,6 +37,7 @@ export default function OrderView({ id, notify }) {
     <div className="order-page">
       <button className="backlink" onClick={() => window.location.hash = '/orders'}>← My orders</button>
       <div className="order-hero">
+        <div className="order-hero-ico">{['PLACED','CONFIRMED'].includes(order.status) ? '🎉' : '📦'}</div>
         <div>
           <h1>{orderStatusLabel(order.status)}</h1>
           <p className="muted">Order {order.orderNumber} · placed {dateStr(order.placedAt)}</p>

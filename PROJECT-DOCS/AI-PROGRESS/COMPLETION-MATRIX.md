@@ -226,3 +226,21 @@ two-app scope.
 | Backend/schema | NONE | Pure storefront UI over live catalog API |
 | Build + live verify | COMPLETE | `vite build` clean (44 modules); modules + root 200; HMR clean |
 | Pushed | NOT YET | working tree present; commit + push pending |
+
+---
+
+## Session 46 status — Bilokat design language across the storefront (2026-09-08)
+
+| Item | Status | Notes |
+|---|---|---|
+| Prototype study | COMPLETE | Header, footer, colour, card UI, payment-success extracted from `landing-page/` |
+| Branded header/navbar | COMPLETE | Gradient B tile + wordmark + pill nav + gradient cart pill w/ count |
+| Rich footer | COMPLETE | Brand + Shop/Account/We-promise columns, copyright |
+| Coherent colour combo | COMPLETE | Cream + brandy/chili + saffron/gold tokens + display-serif headings, all pages |
+| Card UI | COMPLETE | `.pcard`/`.panel`/`.summary`/`.rev` rounded + warm shadows/plates |
+| Buttons & chips | COMPLETE | Pill gradients, active pills, focus rings |
+| Payment-success / order UI | COMPLETE | Order hero → branded 🎉/📦 confirmation card |
+| Backend-driven | COMPLETE | No hard-coded merch; all reads stay on live catalog API |
+| Backend/schema | NONE | UI-only; wishlist/address/profile-edit lack endpoints (deferred) |
+| Build + live verify | COMPLETE | `vite build` clean; 4 routes headless-render, zero page-errors |
+| Pushed | NOT YET | working tree present; commit + push pending |

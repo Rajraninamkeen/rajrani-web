@@ -82,28 +82,77 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <a className="brand" href="#/">🍘 Bilokat</a>
-        <nav>
-          <a className={['home', 'product'].includes(route.view) ? 'on' : ''} href="#/">Shop</a>
-          <a className={route.view === 'orders' ? 'on' : ''} href="#/orders">My orders</a>
-          <a className={'cartbtn ' + (route.view === 'cart' ? 'on' : '')} href="#/cart">
-            🛒 Cart{cartCount > 0 && <span className="cartcount">{cartCount}</span>}
+      <header className="sitehead">
+        <div className="sitehead-in">
+          <a className="brand" href="#/" aria-label="Bilokat home">
+            <span className="brand-tile">B</span>
+            <span className="brand-word">
+              <span className="brand-name">BILOKAT</span>
+              <span className="brand-tag">Swaad · India ka</span>
+            </span>
           </a>
-          <a className={route.view === 'account' ? 'on' : ''} href="#/account">
-            {user ? (user.fullName || user.email) : 'Sign in'}
-          </a>
-          {user && <NotificationsBell />}
-        </nav>
+
+          <nav className="sitehead-nav" aria-label="Primary">
+            <a className={route.view === 'home' || route.view === 'product' ? 'on' : ''} href="#/">Shop</a>
+            <a className={route.view === 'cart' ? 'on' : ''} href="#/cart">Cart</a>
+            <a className={route.view === 'orders' ? 'on' : ''} href="#/orders">Orders</a>
+            <a className={route.view === 'account' ? 'on' : ''} href="#/account">
+              {user ? (user.fullName || user.email) : 'Sign in'}
+            </a>
+          </nav>
+
+          <div className="sitehead-actions">
+            {user && <NotificationsBell />}
+            <a className={'cartpill' + (route.view === 'cart' ? ' on' : '')} href="#/cart" aria-label="Cart">
+              <span className="cartpill-ico">🛒</span>
+              <span className="cartpill-txt">{cartCount > 0 ? `Cart · ${cartCount}` : 'Cart'}</span>
+              {cartCount > 0 && <span className="cartcount">{cartCount}</span>}
+            </a>
+          </div>
+        </div>
       </header>
 
-      {flash && <div className="flash">{flash}</div>}
+      {flash && <div className="flash" role="status">{flash}</div>}
 
       <main>
         {!ready ? <p className="muted center">…</p> : view}
       </main>
 
-      <footer className="footer">Bilokat customer storefront · live catalog, reviews &amp; checkout</footer>
+      <footer className="sitefoot">
+        <div className="sitefoot-in">
+          <div className="sf-col sf-brand">
+            <div className="brand">
+              <span className="brand-tile">B</span>
+              <span className="brand-word">
+                <span className="brand-name">BILOKAT</span>
+                <span className="brand-tag">Swaad · India ka</span>
+              </span>
+            </div>
+            <p>Single-origin Indian namkeen, roasted &amp; small-batch fried and shipped within 24 hours. No palm-oil shortcuts.</p>
+            <p className="sf-fine">100% Peanut Oil · FSSAI Certified</p>
+          </div>
+          <div className="sf-col">
+            <h4>Shop</h4>
+            <a href="#/">All snacks</a>
+            <a href="#/">Best-sellers</a>
+            <a href="#/">New arrivals</a>
+            <a href="#/cart">Cart</a>
+          </div>
+          <div className="sf-col">
+            <h4>Account</h4>
+            <a href="#/orders">My orders</a>
+            <a href="#/account">Sign in / profile</a>
+          </div>
+          <div className="sf-col">
+            <h4>We promise</h4>
+            <span>🚚 24-hour dispatch</span>
+            <span>💵 Pay on delivery</span>
+            <span>🌾 Single-origin batches</span>
+            <span>🎁 Festive hampers</span>
+          </div>
+        </div>
+        <div className="sitefoot-bar">© {new Date().getFullYear()} Bilokat · live catalog, reviews &amp; checkout</div>
+      </footer>
     </div>
   );
 }
