@@ -10,6 +10,7 @@ import { randomBytes } from 'crypto';
 import {
   DeliveryAssignmentStatus,
   DeliveryPartnerStatus,
+  NotificationCategory,
   Prisma,
   ReplacementStatus,
   ReturnActorType,
@@ -18,6 +19,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { COURIER_PROVIDER, type CourierProvider } from './courier/courier-provider.interface';
 import { CourierPayoutService } from './courier-payout.service';
+import { NotificationService } from './notification.service';
 import type { ReplacementAssignmentPublic } from './commerce.types';
 
 type Tx = Prisma.TransactionClient;
@@ -54,6 +56,8 @@ export class ReplacementCourierService {
     @Optional() @Inject(COURIER_PROVIDER) private readonly courier?: CourierProvider | null,
     // Session 32: courier delivery-fee payout (money leg). Optional test seam.
     @Optional() @Inject(CourierPayoutService) private readonly courierPayout?: CourierPayoutService | null,
+    // Session 40/41 — optional buyer notice feed (never affects the delivery tx).
+    @Optional() private readonly notifications?: NotificationService,
   ) {}
 
   // =============================== OPERATOR / ADMIN ===============================
@@ -306,6 +310,19 @@ export class ReplacementCourierService {
         replacementAssignmentId: a.id,
       });
     });
+    // Session 40/41 — best-effort buyer notice that their replacement arrived.
+    if (this.notifications) {
+      try {
+        await this.notifications.enqueue({
+          recipientUserId: a.order?.userId,
+          category: NotificationCategory.ORDER_STATUS,
+          title: 'Replacement delivered',
+          message: `Your replacement for order ${a.order?.orderNumber ?? ''} has been delivered.`,
+          refKind: 'replacement',
+          refId: a.replacementId,
+        });
+      } catch { /* best-effort */ }
+    }
     return this.toPublic(await this.load(a.id));
   }
 

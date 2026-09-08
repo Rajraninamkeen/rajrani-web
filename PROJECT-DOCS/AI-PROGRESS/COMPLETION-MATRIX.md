@@ -148,3 +148,15 @@ ADMIN/DELIVERY) apps over the shared backend ARE the product; everything else in
 
 MVP close-the-loop is now underway across the two in-scope apps; a final integration/verification +
 docs + scope-freeze pass remains to declare the MVP COMPLETE.
+
+---
+
+## Session 41 status — MVP completion & scope freeze (delivery ORDER_STATUS notice + full cross-role E2E) (2026-09-08)
+
+| Item | Status | Notes |
+|---|---|---|
+| Delivery ORDER_STATUS notice (buyer bell, the real arrival event) | COMPLETE/VERIFIED live | the storefront `NotificationsBell` only ever saw RETURN_STATUS (return request/rejection); the **most important** event — the order actually being delivered — was missing. Now emitted best-effort (post-commit, never blocks/rolls back a delivery) on every delivery-finalizing path: `fulfilment.service` operator advance → DELIVERED; `delivery.service` courier parcel `deliver()`; `replacement-courier.service` courier replacement `deliver()`. `@Optional` NotificationService seams keep legacy unit tests unchanged |
+| Unit tests | COMPLETE | delivery.spec 17 (+1 ORDER_STATUS on courier finalize), fulfilment.spec 15 (+2 on operator DELIVERED), replacement-courier.spec 13 (+1 on replacement deliver) — green; typecheck + `nest build` clean |
+| Live E2E | COMPLETE/VERIFIED | `scripts/e2e-mvp-loop.mjs` 26/26 on fresh sandbox API `:5000` — full buyer→seller→operator→courier→finance→notifications loop incl. courier parcel fee **EARNED ₹35**, buyer ORDER_STATUS "Order delivered" on the courier-finalized path, buyer REFUND return → RETURN_STATUS notice, and RBAC 403s; throwaway rows + product stock cleaned (DB asserted clean) |
+| Scope freeze | COMPLETE | MVP (the two connected apps over the shared backend) declared COMPLETE; the 16-session matrix's other workstreams (analytics/AI/control panel/other web apps) remain **deferred**, not dropped |
+| Pushed | COMPLETE | Session 41 at `origin/main` (see git log) |

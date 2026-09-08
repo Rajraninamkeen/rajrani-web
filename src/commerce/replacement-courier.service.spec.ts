@@ -132,6 +132,30 @@ describe('ReplacementCourierService (Session 22)', () => {
     await expect(service.deliver('u-deliv', 'ra1')).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('courier deliver enqueues an ORDER_STATUS replacement notice to the buyer (Session 41)', async () => {
+    const notifications = { enqueue: jest.fn().mockResolvedValue({}) };
+    freshPrisma();
+    service = new ReplacementCourierService(prisma, null, null, notifications as any);
+    setupDelivery();
+    prisma.replacementAssignment.findUnique
+      .mockResolvedValueOnce(loadedAssignment({
+        status: DeliveryAssignmentStatus.OUT_FOR_DELIVERY,
+        order: { ...loadedAssignment().order, userId: 'u-buyer', orderNumber: 'BK-REPL1' },
+      })) // owned/guard
+      .mockResolvedValue(loadedAssignment({ status: DeliveryAssignmentStatus.DELIVERED,
+        order: { ...loadedAssignment().order, userId: 'u-buyer', orderNumber: 'BK-REPL1' } })); // reload
+    await service.deliver('u-deliv', 'ra1');
+    expect(notifications.enqueue).toHaveBeenCalledTimes(1);
+    expect(notifications.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientUserId: 'u-buyer',
+        category: 'ORDER_STATUS',
+        title: expect.stringMatching(/delivered/i),
+        refKind: 'replacement',
+      }),
+    );
+  });
+
   it('blocks a non-DELIVERY user from partner actions', async () => {
     prisma.user.findUnique.mockResolvedValue({ id: 'u-cust', role: 'CUSTOMER' });
     prisma.deliveryPartner.findUnique.mockResolvedValue(null);

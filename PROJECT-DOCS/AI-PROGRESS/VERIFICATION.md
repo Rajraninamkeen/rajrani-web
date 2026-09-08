@@ -676,3 +676,18 @@ Run from repo root after `npm run build`.
 | Live E2E `scripts/e2e-customer-returns.mjs` (sandbox API `:4900`, **24/24 ok**, self-cleaning) | throwaway CUSTOMER → PREPAID buy-now → sandbox capture → seller accept → operator DELIVERED → customer REFUND return (REQUESTED/REFUND) → buyer `GET /customer/notifications` shows a RETURN_STATUS notice (unread, refId = return) + unread-count ≥ 1 → mark-read flips it → OPERATOR on `/customer/notifications` 403; CUSTOMER on `/ops/returns` 403. All throwaway rows + the consumed product stock cleaned (0 leftover; `ratlami-sev` stock restored) |
 | New routes | `GET /customer/notifications`, `GET /customer/notifications/unread-count`, `POST /customer/notifications/:id/read`, `POST /customer/notifications/read-all` (`@Roles(CUSTOMER)`) |
 | `git push origin main` | Session 40 feature + docs committed and pushed (see git log) |
+
+### Session 41 — MVP completion & scope freeze (delivery ORDER_STATUS notice + full cross-role E2E)
+
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| `npm run typecheck` | exit 0 |
+| `npm run build` | exit 0 (Nest build clean; dist rebuilt with the replacement-courier emission) |
+| `npx jest` (targeted, sequential, `--runInBand`, `NODE_OPTIONS=--max-old-space-size=1400`) | `delivery.service.spec.ts` **17/17** (+1 ORDER_STATUS on courier finalize), `fulfilment.service.spec.ts` **15/15** (+2 on operator DELIVERED), `replacement-courier.service.spec.ts` **13/13** (+1 on replacement deliver) — all green; single-suite only to avoid the sandbox OOM |
+| Emission seams | `fulfilment.service.ts` + `delivery.service.ts` + `replacement-courier.service.ts` each best-effort enqueue an **ORDER_STATUS** notice post-commit when a delivery finalizes the order (operator advance → DELIVERED; courier parcel `deliver()`; courier replacement `deliver()`), `@Optional` NotificationService, never blocks/rolls back the delivery tx |
+| Live E2E `scripts/e2e-mvp-loop.mjs` (fresh sandbox API `:5000`, **26/26 ok**, manual cleanup) | cross-role loop: buyer register → catalog browse/detail → PREPAID buy-now → sandbox capture (PAID) → seller accept slice → operator CONFIRMED/PACKED/SHIPPED → parcel courier assign/accept/pickup/out-for-delivery/**deliver** → order DELIVERED + courier parcel fee **EARNED ₹35** → buyer `GET /customer/notifications` shows **ORDER_STATUS "Order delivered"** (the courier `deliver()` gap — previously only FulfilmentService.advance emitted) → buyer REFUND return → operator decision/pickup/picked-up/inspection PASS/refund/refund-complete → refund COMPLETED → buyer RETURN_STATUS notice → OPERATOR + courier on `/customer/notifications` **403** |
+| Cleanup | threw-away order (`BK-MTSI1CU4`) / parcel assignment / EARNED payout / return / notifications / buyer + the consumed product stock removed after the run; DB asserted clean (`users c41:0`, `courier_payouts EARNED:0`, `ratlami-sev` stock restored to 6); a prior failed partial E2E run's leftovers (`BK-MTSHUXY5`/`DLVA-64D58CB4`/payout/buyer) were also cleaned before the re-run |
+| Note | `scripts/e2e-mvp-loop.mjs` prints `CLEANUP_*` ids and is cleaned manually (its header comment says self-cleaning but it has no delete trailer); a dirty DB must be cleaned before re-running |
+| `git push origin main` | Session 41 feature + docs committed and pushed (see git log) |

@@ -3,8 +3,10 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
+  NotificationCategory,
   OrderActor,
   OrderStatus,
   PaymentMethod,
@@ -14,6 +16,7 @@ import {
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrderPublic } from './commerce.types';
+import { NotificationService } from './notification.service';
 import { OrderService } from './order.service';
 import { SettlementService } from './settlement.service';
 
@@ -48,6 +51,8 @@ export class FulfilmentService {
     private readonly prisma: PrismaService,
     private readonly orders: OrderService,
     private readonly settlement: SettlementService,
+    // Session 40/41 — optional buyer notice feed (never affects the fulfilment tx).
+    @Optional() private readonly notifications?: NotificationService,
   ) {}
 
   /**
@@ -152,6 +157,19 @@ export class FulfilmentService {
         include: { items: true },
       });
     });
+    // Session 40/41 — best-effort buyer notice when their order is delivered.
+    if (to === OrderStatus.DELIVERED && this.notifications) {
+      try {
+        await this.notifications.enqueue({
+          recipientUserId: order.userId,
+          category: NotificationCategory.ORDER_STATUS,
+          title: 'Order delivered',
+          message: `Your order ${order.orderNumber ?? ''} has been delivered${order.paymentMethod === PaymentMethod.COD ? ' — collect the payment from your delivery partner' : ''}.`,
+          refKind: 'order',
+          refId: orderId,
+        });
+      } catch { /* best-effort */ }
+    }
     return this.orders.toPublicOrder(updated);
   }
 }

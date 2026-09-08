@@ -167,6 +167,23 @@ describe('DeliveryService (Session 15)', () => {
     expect(settlement.earnDeliveredSlices).toHaveBeenCalledWith(tx, 'o1');
   });
 
+  it('enqueues an ORDER_STATUS delivery notice to the buyer when the courier finalizes the order (Session 40/41)', async () => {
+    const notifyMock = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    const svc = new DeliveryService(prisma, settlement, undefined as any, undefined as any, notifyMock as any);
+    prisma.deliveryAssignment.findUnique.mockResolvedValue(assignment({ status: 'OUT_FOR_DELIVERY' }));
+    prisma.sellerOrder.findUniqueOrThrow.mockResolvedValue(sellerOrder({
+      order: { id: 'o1', userId: 'u-buyer', orderNumber: 'BK-1', status: OrderStatus.SHIPPED, paymentMethod: 'PREPAID' },
+    }));
+    tx.sellerOrder.findMany.mockResolvedValue([]); // no outstanding slices -> finalize
+    tx.order.updateMany.mockResolvedValue({ count: 1 });
+    await svc.deliver('u-deliv', 'a1');
+    expect(notifyMock.enqueue).toHaveBeenCalledTimes(1);
+    const arg = notifyMock.enqueue.mock.calls[0][0];
+    expect(arg.recipientUserId).toBe('u-buyer');
+    expect(arg.category).toBe('ORDER_STATUS');
+    expect(arg.refKind).toBe('order');
+  });
+
   it('fail requires a reason and a partner-active stage', async () => {
     prisma.deliveryAssignment.findUnique.mockResolvedValue(assignment({ status: 'OUT_FOR_DELIVERY' }));
     prisma.deliveryAssignment.update.mockResolvedValue(assignment({ status: 'FAILED' }));

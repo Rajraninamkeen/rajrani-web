@@ -115,6 +115,35 @@ describe('FulfilmentService', () => {
     expect(data.paymentStatus).toBeUndefined();
   });
 
+  it('enqueues an ORDER_STATUS delivery notice to the buyer on DELIVERED (Session 40/41)', async () => {
+    const notifyMock = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    const svc = new FulfilmentService(prisma, orders, settlement, notifyMock as any);
+    const order = baseOrder({ status: 'OUT_FOR_DELIVERY' }); // PREPAID / PAID
+    prisma.order.findUnique.mockResolvedValue(order);
+    const tx = mockTx(order);
+    tx.order.findUniqueOrThrow.mockResolvedValue({ ...order, status: 'DELIVERED', deliveredAt: new Date() });
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+    await svc.advance('op1', 'o1', 'DELIVERED');
+    expect(notifyMock.enqueue).toHaveBeenCalledTimes(1);
+    const arg = notifyMock.enqueue.mock.calls[0][0];
+    expect(arg.recipientUserId).toBe('u1');
+    expect(arg.category).toBe('ORDER_STATUS');
+    expect(arg.title).toContain('delivered');
+    expect(arg.refKind).toBe('order');
+  });
+
+  it('does NOT notify the buyer for a non-DELIVERED transition', async () => {
+    const notifyMock = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    const svc = new FulfilmentService(prisma, orders, settlement, notifyMock as any);
+    const order = baseOrder(); // CONFIRMED
+    prisma.order.findUnique.mockResolvedValue(order);
+    const tx = mockTx(order);
+    tx.order.findUniqueOrThrow.mockResolvedValue({ ...order, status: 'PACKED' });
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+    await svc.advance('op1', 'o1', 'PACKED');
+    expect(notifyMock.enqueue).not.toHaveBeenCalled();
+  });
+
   it('records history even on the default reason when none is supplied', async () => {
     const order = baseOrder();
     prisma.order.findUnique.mockResolvedValue(order);

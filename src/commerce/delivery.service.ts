@@ -11,6 +11,7 @@ import { randomBytes } from 'crypto';
 import {
   DeliveryAssignmentStatus,
   DeliveryPartnerStatus,
+  NotificationCategory,
   OrderActor,
   OrderStatus,
   PaymentMethod,
@@ -19,6 +20,7 @@ import {
   SellerOrderStatus,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from './notification.service';
 import { SettlementService } from './settlement.service';
 import { COURIER_PROVIDER, type CourierProvider } from './courier/courier-provider.interface';
 import { CourierPayoutService } from './courier-payout.service';
@@ -60,7 +62,14 @@ export class DeliveryService {
     // Explicit @Inject token: the `| null` union erases the class from design:paramtypes,
     // so without it Nest cannot resolve the dependency and @Optional would inject undefined.
     @Optional() @Inject(CourierPayoutService) private readonly courierPayout?: CourierPayoutService | null,
-  ) {}
+    // Session 40/41 — optional buyer notice feed (never affects the delivery tx).
+    @Optional() private readonly notifications?: NotificationService,
+  ) {
+    this._deliveredNow = false;
+  }
+
+  /** Transient flag: the current deliver() call finalized the order to DELIVERED. */
+  private _deliveredNow = false;
 
   // =============================== Partner registry (OPERATOR/ADMIN) ===============================
 
@@ -507,8 +516,23 @@ export class DeliveryService {
           // Session 12/13 unchanged: accepted slices earn their payables at order DELIVERED.
           await this.settlement.earnDeliveredSlices(tx, order.id);
         }
+        this._deliveredNow = true;
       }
     });
+    // Session 40/41 — best-effort buyer notice when the courier finalizes delivery.
+    if (this._deliveredNow && this.notifications) {
+      try {
+        await this.notifications.enqueue({
+          recipientUserId: order.userId,
+          category: NotificationCategory.ORDER_STATUS,
+          title: 'Order delivered',
+          message: `Your order ${order.orderNumber ?? ''} has been delivered by our courier${order.paymentMethod === PaymentMethod.COD ? ' — please pay the delivery partner' : ''}.`,
+          refKind: 'order',
+          refId: order.id,
+        });
+      } catch { /* best-effort */ }
+    }
+    this._deliveredNow = false;
     return this.assignmentPublic((await this.loadAssignment(a.id))!);
   }
 

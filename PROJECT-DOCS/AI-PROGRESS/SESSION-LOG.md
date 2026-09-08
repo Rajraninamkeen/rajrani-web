@@ -1831,3 +1831,48 @@ Increment landed this session (code + migration pushed):
   payable/return/notification/buyer + the consumed product stock are all cleaned afterwards (0 leftover;
   `ratlami-sev` stock 5→6 restored).
 - Session 40 complete & pushed.
+
+## Session 41 — MVP completion & scope freeze (last buyer-loop notice + full cross-role verification)
+
+- **Date:** 2026-09-08
+- **Objective:** Close the last real functional gap in the existing buyer → seller → operator →
+  courier flow — the customer storefront's notification bell was missing the **most important event**:
+  an **ORDER_STATUS** notice when the order is *actually delivered* by the courier (the earlier
+  RETURN_STATUS on return submission/rejection covered the return loop; nothing told the buyer their
+  shipment arrived). Add the delivery-time ORDER_STATUS emission across every delivery-finalizing path,
+  then run a comprehensive cross-role MVP E2E and freeze scope declaring the MVP (two connected apps over
+  the shared backend) COMPLETE. Backend is source of truth; frontends drive the real routes.
+- **Delivery-time ORDER_STATUS notice (backend, best-effort, never affects the delivery tx):**
+  - `fulfilment.service.ts` — takes an optional `@Optional() NotificationService` and, after the
+    operator `advance(... 'DELIVERED')` commit, enqueues an **ORDER_STATUS** notice ("Order delivered",
+    references the order number + a COD note when applicable, `refKind: 'order'`).
+  - `delivery.service.ts` — fifth optional ctor arg `notifications`; a private `_deliveredNow` transient
+    flag set inside the finalize branch; post-transaction emit when a courier's `deliver()` actually
+    finalizes the order to DELIVERED.
+  - `replacement-courier.service.ts` — fifth optional ctor arg `notifications`; post-transaction emit of
+    a **"Replacement delivered"** ORDER_STATUS notice (`refKind: 'replacement'`) when a courier's
+    replacement `deliver()` completes the replacement — so all three delivery-finalizing money/status
+    paths notify the buyer.
+  - Emission is strictly best-effort (`if (this.notifications)` + try/catch) and post-commit — a notice
+    failure can never roll back or block a delivery. All three services keep their `@Optional` seams so
+    legacy unit tests construct them directly unchanged.
+- **Tests (+3 across the money suites green):** `fulfilment.service.spec.ts` +2 (emits ORDER_STATUS on
+  DELIVERED only; no emit on non-DELIVERED) → **15**; `delivery.service.spec.ts` +1 (enqueues an
+  ORDER_STATUS notice when the courier finalizes) → **17**; `replacement-courier.service.spec.ts` +1
+  (replacement `deliver` enqueues an ORDER_STATUS notice to the buyer) → **13**. Typecheck + `nest build`
+  clean.
+- **Live E2E (`scripts/e2e-mvp-loop.mjs`, cross-role, fresh sandbox API `:5000`, 26/26 ok):** registers a
+  throwaway CUSTOMER; browses the public catalog + product detail; places + sandbox-captures a fresh
+  PREPAID buy-now order (PAID); seller accepts the slice; operator advances
+  CONFIRMED→PACKED→SHIPPED; OPERATOR assigns the parcel to a DELIVERY courier who
+  accept→pickup→out-for-delivery→**deliver** → order DELIVERED and the courier **EARNs** a ₹35 parcel
+  delivery-fee payout; the buyer's `GET /customer/notifications` shows the **ORDER_STATUS "Order
+  delivered"** notice (this was the gap: the courier `deliver()` path — not FulfilmentService.advance —
+  had not emitted it); buyer requests a REFUND return → operator decision/pickup/picked-up/inspection
+  PASS/refund/refund-complete → return refund COMPLETED; buyer sees the **RETURN_STATUS** notice; OPERATOR
+  and courier on `/customer/notifications` → **403** RBAC. The E2E's throwaway order/payout/assignment/
+  return/notifications/buyer + the consumed product stock were cleaned after the run (DB asserted clean;
+  `ratlami-sev` stock restored to 6). Note: `scripts/e2e-mvp-loop.mjs` prints its `CLEANUP_*` ids and is
+  cleaned manually (its header comment overstates self-cleaning — it has no delete trailer), so re-runs
+  against a dirty DB must be cleaned first.
+- Session 41 complete & pushed.
