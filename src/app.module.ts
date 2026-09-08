@@ -10,6 +10,7 @@ import { SellerModule } from './seller/seller-onboarding.module';
 import { PublishingModule } from './publishing/publishing.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { ControlModule } from './control/control.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -28,6 +29,7 @@ import { AppController } from './app.controller';
     PublishingModule,
     ReviewsModule,
     AnalyticsModule,
+    ControlModule,
   ],
   controllers: [AppController],
 })

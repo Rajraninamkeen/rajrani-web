@@ -193,3 +193,15 @@ const analyticsApi = (base) => ({
 });
 export const platformAnalyticsApi = analyticsApi('/analytics');
 export const sellerAnalyticsApi = analyticsApi('/seller/analytics');
+
+// Session 43 — Platform Control Panel (OPERATOR/ADMIN): governance + break-glass.
+export const controlApi = {
+  overview: () => api('GET', '/control/overview'),
+  users: (p) => api('GET', '/control/users' + qs(p || {})),
+  user: (id) => api('GET', `/control/users/${id}`),
+  sessions: (p) => api('GET', '/control/sessions' + qs(p || {})),
+  revokeSession: (id, reason) => api('POST', `/control/sessions/${id}/revoke`, { body: { reason } }),
+  revokeAllSessions: (userId, reason) => api('POST', `/control/users/${userId}/revoke-sessions`, { body: { reason } }),
+  sellers: (p) => api('GET', '/control/sellers' + qs(p || {})),
+  audit: (p) => api('GET', '/control/audit' + qs(p || {})),
+};

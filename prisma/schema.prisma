@@ -1598,3 +1598,40 @@ model NotificationOutbox {
   @@index([status, createdAt])
   @@map("notification_outbox")
 }
+
+// ===================== Session 43: Platform Control Panel =====================
+// Append-only, high-authority platform-action audit (Control-Panel spec §51/§52).
+// Every sensitive "break-glass"/governance action taken through the Control Panel
+// (e.g. an OPERATOR/ADMIN revoking another user's session) is recorded here with a
+// mandatory reason + actor. This is the platform-governance audit trail distinct
+// from the domain history tables (which remain the source for their own state
+// transitions); Control actions that overlap an existing domain transition still
+// write that domain's history AND a ControlAudit entry.
+enum ControlActionType {
+  SESSION_REVOKE
+  SESSION_REVOKE_ALL
+  SELLER_SUSPEND
+  SELLER_ACTIVATE
+  USER_STATUS_CHANGE
+  CATALOG_OVERRIDE
+  PAYMENT_OVERRIDE
+  OTHER
+}
+
+model ControlAudit {
+  id         String             @id @default(cuid())
+  actionType ControlActionType
+  action     String // human summary, e.g. 'Revoked a platform session'
+  actorId    String // OPERATOR/ADMIN user who performed it
+  actorRole  String // OPERATOR | ADMIN
+  targetType String // 'userSession' | 'user' | 'seller' | ...
+  targetId   String?
+  reason     String // mandatory free-text justification
+  detail     Json? // optional structured context (ip, device, target email, ...)
+  createdAt  DateTime           @default(now())
+
+  @@index([actorId])
+  @@index([actionType])
+  @@index([createdAt])
+  @@map("control_audit")
+}

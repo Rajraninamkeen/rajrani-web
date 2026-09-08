@@ -1926,3 +1926,56 @@ Increment landed this session (code + migration pushed):
   GMV ≈ ₹16,800 / 27 orders / 3 buyers, AOV ≈ ₹622, 10% commission on Rajrani Select, product/category/
   seller tables and per-seller scoping (17 + 10 = 27 orders, no leakage) all correct.
 - **Status:** Session 42 backend + console + tests + live RBAC/aggregation verify complete.
+
+## Session 43 — Platform Control Panel (governance + audited break-glass)
+
+- **Date:** 2026-09-08
+- **Objective (owner-chosen via ask_user, matrix #11):** build the Control Panel as a distinct
+  OPERATOR/ADMIN cross-domain control plane inside the two-app MVP. It is *not* another per-domain
+  staff dashboard (/ops, /finance, /seller-onboarding, /delivery) — it is the platform governance,
+  user/session directory and emergency (break-glass) control surface. Read-heavy; the only mutations
+  are high-authority actions that require a mandatory reason and are themselves written to an
+  append-only audit log (Control-Panel spec §51/§52: "full authority must never mean unrestricted,
+  unaudited access").
+- **Data model:** new `ControlAudit` + `ControlActionType` enum (`prisma/schema.prisma`, 50 models;
+  append-only log: actorId/actorRole, actionType/action, targetType/targetId, reason, optional detail,
+  createdAt). Applied to the running DB via `prisma db push`; committed DDL record at
+  `prisma/migrations/20260908230000_control_audit/migration.sql`. New `CurrentUserRole` param decorator
+  reads the acting role off the JWT for audited actions.
+- **Backend (`src/control/`, new module + `app.module.ts`; all `@Roles(OPERATOR, ADMIN)`):**
+  - `GET /control/overview` — platform KPI strip (users by role, total users, active sessions,
+    sellers by status, total audit entries).
+  - `GET /control/users` (role/status/search filters, paginated; each row binds seller/delivery code +
+    order/session counts) and `GET /control/users/:userId` (detail incl. recent sessions + review/cart
+    counts).
+  - `GET /control/sessions` (scope active/revoked/all + user search, paginated; device/ip/expiry) —
+    a platform session registry.
+  - `POST /control/sessions/:sessionId/revoke {reason}` and `POST /control/users/:userId/revoke-sessions
+    {reason}` — **break-glass** session revocation. Reason is mandatory (blank → 400); unknown session →
+    404; already-revoked → 400; non-staff actor rejected; each writes a `ControlAudit` row
+    (SESSION_REVOKE / SESSION_REVOKE_ALL) with actor/role/target/reason/detail.
+  - `GET /control/sellers` (status/code/name filter) — seller governance roll (commission, org, and
+    product/operator/slice/payable counts; read-only — activation/suspension stays on the existing
+    seller-onboarding staff surface which writes `seller_status_history`).
+  - `GET /control/audit` (action/actor/date filters) — the append-only control-audit feed.
+  - All reads/actions are read-only over the platform except the two reasoned revoke mutations.
+- **Tests:** new `src/control/control.service.spec.ts` (11) — user directory mapping/filters, userDetail
+  404, sessions scope+map, revokeSession (blank-reason 400 / non-staff Forbidden / success revokes +
+  appends audit w/ reason & actorRole / already-revoked 400), revokeAllUserSessions audit, sellers roll
+  (org + counts), audit feed, overview aggregation. Typecheck + `nest build` clean.
+- **Console UI (`catalog-console`):** new **Control** tab (OPERATOR/ADMIN) — `views/ControlPanel.jsx`
+  + `controlApi` in `api.js`, wired into `App.jsx`. Sub-sections: Overview KPI strip; Users directory
+  (filter/search, user-detail overlay with recent sessions + revoke-all); Sessions registry
+  (active/revoked/all) with per-session **Revoke**; Sellers governance roll; and the **Audit** feed.
+  Break-glass actions open a mandatory-reason confirm overlay; on success they refresh overview/sessions/
+  users/audit. Vite build clean (48 modules).
+- **Live RBAC + break-glass verify (sandbox API `:4000` + console proxy `:5173`):** unauthenticated →
+  401; SELLER and CUSTOMER on any `/control` route → **403**; OPERATOR overview/users/sessions/sellers/
+  audit → 200 with correct shapes (users grouped by role incl. seller codes, sellers roll with product/
+  operator counts, active-session registry). Break-glass probe on a throwaway registered customer:
+  revoke without reason → **400**; revoke with a reason → `{ok,revoked:1,targetEmail}`; the **Audit**
+  feed then lists a `SESSION_REVOKE` row (actorRole OPERATOR + the reason); the throwaway user was
+  deleted (its sessions cascaded). Note: access tokens are short-lived (15 min) and DB session
+  revocation stops refresh/token-extension — an already-issued access token expires within the TTL; a
+  full immediate token-denylist is recorded as deferred future work (matrix #15 security hardening).
+- Session 43 backend + tests + console + live RBAC/break-glass verified; commit + push pending.
