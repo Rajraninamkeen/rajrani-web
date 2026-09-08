@@ -898,3 +898,36 @@ Live E2E run — see VERIFICATION Session 05 table.
   VERIFICATION Session 16. Replacement path (→ `REPLACEMENT_ISSUED` + `RPL-…`, refund 409)
   and REFUND path (→ APPROVED_FOR_REFUND → refund → COMPLETED, money intact) both confirmed;
   CUSTOMER → 403 on OPERATOR evidence route.
+
+## Session 17 — Outbound replacement dispatch (finish the ReplacementStatus lifecycle)
+
+- **Date:** 2026-09-08
+- **Owner decision:** "Drive outbound replacement dispatch" — finish the Session 16 modelled
+  `ReplacementStatus` lifecycle by adding the OPERATOR API to dispatch a PENDING_DISPATCH
+  replacement (`DISPATCHED → COMPLETED/CANCELLED`) with audit events. Replacement stays a
+  **non-money** leg (no ledger, no seller-payable debit); the refund/auto-debit money path is
+  untouched.
+- **Schema (additive; migration `20260908170000_replacement_dispatch` — 19 migrations total):**
+  - `ReturnEventType` += `REPLACEMENT_DISPATCHED`, `REPLACEMENT_COMPLETED`, `REPLACEMENT_CANCELLED`.
+  - `Replacement` += nullable `dispatchReference`, `dispatchNote`, `dispatchBy`, `cancellationReason`.
+  - Applied via `psql -f` + manual `_prisma_migrations` insert; `prisma generate`; `migrate status` up to date.
+- **Service/DTO/controller (`returns.service.ts`, `dto/returns.dto.ts`, `return-ops.controller.ts`,
+  `commerce.types.ts`):**
+  - New OPERATOR/ADMIN endpoints under the existing return-ops surface (one replacement per return,
+    addressed by `returnRequestId`):
+    - `POST /return-requests/:returnRequestId/replacement/dispatch` `{ dispatchReference?, dispatchNote? }`
+      → `PENDING_DISPATCH → DISPATCHED` (sets dispatchedAt/dispatchBy/ref/note).
+    - `POST /return-requests/:returnRequestId/replacement/complete` → `DISPATCHED → COMPLETED`.
+    - `POST /return-requests/:returnRequestId/replacement/cancel` `{ reason }` →
+      `PENDING_DISPATCH | DISPATCHED → CANCELLED` (reason required).
+  - Guards: the return request must be terminal `REPLACEMENT_ISSUED` with a replacement in the expected
+    `ReplacementStatus` (else 409); cancel requires a reason; completed replacements can't be cancelled.
+  - Each step writes an audited `ReturnEvent` (REPLACEMENT_DISPATCHED/COMPLETED/CANCELLED, OPERATOR actor).
+  - Public `ReplacementPublic` += dispatchReference/dispatchNote/dispatchBy/cancelledAt/cancellationReason.
+- **Tests:** `returns.service.spec.ts` +8 (dispatch PENDING→DISPATCHED audited + no money, block dispatch
+  unless PENDING or unless return is REPLACEMENT_ISSUED, complete DISPATCHED→COMPLETED, block completing
+  non-dispatched, cancel with required reason, block cancel without reason, block cancel of a completed
+  replacement). Full suite **16 suites / 153 tests** (was 145); typecheck + build clean.
+- **Live E2E (`:4000`):** see VERIFICATION Session 17. Drove Session 16's `PENDING_DISPATCH` replacement
+  to DISPATCHED then COMPLETED (with guards), and a fresh replacement return on `BK-MTRVM3QQ` to CANCELLED;
+  CUSTOMER → 403 on the operator dispatch route; refund on a replacement still 409.

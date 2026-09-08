@@ -3258,3 +3258,30 @@ The refund/auto-debit money logic is unchanged for REFUND-resolution requests.
 REFUND     resolution:  …→ APPROVED_FOR_REFUND → (refund) → COMPLETED
 REPLACEMENT resolution: …→ REPLACEMENT_ISSUED (terminal) + replacement (PENDING_DISPATCH)
 ```
+
+# Session 17 addendum — Outbound replacement dispatch (reference)
+
+Continues the Session 16 replacement path. Once a REPLACEMENT-resolution return reaches
+terminal `REPLACEMENT_ISSUED` with a `replacement` row in `PENDING_DISPATCH`, the outbound leg
+is driven by OPERATOR/ADMIN (a **non-money** operation — no Refund, no seller payable/debit).
+
+## Operator endpoints (`/api/v1/return-requests/:returnRequestId/replacement/…`)
+- `POST …/dispatch` `{ dispatchReference?, dispatchNote? }` → `PENDING_DISPATCH → DISPATCHED`
+  (records dispatchedAt, dispatchBy, reference/note).
+- `POST …/complete` → `DISPATCHED → COMPLETED` (records completedAt; "delivered to customer").
+- `POST …/cancel` `{ reason }` → `PENDING_DISPATCH | DISPATCHED → CANCELLED` (reason required).
+
+Guards: the return request must be terminal `REPLACEMENT_ISSUED`; the replacement must be in the
+expected state for the transition (else 409); cancel needs a reason; a completed replacement cannot
+be cancelled. Each step appends an audited `ReturnEvent`
+(`REPLACEMENT_DISPATCHED` / `REPLACEMENT_COMPLETED` / `REPLACEMENT_CANCELLED`, OPERATOR actor).
+
+```
+PENDING_DISPATCH --dispatch--> DISPATCHED --complete--> COMPLETED
+       |                          |
+       \-------- cancel --------/
+                     (reason)
+```
+
+The return request stays terminal `REPLACEMENT_ISSUED`; the outbound state lives on the `replacement`
+row. Couriers are not yet assigned to a dispatched replacement (still OPERATOR-driven).

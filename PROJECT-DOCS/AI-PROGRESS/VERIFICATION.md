@@ -368,4 +368,21 @@ Server `bilokat-api-session-16-…` on `:4000` (fresh `dist/main.js` build). Fix
 | evidence-on-terminal | CUSTOMER `POST …/returns/:id/evidence` on the terminal request → **409** |
 | refund path intact | REFUND-resolution return on the order's other line → inspection `APPROVED_FOR_REFUND` (`approvedForRefundAt` + per-line `refundAmount`) → refund initiate `PENDING` → complete `COMPLETED` / return `COMPLETED` (money + auto-debit logic unchanged) |
 | RBAC | CUSTOMER → **403** on OPERATOR-only `POST /return-requests/:id/evidence`; customer evidence route enforces order ownership (404 cross-owner) |
+| `git push origin main` | pushed (`b0f1f15` code+migration, `49863e3` docs) |
+
+## Session 17 — Outbound replacement dispatch (2026-09-08, `/home/user/rajrani-web`)
+
+Server `bilokat-api-session-17-…` on `:4000` (fresh `dist/main.js` build). Reused Session 16
+fixtures + reset `pf@example.com` password (throwaway test customer). Operator `pfop@example.com`.
+
+| Check | Result |
+|---|---|
+| migrations | 19 applied, `prisma migrate status` up to date; `prisma generate` OK; typecheck + `npm run build` clean |
+| unit tests | `returns.service.spec.ts` +8 → **16 suites / 153 tests** green |
+| RBAC | CUSTOMER `POST …/replacement/dispatch` → **403** (OPERATOR/ADMIN only) |
+| dispatch | OPERATOR on return `…6zkb3ly` (`PENDING_DISPATCH` `RPL-MTRZGF1A-GBLH`) → **201 DISPATCHED** with `dispatchReference TRK-S17-1`, `dispatchBy`, `dispatchedAt`; re-dispatch → **409** |
+| complete | OPERATOR `…/replacement/complete` → **201 COMPLETED** (`completedAt`); re-complete → **409**; cancel-on-completed → **409** |
+| cancel | fresh REPLACEMENT return on `BK-MTRVM3QQ` (pf@example.com) driven to `REPLACEMENT_ISSUED`, then `…/replacement/cancel {reason:"stock unavailable"}` → **201 CANCELLED** with `cancellationReason`; cancel-again → **409** |
+| no money | refund on a replacement still **409**; no `refunds` row; `settlement.debitReturnedGoodsForRefund` never called (non-money leg) |
+| audit | `return_events` show REQUESTED…REPLACEMENT_ISSUED then REPLACEMENT_DISPATCHED/REPLACEMENT_COMPLETED (return …6zkb3ly) and REPLACEMENT_CANCELLED (return …0ph1tzh8) with OPERATOR actor |
 | `git push origin main` | pending (this session; needs a fresh one-shot token) |

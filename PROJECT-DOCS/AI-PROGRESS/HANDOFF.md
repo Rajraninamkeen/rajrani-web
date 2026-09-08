@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 16 — Return replacement (exchange) vs refund + evidence upload |
-| STATUS | COMPLETE locally (16 suites / 145 tests; 18 migrations applied + recorded; commit **staged — PUSH REQUIRED**, needs a fresh one-shot GitHub token) |
-| NEXT SESSION | Reviews, real payment-gateway provider, or outbound replacement dispatch / courier integration |
-| NEXT WORKFLOW | Product reviews (ratingAvg refresh); a real gateway provider (razorpay/stripe) with live refunds; real courier-provider integration + per-slice payout (earn currently stays order-level); drive outbound replacement dispatch (`ReplacementStatus PENDING_DISPATCH → …`) once a dispatch/fulfilment concern exists |
+| CURRENT SESSION | Session 17 — Outbound replacement dispatch (finish the `ReplacementStatus` lifecycle) |
+| STATUS | COMPLETE locally (16 suites / 153 tests; 19 migrations applied + recorded; commits staged — **PUSH REQUIRED**, needs a fresh one-shot GitHub token) |
+| NEXT SESSION | Reviews, real payment-gateway provider, or courier-delivering the dispatched replacement |
+| NEXT WORKFLOW | Product reviews (ratingAvg refresh); a real gateway provider (razorpay/stripe) with live refunds; real courier-provider integration + per-slice payout (earn currently stays order-level); courier-assign the dispatched replacement (currently an OPERATOR `replacement/…` action, non-money) |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It

@@ -3486,3 +3486,15 @@ No new roles. Role gates that changed this session:
   is reachable from a replacement.
 - No DELIVERY/REVIEWER surface was opened for evidence or replacement; Session 15/14 RBAC
   negatives remain valid.
+
+# Session 17 addendum — Replacement dispatch (RBAC)
+
+No new roles. Gate changes this session:
+
+- The three replacement dispatch endpoints (`…/replacement/dispatch|complete|cancel`) are
+  **OPERATOR/ADMIN only** (RolesGuard). CUSTOMER (and DELIVERY/REVIEWER) are 403 — a dispatched
+  replacement is not yet courier-driven.
+- DELIVERY/REVIEWER remain denied the operator returns surface (`/return-requests/**`).
+- A replacement is a **non-money** terminal path: no refund endpoint is reachable from it
+  (`REPLACEMENT_ISSUED` ≠ APPROVED_FOR_REFUND → 409), consistent with Sessions 16/17.
+- Session 14/15/16 RBAC negatives remain valid.
