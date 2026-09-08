@@ -279,3 +279,39 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
   photos / Q&A.
 - Natural next items: **courier-deliver the dispatched replacement**, **review storefront UI**,
   **catalog-publishing/seller UIs**, or a next owner-chosen feature.
+
+## SESSION 22 HANDOFF NOTES (courier last-mile delivery of a dispatched replacement)
+- **New additive files (no new role):** `src/commerce/replacement-courier.service.ts`, its controllers
+  (`ReplacementCourierAdminController` under `/api/v1` OPERATOR/ADMIN + `ReplacementCourierPartnerController`
+  `@Controller('delivery/replacement-tasks')` DELIVERY), `dto/replacement-courier.dto.ts`, and the migration
+  `prisma/migrations/20260908203000_replacement_courier/`. Wired into `commerce.module.ts`. New public types
+  `ReplacementAssignmentPublic` in `commerce.types.ts`.
+- **Courier drives completion (owner choice).** Once a replacement is DISPATCHED, OPERATOR/ADMIN assign a
+  DELIVERY partner (`…/replacement/assign-courier`); the DELIVERY partner drives it and its **`deliver`**
+  auto-completes the replacement (`DISPATCHED → COMPLETED`). The Session 17 OPERATOR manual `/complete` now
+  returns 409 while a courier is active — keep that guard; do not let an operator and a courier double-
+  finalise a replacement.
+- **Non-money invariant (product decision):** the replacement courier leg never creates a Refund, never
+  touches a seller payable, and never changes the original order (returns already happen after DELIVERED).
+  `ReplacementCourierService.deliver` only flips assignment→DELIVERED + replacement→COMPLETED + a ReturnEvent.
+  Do not wire earning/COD/settlement logic into this path.
+- **Model:** `replacement_assignments` reuses `DeliveryPartner` + `DeliveryAssignmentStatus` (`RDLA-…`
+  numbers) so the DELIVERY role works uniformly; it references `replacements` (via `replacementId`) not a
+  seller slice. One **active** assignment per replacement (statuses ASSIGNED/ACCEPTED/PICKED_UP/
+  OUT_FOR_DELIVERY); reassign creates a fresh row after REJECT/FAIL/CANCEL. Audit is on the same
+  return-request `ReturnEvent` stream using new `ReturnEventType` courier events + `ReturnActorType.DELIVERY`.
+- **Migration discipline:** `20260908203000_replacement_courier` applied via `psql -f` + a manual
+  `_prisma_migrations` row (id `20260908203000_replacement_courier`, checksum = sha256 of migration.sql).
+  24 migrations total.
+- **Tests/E2E:** `src/commerce/replacement-courier.service.spec.ts` (12) → **21 suites / 205 tests**.
+  Live E2E `scripts/e2e-replacement-courier.mjs` (**31/31**): it places a fresh PREPAID order (sandbox
+  capture webhook amount = `Math.round(payment.amount)`), delivers it, and drives a full REPLACEMENT
+  return→dispatch→courier-assign→courier-deliver. Fixtures: buyer `s12@example.com`/`Test@12345`, OPERATOR
+  `pfop@example.com`/`Operator@123`, SELLER `seller1@example.com`/`Seller@123`, DELIVERY
+  `delivery15@example.com`/`Delivery@123` (its ACTIVE partner profile was reused). Run against a fresh sandbox
+  API (`PORT=4500 node dist/main.js`). After a run, delete the E2E order/return/replacement/assignment/payable
+  rows (see VERIFICATION Session 22 cleanup) so the DB stays tidy.
+- **Not in scope (add only in a new session):** real delivery-courier provider integration / tracking / POD,
+  delivery pricing/zones, review- or catalog-publishing/seller storefront UIs.
+- Natural next items: **review/rating storefront UI**, **catalog-publishing/seller UIs**, or another
+  owner-chosen feature.

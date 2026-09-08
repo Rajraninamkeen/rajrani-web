@@ -476,3 +476,27 @@ non-buyer CUSTOMER for the 403 negative.
 | cleanup | E2E `product_reviews` rows deleted; `ratlami-sev`/`shahi-kaju-mixture` rating summaries reset to seeded (4.9/3820, 4.9/2450); throwaway registered CUSTOMERs deleted |
 | RBAC | moderation is OPERATOR/ADMIN only (REVIEWER stays KYC-only); public read is auth-free and PUBLISHED-only |
 | `git push origin main` | Session 21 feature + docs committed and pushed (see git log) |
+
+## Session 22 — Courier last-mile delivery of a dispatched replacement (2026-09-08, `/home/user/rajrani-web`)
+
+Sandbox-provider API on `:4500` (`PORT=4500 node dist/main.js`) against the same dev DB; reusable driver
+`scripts/e2e-replacement-courier.mjs` → **31 ok steps**. Credentials: buyer `s12@example.com`/`Test@12345`,
+OPERATOR `pfop@example.com`/`Operator@123`, SELLER `seller1@example.com`/`Seller@123`, DELIVERY
+`delivery15@example.com`/`Delivery@123` (its partner profile was already ACTIVE).
+
+| Check | Result |
+|---|---|
+| migrations | 24 applied, `migrate status` up to date (`20260908203000_replacement_courier`); `replacement_assignments` table + `ReturnEventType` courier events + `ReturnActorType.DELIVERY` present; typecheck + build clean |
+| unit tests | new `src/commerce/replacement-courier.service.spec.ts` (12) → **21 suites / 205 tests** green |
+| order+pay | fresh PREPAID buy-now order; sandbox webhook captured → order PAID; seller accepted slice; operator advanced to DELIVERED |
+| replacement issue | customer REPLACEMENT return → operator approve/pickup/picked-up/inspection PASS → `REPLACEMENT_ISSUED` + replacement `PENDING_DISPATCH` |
+| dispatch | operator `…/replacement/dispatch` → `DISPATCHED` |
+| assign courier | `POST …/replacement/assign-courier {deliveryPartnerId}` → ASSIGNED (`RDLA-…`); partner `delivery15` |
+| negatives | duplicate assign → 409; OPERATOR manual `/replacement/complete` while a courier is assigned → 409; CUSTOMER assigns → 403; DELIVERY hits OPERATOR route → 403; OPERATOR hits `/delivery/replacement-tasks` → 403 |
+| courier task | not listed before accept (ASSIGNED excluded); accept → PICKED_UP → OUT_FOR_DELIVERY → **deliver** → assignment DELIVERED |
+| completion | courier deliver auto-completes replacement `DISPATCHED → COMPLETED` (completedAt) in one tx |
+| return detail | customer return read shows `replacement.status COMPLETED`, assignment `DELIVERED` + deliveredAt, `refund:null` |
+| non-money | replacement has no Refund; original order stays DELIVERED / PAID (unchanged) |
+| audit | courier steps recorded as `ReturnEvent` (ReturnActorType DELIVERY) on the same return trail |
+| cleanup | E2E order/return/replacement/assignment/seller-payable rows deleted; 0 `replacement_assignments` remain |
+| `git push origin main` | Session 22 feature + docs committed and pushed (see git log) |

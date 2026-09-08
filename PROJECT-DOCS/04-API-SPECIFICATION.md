@@ -3401,3 +3401,47 @@ Returns `{product:{id,name,slug,ratingAvg,reviewCount}, reviews:[{id,rating,titl
 verifiedBuyer,author:{id,name},createdAt}], page, limit, total, totalPages}` for a live product. Only
 **PUBLISHED** reviews are returned; PENDING/REJECTED/HIDDEN never appear. Author `name` is derived from
 `User.fullName` (or "Verified customer"); full email is never exposed.
+
+## SESSION 22 ADDENDUM — Courier last-mile delivery of a dispatched replacement
+
+Extends the Session 17 outbound replacement path. Once a replacement is **DISPATCHED** (operator
+`…/replacement/dispatch`), OPERATOR/ADMIN assign a DELIVERY partner to physically deliver it; the
+DELIVERY partner drives it and its **deliver** step completes the replacement. All under `/api/v1`,
+Bearer JWT.
+
+### OPERATOR/ADMIN assignment — `replacement_assignments` (one active per replacement)
+- `POST /return-requests/:returnRequestId/replacement/assign-courier` `{ deliveryPartnerId }` → creates an
+  **ASSIGNED** `ReplacementAssignment` (`RDLA-…`) for a partner whose `DeliveryPartner.status` is ACTIVE.
+  Guards: the replacement must be `DISPATCHED` and not yet terminal; no other active assignment (else 409);
+  unknown/not-ACTIVE partner → 404/409.
+- `GET /return-requests/:returnRequestId/replacement/assignments` — this return's replacement
+  assignments (most recent first) for the operator view.
+- `POST /return-requests/:returnRequestId/replacement/assignments/:assignmentId/cancel` — cancel an active
+  assignment (ASSIGNED/ACCEPTED/PICKED_UP/OUT_FOR_DELIVERY → CANCELLED); terminal assignments can't be cancelled (409).
+
+### DELIVERY partner surface — `/delivery/replacement-tasks` (DELIVERY role, own profile only)
+- `GET /` — my active replacement tasks (ACCEPTED/PICKED_UP/OUT_FOR_DELIVERY). `GET /:assignmentId`.
+- `POST /:assignmentId/accept|reject{reason}` — from ASSIGNED (reject returns to the operator pool).
+- `POST /:assignmentId/pickup|out-for-delivery` — ordered steps.
+- `POST /:assignmentId/deliver` — marks the assignment DELIVERED and, in the same transaction, sets the
+  replacement `DISPATCHED → COMPLETED` (completedAt) + a `REPLACEMENT_COMPLETED` `ReturnEvent`
+  (ReturnActorType DELIVERY). **Non-money**: no Refund, no seller-payable change, original order status
+  unchanged. Guards: assignment must be OUT_FOR_DELIVERY and the replacement still DISPATCHED.
+- `POST /:assignmentId/fail{reason}` — from any partner-active step.
+
+Lifecycle (mirrors slice delivery):
+```
+ASSIGNED → ACCEPTED → PICKED_UP → OUT_FOR_DELIVERY → DELIVERED  (deliver ⇒ replacement DISPATCHED → COMPLETED)
+    \---REJECTED    \---FAILED          (operator reassigns a fresh assignment / cancels)
+```
+
+### Changed Session 17 endpoint
+`POST /return-requests/:returnRequestId/replacement/complete` (OPERATOR manual) now returns **409 while a
+courier assignment is active** on the replacement — the courier's `deliver` is what completes it. Manual
+complete remains only for the no-courier path.
+
+### Return detail
+`ReturnRequestPublic.replacement.assignments[]` now exposes the courier leg(s): `{id, assignmentNumber,
+status, deliveryPartner:{id,partnerCode,name}, assignedAt/acceptedAt/pickedUpAt/outForDeliveryAt/
+deliveredAt/rejectedAt/cancelledAt, failureReason}` (most recent first) on both the operator and customer
+return views (no customer address is exposed).

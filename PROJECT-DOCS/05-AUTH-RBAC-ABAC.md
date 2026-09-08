@@ -3565,3 +3565,19 @@ Product listing/publishing rides the existing roles — no new role was introduc
   on `/product-reviews`).
 - Public reads are auth-free but **PUBLISHED-only** — a never-approved review is never publicly visible.
 - Sessions 14–20 RBAC negatives remain valid.
+
+## SESSION 22 ADDENDUM — RBAC for replacement courier last-mile delivery (no new role)
+
+- **OPERATOR / ADMIN** dispatch a replacement (Session 17) and then **assign a DELIVERY partner** to
+  deliver it (`…/replacement/assign-courier`, cancel an active assignment). They may no longer manually
+  `/complete` a replacement while a courier is assigned.
+- **DELIVERY** (a DELIVERY-role user bound to an ACTIVE `DeliveryPartner`) drives the assigned replacement
+  via `/delivery/replacement-tasks` — accept/reject/pickup/out-for-delivery/fail and the final `deliver`.
+  Access is strictly **own-profile**: a partner can act only on assignments addressed to their partner id
+  (403 otherwise), and the role guard is `DELIVERY`.
+- **CUSTOMER** cannot assign a courier (403 on the operator route) and never sees the courier/operator
+  surfaces. A **SELLER** cannot drive replacement delivery.
+- Completion authority moved from OPERATOR to the DELIVERY courier for courier-assigned replacements; the
+  operator manual `/complete` stays for the non-courier path. This mirrors Session 15 slice delivery and
+  keeps the DELIVERY role uniform across original orders and replacements. Sessions 14–21 RBAC negatives
+  remain valid.

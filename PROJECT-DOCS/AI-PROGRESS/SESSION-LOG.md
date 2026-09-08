@@ -1157,3 +1157,43 @@ onboarding/KYC, catalog publishing, courier/delivery-provider, or storefront UI.
   `shahi-kaju-mixture` rejected (REJECTED + reason, product summary untouched) → editing the REJECTED
   review reopened it to PENDING. RBAC negatives (fresh non-buyer 403, SELLER 403, CUSTOMER on moderation
   403). E2E reviews + product summaries cleaned up to seeded values after the run.
+
+## Session 22 — Courier last-mile delivery of a dispatched replacement (2026-09-08, `/home/user/rajrani-web`)
+
+Owner-chosen next scope: **courier-deliver the dispatched replacement** — closing the Session 17 outbound
+replacement leg by routing the physical last mile through the Session 15 DELIVERY-role courier system.
+
+- **Migration `20260908203000_replacement_courier`:** new `replacement_assignments` table (mirrors
+  `delivery_assignments`, but FKs to `replacements` + reuses `DeliveryPartner` + `DeliveryAssignmentStatus`;
+  `RDLA-…` assignment numbers; one active assignment per replacement, reassign creates fresh rows after
+  REJECT/FAIL/CANCEL). `Replacement.assignments` + `DeliveryPartner.replacementAssignments` +
+  `Order.replacementAssignments` relations. `ReturnEventType` gains 7 courier-step events
+  (`REPLACEMENT_COURIER_ASSIGNED/ACCEPTED/REJECTED/PICKED_UP/OUT_FOR_DELIVERY/CANCELLED/FAILED`);
+  `ReturnActorType` gains `DELIVERY` (24 migrations). Applied via `psql -f` + a manual `_prisma_migrations`
+  row (checksum = sha256 of the SQL), never `migrate dev/reset`.
+- **New `src/commerce/replacement-courier.service.ts`** + controllers (all additive; no new role):
+  - `ReplacementCourierAdminController` (OPERATOR/ADMIN, under `/api/v1`):
+    `POST /return-requests/:returnRequestId/replacement/assign-courier {deliveryPartnerId}` — only a
+    **DISPATCHED**, not-yet-terminal replacement can be assigned; partner must be ACTIVE; no duplicate
+    active assignment (409). `GET …/replacement/assignments` and
+    `POST …/replacement/assignments/:assignmentId/cancel`.
+  - `ReplacementCourierPartnerController` (`@Controller('delivery/replacement-tasks')`, DELIVERY role,
+    own profile only): `GET /`, `GET /:assignmentId`, and
+    `POST /:assignmentId/{accept,reject,pickup,out-for-delivery,deliver,fail}` mirroring slice delivery.
+    The courier's **`deliver`** step, in one transaction, marks the assignment DELIVERED AND auto-completes
+    the replacement `DISPATCHED → COMPLETED` (completedAt). Audited on the same return-request trail via
+    `ReturnEvent` (DELIVERY actor). **Non-money**: no Refund, no seller-payable change, original order
+    status untouched.
+  - **Operator `/replacement/complete` guard:** the Session 17 manual-complete now returns **409 while a
+    courier assignment is active** (the courier must deliver); manual complete remains for the no-courier path.
+- Return detail (`ReturnRequestPublic.replacement`) now exposes `assignments[]` (most recent first) so
+  operators/customers see the courier leg; RETURN_INCLUDE + toPublic extended.
+- **Tests:** new `src/commerce/replacement-courier.service.spec.ts` (12) → **21 suites / 205 tests** (was
+  20/193); typecheck + `npm run build` clean.
+- **Live E2E (`scripts/e2e-replacement-courier.mjs`, 31/31 ok, sandbox API `:4500`):** placed a fresh PREPAID
+  order (buy-now) → sandbox webhook captured → delivered (seller accept + operator advance); customer
+  REPLACEMENT return → approve/pickup/inspection PASS → `REPLACEMENT_ISSUED` + replacement PENDING_DISPATCH →
+  dispatch → **assign courier** (delivery15) ASSIGNED; negatives (duplicate assign 409, operator manual
+  /complete 409, CUSTOMER/courier/OPERATOR RBAC 403s); courier accept→pickup→out-for-delivery→**deliver**
+  → replacement COMPLETED + assignment DELIVERED; return shows COMPLETED + DELIVERED assignment + `refund:null`;
+  original order unchanged (DELIVERED/PAID). E2E order/return/replacement/assignment/payable rows cleaned up.
