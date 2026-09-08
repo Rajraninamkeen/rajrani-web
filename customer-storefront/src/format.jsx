@@ -74,3 +74,22 @@ export function dateStr(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' });
 }
+
+export const ORDER_STATUS_LABEL = {
+  PLACED: 'Placed', CONFIRMED: 'Confirmed', PACKED: 'Packed', SHIPPED: 'Shipped',
+  OUT_FOR_DELIVERY: 'Out for delivery', DELIVERED: 'Delivered', CANCELLED: 'Cancelled',
+  RETURN_REQUESTED: 'Return requested', RETURNED: 'Returned', REFUNDED: 'Refunded',
+};
+
+export const PAYMENT_METHOD_LABEL = { COD: 'Cash on delivery', PREPAID: 'Prepaid online' };
+
+export const PAYMENT_STATUS_LABEL = {
+  PENDING: 'Pending', PAID: 'Paid', FAILED: 'Failed', COD_PENDING: 'Collect at delivery', REFUNDED: 'Refunded',
+};
+
+export const PAYMENT_STATE_LABEL = {
+  INITIATED: 'Initiated', PENDING: 'Pending', AUTHORIZED: 'Authorized', CONFIRMED: 'Confirmed',
+  FAILED: 'Failed', CANCELLED: 'Cancelled', EXPIRED: 'Expired',
+};
+
+export function orderStatusLabel(s) { return ORDER_STATUS_LABEL[s] || s; }

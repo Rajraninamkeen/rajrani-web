@@ -1237,3 +1237,32 @@ commerce this session (no cart/checkout). All calls go through the Vite `/api` p
   Ratlami Sev 4.9/3820) with 0 written reviews until one is approved — matching Session 21 semantics
   (a PUBLISHED review would take over the aggregate and collapse those rich seeded numbers, so none were
   approved for the demo).
+
+## Session 25 — Customer commerce UI (cart + checkout + COD OTP + sandbox capture harness)
+
+Extended `customer-storefront/` from read-only browse to a full customer purchase flow. It drives the
+existing live commerce routes through the Vite `/api` proxy (no production business-logic change).
+
+Frontend (`customer-storefront/`):
+- Guest + signed-in cart. A persistent opaque `x-guest-session-id` (crypto UUID in localStorage) lets a
+  signed-out shopper build a cart; on later sign-in the backend merges it into the user cart
+  (CartService.resolveCart). Add from product detail (qty) and quick-add on grid cards; cart page with
+  qty +/- , remove, clear, subtotal; header cart badge with live count.
+- Checkout (sign-in required): delivery-address form, payment-method choice (COD / PREPAID), coupon apply,
+  live server-authoritative totals via `/checkout/preview`, then `POST /checkout` -> navigates to the order.
+- Order page: line items + price breakdown, cancel (PLACED/CONFIRMED), and the payment step — COD OTP
+  authorization (`/orders/:id/cod` otp + verify, showing the sandbox `devOtp`) or, for PREPAID, a clearly
+  dev-only "simulate gateway capture" button. My orders list (#/orders).
+
+Backend (small, guarded, keeps the gateway secret server-side):
+- CartPublic lines now include the cart-item `id` (needed to PATCH/DELETE `/cart/items/:id`) — exposed as
+  optional `id` on CartLinePublic + cart.service.getPublic.
+- `POST /dev/orders/:orderId/sandbox-capture` (PaymentController): dev-only capture harness that simulates
+  the sandbox `payment.captured` webhook for a PREPAID order. It 503s in production (NODE_ENV guard), is
+  ownership-checked (the owning customer only), reuses PaymentService.signForTesting so the HMAC webhook
+  secret never reaches the browser, then runs the unchanged confirmFromWebhook (idempotency + amount checks).
+
+Verified live (`/tmp/e2e-commerce.mjs`, **21/21** on a throwaway CUSTOMER): guest cart → signed-in cart
+(with line ids) → authoritative preview → COD order + COD OTP (sandbox devOtp) verified → PREPAID order +
+payment intent → dev sandbox capture → payment CONFIRMED + order PAID → re-capture 400. Both orders
+cancelled (stock restored) and all `c25@` throwaway buyers + their order/cart rows were removed from the DB.

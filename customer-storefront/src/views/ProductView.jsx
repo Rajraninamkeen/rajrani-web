@@ -11,12 +11,14 @@ function SpiceLevel({ level }) {
   ) : null;
 }
 
-export default function ProductView({ identifier, user, notify, goHome }) {
+export default function ProductView({ identifier, user, notify, goHome, addToCart, goCart }) {
   const [product, setProduct] = useState(null);
   const [revs, setRevs] = useState([]);
   const [revMeta, setRevMeta] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [qty, setQty] = useState(1);
+  const [adding, setAdding] = useState(false);
 
   const loadReviews = (page = 1) =>
     publicApi.reviews(product ? product.slug : identifier, page)
@@ -65,6 +67,23 @@ export default function ProductView({ identifier, user, notify, goHome }) {
             <SpiceLevel level={product.spiceLevel} />
             <div className={`fact ${product.inStock ? '' : 'oost'}`}>📦 <b>{stockLabel(product.inStock, product.stockLeft)}</b></div>
             {product.customerFavTag && <div className="fact">💛 <b>{product.customerFavTag}</b></div>}
+          </div>
+          <div className="addrow">
+            <div className="qty lg">
+              <button onClick={() => setQty((q) => Math.max(1, q - 1))}>−</button>
+              <span>{qty}</span>
+              <button onClick={() => setQty((q) => q + 1)}>+</button>
+            </div>
+            <button className="btn primary" disabled={!product.inStock || adding}
+              onClick={async () => {
+                if (!addToCart) return;
+                setAdding(true);
+                try { await addToCart(product.id, qty); if (goCart) goCart(); }
+                catch (e) { notify(e.message); }
+                finally { setAdding(false); }
+              }}>
+              {product.inStock ? (adding ? 'Adding…' : 'Add to cart') : 'Out of stock'}
+            </button>
           </div>
           <div className="ingredients">
             <h4>What's inside</h4>

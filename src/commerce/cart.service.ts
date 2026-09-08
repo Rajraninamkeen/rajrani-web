@@ -153,6 +153,7 @@ export class CartService {
       const line = price * r.quantity;
       subtotal += line;
       items.push({
+        id: r.id,
         productId: p.id,
         name: p.name,
         image: p.media?.[0]?.url ?? null,

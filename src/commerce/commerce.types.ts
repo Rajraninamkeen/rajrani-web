@@ -12,6 +12,7 @@ export interface AddressInput {
 }
 
 export interface CartLinePublic {
+  id?: string; // cart_item row id; required to PATCH/DELETE /cart/items/:id
   productId: string;
   name: string;
   image: string | null;

@@ -1,7 +1,7 @@
 import ProductImage from './ProductImage.jsx';
 import { Stars, money, stockLabel, categoryGlyph } from '../format.jsx';
 
-export default function ProductCard({ p, onOpen }) {
+export default function ProductCard({ p, onOpen, onAdd }) {
   const isNew = p.isNew;
   const fav = p.isBestseller || p.customerFavTag;
   return (
@@ -26,7 +26,12 @@ export default function ProductCard({ p, onOpen }) {
           <span className="price">{money(p.price)}</span>
           {p.originalPrice > p.price && <span className="price-orig">{money(p.originalPrice)}</span>}
         </div>
-        <div className={`pcard-stock ${p.inStock ? '' : 'oost'}`}>{stockLabel(p.inStock, p.stockLeft)}</div>
+        <div className="pcard-bottom">
+          <div className={`pcard-stock ${p.inStock ? '' : 'oost'}`}>{stockLabel(p.inStock, p.stockLeft)}</div>
+          {onAdd && p.inStock && (
+            <button className="miniadd" title="Add to cart" onClick={(e) => { e.stopPropagation(); onAdd(p); }}>+</button>
+          )}
+        </div>
       </div>
     </article>
   );

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { publicApi } from '../api.js';
 import ProductCard from '../components/ProductCard.jsx';
 
-export default function HomeView({ onOpen }) {
+export default function HomeView({ onOpen, addToCart }) {
   const [filters, setFilters] = useState({ category: '', q: '', sort: 'relevance' });
   const [data, setData] = useState({ products: [], total: 0, page: 1, totalPages: 1 });
   const [loading, setLoading] = useState(true);
@@ -70,7 +70,7 @@ export default function HomeView({ onOpen }) {
             <p className="muted count">{data.total} product{data.total === 1 ? '' : 's'}</p>
           )}
           <div className="grid">
-            {data.products.map((p) => <ProductCard key={p.id} p={p} onOpen={onOpen} />)}
+            {data.products.map((p) => <ProductCard key={p.id} p={p} onOpen={onOpen} onAdd={addToCart ? (pr) => { addToCart(pr.id, 1).catch(() => {}); } : undefined} />)}
           </div>
           {data.products.length === 0 && <p className="muted">Nothing matches those filters.</p>}
           <div className="pager">
