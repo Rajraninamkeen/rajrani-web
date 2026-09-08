@@ -194,3 +194,17 @@ two-app scope.
 | Console Control tab | COMPLETE | `ControlPanel.jsx` + `controlApi` in `catalog-console`; Overview / Users (+detail) / Sessions (+revoke) / Sellers / Audit; mandatory-reason confirm overlay; Vite build clean (48 modules) |
 | RBAC + live verify | COMPLETE/VERIFIED | 401 unauth; SELLER + CUSTOMER → 403 on `/control`; OPERATOR reads + a real break-glass revoke → audit row; throwaway cleaned. Access token short-lived (15 min): DB revoke stops refresh; full token-denylist deferred (matrix #15) |
 | Pushed | NOT YET | Session 43 working tree present; docs updated; commit + push pending (needs owner one-shot PAT) |
+
+---
+
+## Session 44 status — buyer discovery & merchandising (customer storefront) (2026-09-08)
+
+| Item | Status | Notes |
+|---|---|---|
+| Curated landing rails | COMPLETE | Home shows **Bestsellers** + **New arrivals** horizontal rails over the live `bestseller`/`isNew` filters; rails hide if empty; **See all →** drives the quick-filter + grid retitle |
+| Catalog quick filters | COMPLETE | All / ★ Bestsellers / ✨ New arrivals quick-filter row + existing category chips, search, sort, active-filter line with Clear, pagination |
+| Card badges | COMPLETE | Explicit ★ Bestseller badge added (New + %-off already present), badges wrap |
+| Backend / schema | NONE (pure UI) | Reuses the existing public discovery API (category/q/sort/bestseller/isNew/price) |
+| Demo flags (live DB) | COMPLETE | 2 more seeded products marked `isNew` (3 new / 5 bestsellers) for a populated rail; display-only |
+| Build + live verify | COMPLETE | storefront `vite build` clean (44 modules); rails fetch 5 bestsellers + 3 new through the dev proxy; module transforms 200 |
+| Pushed | NOT YET | working tree present; commit + push pending |

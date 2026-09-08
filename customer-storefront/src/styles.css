@@ -289,3 +289,24 @@ main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 8px 18p
 .btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .return-detail { margin-top: 8px; border-left: 3px solid var(--line); padding-left: 12px; }
 .return-detail .plain-list { margin-top: 6px; }
+
+/* ===================== Session 44 — buyer discovery & merchandising ===================== */
+.pill-best { background: #fff4e0; color: #a8670a; }
+.pcard-badges { flex-wrap: wrap; row-gap: 4px; }
+
+.rails { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.rail { padding: 6px 0 4px; }
+.rail-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.rail-head h2 { margin: 0; font-size: 20px; }
+.rail-sub { color: var(--muted); font-size: 13px; }
+.seeall { background: none; border: none; color: var(--accent); cursor: pointer; font-weight: 700; font-size: 13px; padding: 0; }
+.seeall:disabled { color: var(--muted); cursor: default; }
+.rail-scroll { display: flex; gap: 14px; overflow-x: auto; padding: 10px 2px 6px; scroll-snap-type: x proximity; }
+.rail-item { flex: 0 0 220px; scroll-snap-align: start; }
+
+.catalog { margin-top: 8px; }
+.catalog-h { border-top: 1px solid var(--line, #eee); padding-top: 18px; margin: 4px 0 10px; font-size: 22px; }
+.chips.merch { margin-bottom: 2px; }
+.chips .chip { cursor: pointer; }
+.activefilters { color: var(--accent); font-weight: 600; }
+.linklike { background: none; border: none; color: var(--accent); cursor: pointer; text-decoration: underline; padding: 0; font-size: 13px; margin-left: 2px; }

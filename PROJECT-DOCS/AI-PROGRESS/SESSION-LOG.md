@@ -1979,3 +1979,32 @@ Increment landed this session (code + migration pushed):
   revocation stops refresh/token-extension — an already-issued access token expires within the TTL; a
   full immediate token-denylist is recorded as deferred future work (matrix #15 security hardening).
 - Session 43 backend + tests + console + live RBAC/break-glass verified; commit + push pending.
+
+## Session 44 — Buyer discovery & merchandising on the customer storefront
+
+- **Date:** 2026-09-08
+- **Objective (continue; matrix #07 "Remaining: discovery"):** turn the customer storefront's already-
+  capable listing into a properly merchandised shop, pure frontend over the existing public discovery
+  API (`GET /catalog/products` already supports category / q / sort / bestseller / isNew / price-range).
+  No backend or schema change; Vite build clean.
+- **`customer-storefront/src/views/HomeView.jsx`:** a default browse now shows two curated landing rails
+  above the catalog — **Bestsellers** (`bestseller:true, sort:popular`) and **New arrivals**
+  (`isNew:true, sort:newest`) — each a horizontally scrollable ProductCard row, auto-hidden until loaded
+  and again if empty. Each rail has a **See all →** that sets the matching quick-filter, scrolls to and
+  retitles the grid. Below, the full catalog section gets: a **merchandising quick-filter row**
+  (All / ★ Bestsellers / ✨ New arrivals), the existing category chips + search + sort, an active-filter
+  line with a Clear control, and pagination unchanged. Rail fetches are separate/independent so the grid
+  is never blocked.
+- **`customer-storefront/src/components/ProductCard.jsx`:** renders an explicit **★ Bestseller** badge
+  (previously the bestseller flag only gated other visuals), alongside the existing New and %-off pills
+  (now wrapping). Removed an unused `fav` variable.
+- **`customer-storefront/src/styles.css`:** Session-44 block — `.pill-best`, wrapping card badges, and
+  `.rails/.rail/.rail-head/.rail-sub/.seeall/.rail-scroll/.rail-item/.catalog/.catalog-h/.chips.merch/
+  .linklike/.activefilters`.
+- **Demo data (live DB, display-only flags):** marked two more seeded products `isNew` so the New
+  arrivals rail is populated (now 3 new; 5 bestsellers unchanged). Not a code/schema change.
+- **Live verify (storefront dev proxy `:5180` → API `:4000`):** `?bestseller=true` → 5 (Ratlami Sev, Aloo
+  Bhujia, Kaju Blend, Khatta Meetha, Festive Hamper); `?isNew=true` → 3 (Hing Jeera Chana, Peri-Peri
+  Makhana, Silk Nylon Sev); storefront root + HomeView/ProductCard module transforms 200. Vite build
+  clean (44 modules).
+- Session 44 complete; commit + push pending.
