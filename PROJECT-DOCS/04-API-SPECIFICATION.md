@@ -3285,3 +3285,34 @@ PENDING_DISPATCH --dispatch--> DISPATCHED --complete--> COMPLETED
 
 The return request stays terminal `REPLACEMENT_ISSUED`; the outbound state lives on the `replacement`
 row. Couriers are not yet assigned to a dispatched replacement (still OPERATOR-driven).
+
+# Session 18 addendum — Real Razorpay gateway + LIVE refund execution (reference)
+
+The payments seam is now provider-pluggable (`PAYMENT_GATEWAY_PROVIDER=sandbox|razorpay`; sandbox default). A real
+Razorpay provider (`RazorpayGateway`) speaks the actual REST wire protocol over Node `fetch`. Amounts are rupees in the
+API; the gateway converts to paise internally. All internal money/ledger semantics are unchanged and provider-agnostic.
+
+## Gateway intent at checkout
+A PREPAID order's `Payment` intent (created inside the order `$transaction`) persists the provider:
+`provider` is `sandbox` (no external call, as before) or `razorpay`. For razorpay, an idempotent
+`POST {base}/v1/orders` (amount paise, `payment_capture:1`, unique `receipt` = order idempotencyKey) is made and the real
+`order_id` stored as `Payment.providerPaymentId`.
+
+## Razorpay webhook (public, signature-authenticated)
+- `POST /api/v1/payments/webhook/razorpay` — **NOT JWT-protected**. Authenticity = `x-razorpay-signature`
+  (HMAC-SHA256 hex over the RAW request body with `RAZORPAY_WEBHOOK_SECRET`, constant-time compare). Requires the raw
+  body (`rawBody` capture enabled at bootstrap).
+- Handles `payment.captured`/`order.paid` → capture confirm; `payment.failed` → fail confirm. Idempotent via the same
+  `PaymentWebhook UNIQUE(provider, providerEventId)` claim as the sandbox route; a duplicate returns `idempotent:true`.
+- Capture: Payment `CONFIRMED` (`providerCaptureId` = razorpay `pay_…`), order `paymentStatus` `PAID`,
+  `payment_transactions` CAPTURE SUCCESS, webhook PROCESSED. Amount must match the intent or the event is rejected.
+- The legacy sandbox signed-body webhook (`POST /api/v1/payments/webhook/sandbox`) is unchanged.
+
+## LIVE refund execution
+`POST /api/v1/return-requests/:id/refund` still creates a PENDING `Refund`. `POST /api/v1/return-requests/:id/refund/complete`
+for a GATEWAY-method refund now executes a real gateway refund **before** the DB write (external calls cannot roll back
+with a tx): it targets the captured razorpay payment and records the real `rfnd_…` as `Refund.gatewayRef` with
+`gatewayProvider=razorpay` plus a `refund_transactions` SUCCESS row. Synchronously-processed → request `COMPLETED`,
+order → `REFUNDED`/`REFUNDED`, seller-payable net-zero auto-debit runs. A gateway `PROCESSING` (in-flight) refund leaves
+the Refund `PROCESSING` (new `REFUND_PROCESSING` return event), does NOT complete the request and does NOT auto-debit —
+to be reconciled later from the gateway `refund.processed` webhook (next session). COD refunds never hit the gateway.

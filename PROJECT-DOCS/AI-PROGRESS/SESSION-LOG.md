@@ -931,3 +931,84 @@ Live E2E run — see VERIFICATION Session 05 table.
 - **Live E2E (`:4000`):** see VERIFICATION Session 17. Drove Session 16's `PENDING_DISPATCH` replacement
   to DISPATCHED then COMPLETED (with guards), and a fresh replacement return on `BK-MTRVM3QQ` to CANCELLED;
   CUSTOMER → 403 on the operator dispatch route; refund on a replacement still 409.
+
+## Session 18 — Real payment gateway (Razorpay) behind the pluggable payment seam + LIVE refund execution
+
+- **Date:** 2026-09-08
+- **Owner decision:** "Integrate a real Razorpay gateway behind the existing pluggable payment seam, with live refund
+  execution replacing the sandbox/legacy fabricated capture/refund path." Constraints honoured: **sandbox stays the
+  default provider** and every prior behaviour stays green; the real gateway must not break the historical unit-test
+  seam (`new PaymentService(prisma)` / `new ReturnsService(prisma, settlement)`); gateway intent must be idempotent
+  (never duplicate an external order when retried inside a tx) and an external call must never leak out of / roll back
+  with a DB transaction. Because no real external credentials exist in this environment, "live" is verified against a
+  **local Razorpay-protocol HTTP mock** (`scripts/razorpay-mock.mjs`) that speaks the actual REST wire protocol; the
+  implementation targets `api.razorpay.com` by default and is flipped to live by env base-URL/keys only (no code change).
+- **Config (`src/config/configuration.ts`, `.env.example`):** new `payments` block — `provider`
+  (`PAYMENT_GATEWAY_PROVIDER`, default `sandbox`), `razorpay.keyId/keySecret/webhookSecret/baseUrl`
+  (`RAZORPAY_KEY_ID/KEY_SECRET/WEBHOOK_SECRET/BASE_URL`; baseUrl defaults `https://api.razorpay.com`, overridable to
+  point at the local mock). `main.ts` bootstrap adds `rawBody: true` so the gateway webhook endpoint receives the exact
+  request bytes needed for HMAC verification.
+- **Gateway seam (`src/commerce/gateway/`, NEW):** `payment-gateway.interface.ts` defines `PaymentGateway`
+  (`provider`, `createGatewayIntent`, `parseWebhook`, `refund`) + typed `GatewayIntent*/GatewayPaymentEvent/
+  GatewayWebhookRequest/GatewayRefundInput|Result`. It is intentionally narrow — it owns ONLY provider-specific external
+  I/O + signature/normalisation; the money ledger (Payment / PaymentTransaction / PaymentWebhook idempotency, order
+  payment status, Refund + refund_transactions) stays in PaymentService/ReturnsService (provider-agnostic).
+  - `gateway.provider.ts` — `PAYMENT_GATEWAY_PROVIDER` factory selects the provider from config (razorpay when set,
+    else sandbox) and registers it behind the `PAYMENT_GATEWAY` token in `CommerceModule` (also exported).
+  - `sandbox.gateway.ts` — DEFAULT provider; reproduces the historical local sandbox behaviour exactly (no external I/O,
+    fabricated `sndbox-refund-…` references), so an unset `PAYMENT_GATEWAY_PROVIDER` is byte-for-byte unchanged.
+  - `razorpay.gateway.ts` (`RazorpayGateway`, `@Injectable`) — speaks real Razorpay REST over Node's global `fetch`:
+    Basic auth from `keyId:keySecret`; **`POST /v1/orders`** (amount in **paise**, `payment_capture:1`, unique `receipt`
+    = internal idempotency key so a retry never duplicates the external order); webhook **`x-razorpay-signature` =
+    HMAC-SHA256 hex over the RAW body bytes** (constant-time compare, secret = `webhookSecret`, distinct from the API
+    secret), normalising `payment.captured`/`order.paid` → `payment.captured` and `payment.failed`; **`POST
+    /v1/payments/:id/refund`** executes a real refund (amount paise, `speed: normal`, `receipt`), returning the real
+    `rfnd_…` id mapped to COMPLETED (processed/captured) / PROCESSING (pending) / FAILED.
+- **PaymentService (`src/commerce/payment.service.ts`):** constructor becomes `(prisma, @Optional() @Inject
+  (PAYMENT_GATEWAY) gateway?)` — when no gateway is injected it falls back to `new SandboxGateway()`, so the historical
+  `new PaymentService(prisma)` spec and the sandbox default are unchanged. Added: `createIntentTx` still creates the
+  Payment inside the order `$transaction`, but for a non-sandbox provider it first calls `gateway.createGatewayIntent`
+  idempotently (receipt = order idempotencyKey) and persists the real gateway order id into `Payment.providerPaymentId`
+  (provider `razorpay`) within the same tx. New `confirmFromGatewayEvent(event)` mirrors the sandbox confirm path but is
+  provider-agnostic: idempotent via the same `PaymentWebhook` `UNIQUE(provider, providerEventId)` claim, amount-match
+  guard, `payment.captured` → Payment `CONFIRMED` + `providerCaptureId`/`providerPaymentId` + order `PAID` +
+  `payment_transactions` CAPTURE SUCCESS + PROCESSED webhook audit, `payment.failed` → FAILED + CHARGE FAILED. New
+  `parseGatewayWebhook`, `refundForGateway` surface the active gateway to the controller/ReturnsService.
+  - `src/commerce/payment.gateway.service.spec.ts` (NEW, +6): default sandbox when none injected; razorpay when a
+    razorpay gateway is injected; locate-by-gateway-order-id capture → order PAID; amount-mismatch rejected; missing
+    payment → 404 (failed webhook recorded); already-processed event idempotent.
+- **PaymentController (`payment.controller.ts`):** new **`POST /api/v1/payments/webhook/razorpay`** — NOT JWT-protected
+  (authenticity is the x-razorpay-signature HMAC over the raw body); reads `req.rawBody` (rawBody capture enabled) +
+  `x-razorpay-signature` header → `parseGatewayWebhook` → `confirmFromGatewayEvent`. Legacy sandbox signed-body webhook
+  route is unchanged.
+- **ReturnsService (`returns.service.ts`) — LIVE refund execution:** constructor gains an optional injected gateway
+  (default `new SandboxGateway()`, so `new ReturnsService(prisma, settlement)` spec and COD/sandbox behaviour are
+  unchanged). `completeRefund` for a **GATEWAY** method refund now executes the money movement against the **active**
+  gateway BEFORE the DB transaction (an external call can never roll back with it): it resolves the captured gateway
+  payment id (`Payment.providerCaptureId`/`providerPaymentId`; throws a conflict if absent for a real gateway), calls
+  `gateway.refund({gatewayPaymentId, amount, currency, receipt: refundReference})` idempotently, then in the tx records
+  the **real `gatewayRef`** + resolved provider (`refund.gatewayProvider = razorpay`) on the Refund and a
+  `refund_transactions` row (SUCCESS + completedAt). A synchronously-processed refund → Refund COMPLETED + return
+  request COMPLETED + audited `REFUND_COMPLETED` event + the Session 13 seller-payable auto-debit (net-zero) still runs;
+  a gateway `PROCESSING` (in-flight) refund → Refund **PROCESSING** (new enum `REFUND_PROCESSING` event, no completedAt,
+  no request COMPLETED, no auto-debit) to be reconciled later when the gateway reports terminal. COD refunds never hit
+  the gateway. `returns.service.spec.ts` +2 (live gateway refund records real gatewayRef+provider; throws + no settle
+  when the gateway has no captured payment reference).
+- **Schema (additive; migration `20260908171500_return_refund_processing_enum` — 20 migrations total):** adds
+  `ReturnEventType.REFUND_PROCESSING`. Applied via `psql -f` + manual `_prisma_migrations` insert; `prisma generate`;
+  `migrate status` up to date; DB enum verified via psql.
+- **Gateway unit spec (`gateway/razorpay.gateway.spec.ts`, NEW, +7 incl. sandbox default):** provider razorpay + order
+  amount in paise with idempotent receipt; gateway error propagated as request failure; raw-body webhook verified
+  (HMAC over exact bytes) + `payment.captured` normalised; invalid signature rejected; real refund executed
+  (POST /v1/payments/:id/refund → rfnd id); sandbox default creates no external order + fabricates refund refs (no
+  network).
+- **Tests:** full suite **18 suites / 167 tests** (was 153); typecheck (`tsc --noEmit`) clean; `npm run build` clean.
+- **Live E2E (`:4000` in razorpay mode against local mock `:3911`; driver `scripts/e2e-razorpay.mjs` → 21 ok steps):**
+  fresh run order `BK-MTS18BPF` (DB order `cmts18bpg0021khnznff3abja`): buy-now PREPAID placed a **razorpay order
+  `order_48bps`** through the mock (only one create; stored as `Payment.providerPaymentId`, provider `razorpay`,
+  ₹194.95) → raw-body-HMAC `payment.captured` webhook → order PAID (duplicate idempotent, bad signature 403) → operator
+  CONFIRMED/PACKED, seller accepted slice, SHIPPED/DELIVERED → customer return → operator decision/pickup/inspection
+  PASS → refund `RFD-MTS18BWI-7LJE` initiate → complete **executed a live razorpay refund on the mock** recording real
+  `gatewayRef rfnd_mts18bx35tzu` with `gatewayProvider=razorpay` and a `refund_transactions` SUCCESS row → return request
+  COMPLETED → order `REFUNDED`/`REFUNDED`. Ledger confirmed via psql; mock also exposes `GET /__orders` to assert only
+  one order create per run.

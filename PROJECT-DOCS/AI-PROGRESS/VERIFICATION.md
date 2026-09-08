@@ -386,3 +386,28 @@ fixtures + reset `pf@example.com` password (throwaway test customer). Operator `
 | no money | refund on a replacement still **409**; no `refunds` row; `settlement.debitReturnedGoodsForRefund` never called (non-money leg) |
 | audit | `return_events` show REQUESTED…REPLACEMENT_ISSUED then REPLACEMENT_DISPATCHED/REPLACEMENT_COMPLETED (return …6zkb3ly) and REPLACEMENT_CANCELLED (return …0ph1tzh8) with OPERATOR actor |
 | `git push origin main` | pending (this session; needs a fresh one-shot token) |
+
+## Session 18 — Real Razorpay gateway + LIVE refund execution (2026-09-08, `/home/user/rajrani-web`)
+
+API in **razorpay mode** on `:4000` (started `PAYMENT_GATEWAY_PROVIDER=razorpay RAZORPAY_KEY_ID=rzp_test_key
+RAZORPAY_KEY_SECRET=secret RAZORPAY_WEBHOOK_SECRET=whsec_e2e RAZORPAY_BASE_URL=http://localhost:3911 PORT=4000 node
+dist/main.js`); the API talks to the **local Razorpay-protocol mock** `scripts/razorpay-mock.mjs` on `:3911` (speaks the
+real wire protocol: `POST /v1/orders`, `POST /v1/payments/:id/refund` → `processed`, `GET /__orders`). No real external
+credentials are used. Reusable driver: `node scripts/e2e-razorpay.mjs` → 21 ok steps (exits non-zero on first failure).
+Fresh run: order `BK-MTS18BPF` (DB `cmts18bpg0021khnznff3abja`), razorpay mock order `order_48bps`, payment
+`pay_e2e_mts18bq6`, refund `RFD-MTS18BWI-7LJE`, gatewayRef `rfnd_mts18bx35tzu`.
+
+| Check | Result |
+|---|---|
+| migrations | 20 applied, `prisma migrate status` up to date (`20260908171500_return_refund_processing_enum`); `ReturnEventType.REFUND_PROCESSING` present in the live DB enum; `prisma generate` OK; typecheck + `npm run build` clean |
+| unit tests | `razorpay.gateway.spec.ts` +7 (incl. sandbox default), `payment.gateway.service.spec.ts` +6, `returns.service.spec.ts` +2 → **18 suites / 167 tests** green (sandbox default path unchanged) |
+| sandbox default | with `PAYMENT_GATEWAY_PROVIDER` unset the constructor falls back to `new SandboxGateway()`; all prior suites green unchanged |
+| intent (razorpay) | buy-now PREPAID ₹194.95 → razorpay order **`order_48bps`** created on the mock (amount in paise, unique receipt) + stored as `Payment.providerPaymentId`, provider `razorpay`, state INITIATED → only ONE order create per run (mock `__orders`) |
+| webhook capture | raw-body HMAC-SHA256 `payment.captured` (`x-razorpay-signature`, secret `whsec_e2e`) → **200** payment `CONFIRMED` (`providerCaptureId pay_e2e_mts18bq6`) + order `PAID` + `payment_transactions` CAPTURE SUCCESS + `payment_webhooks` PROCESSED (`signatureVerified=t`) |
+| idempotency | duplicate webhook replay → `idempotent:true` PROCESSED (no double-capture); deliberate bad signature → **403** |
+| delivery | operator CONFIRMED/PACKED, seller accepted slice, SHIPPED, DELIVERED (all 200) |
+| return → refund | customer return → operator decision APPROVED → pickup → picked-up → inspection PASS → **APPROVED_FOR_REFUND** ₹194.95 |
+| live refund exec | initiate → `RFD-MTS18BWI-7LJE` PENDING; `…/refund/complete` called the active gateway → **real razorpay refund `rfnd_mts18bx35tzu`** (`POST /v1/payments/pay_e2e_mts18bq6/refund`, `processed` → COMPLETED synchronously) |
+| ledger | psql: `refunds` row `RFD-MTS18BWI-7LJE` `gatewayProvider=razorpay` `gatewayRef=rfnd_mts18bx35tzu` COMPLETED; `refund_transactions` provider `razorpay` `rfnd_mts18bx35tzu` SUCCESS; return request COMPLETED; order `REFUNDED`/`REFUNDED`; events …REFUND_INITIATED → REFUND_COMPLETED |
+| RBAC | `/api/v1/payments/webhook/razorpay` is intentionally NOT JWT-protected (authenticity = raw-body signature HMAC), consistent with the sandbox webhook route |
+| `git push origin main` | pending (needs a fresh one-shot token) |

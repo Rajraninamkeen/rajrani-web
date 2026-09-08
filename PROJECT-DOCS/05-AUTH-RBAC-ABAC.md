@@ -3498,3 +3498,19 @@ No new roles. Gate changes this session:
 - A replacement is a **non-money** terminal path: no refund endpoint is reachable from it
   (`REPLACEMENT_ISSUED` ≠ APPROVED_FOR_REFUND → 409), consistent with Sessions 16/17.
 - Session 14/15/16 RBAC negatives remain valid.
+
+# Session 18 addendum — Real payment gateway + LIVE refund (RBAC)
+
+No new roles. Gate changes this session:
+
+- The **Razorpay webhook endpoint** `POST /api/v1/payments/webhook/razorpay` is deliberately **NOT JWT-protected** and
+  NOT role-gated — its authenticity is the `x-razorpay-signature` HMAC-SHA256 over the raw body (verified by
+  `RazorpayGateway.parseWebhook`; bad signature → 403). This matches the existing sandbox webhook treatment: provider
+  callbacks authenticate by shared-secret signature, not by a user session.
+- All **money actions remain operator-gated**: initiating a refund and completing (executing) it stay
+  `OPERATOR/ADMIN`. The Session-18 change is that for GATEWAY refunds `…/refund/complete` now actually calls the
+  gateway refund API server-side as the authenticated operator — it does not open any new surface to CUSTOMER/SELLER/
+  DELIVERY/REVIEWER.
+- `RazorpayGateway` uses two distinct secrets: the API `keySecret` (Basic auth for outbound calls, server-side only,
+  never exposed) and the `webhookSecret` (inbound signature verification). Neither is returned by any API route.
+- No DELIVERY/REVIEWER surface was opened; Sessions 14–17 RBAC negatives remain valid.

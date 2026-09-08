@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 17 — Outbound replacement dispatch (finish the `ReplacementStatus` lifecycle) |
-| STATUS | COMPLETE locally (16 suites / 153 tests; 19 migrations applied + recorded; commits staged — **PUSH REQUIRED**, needs a fresh one-shot GitHub token) |
-| NEXT SESSION | Reviews, real payment-gateway provider, or courier-delivering the dispatched replacement |
-| NEXT WORKFLOW | Product reviews (ratingAvg refresh); a real gateway provider (razorpay/stripe) with live refunds; real courier-provider integration + per-slice payout (earn currently stays order-level); courier-assign the dispatched replacement (currently an OPERATOR `replacement/…` action, non-money) |
+| CURRENT SESSION | Session 18 — Real Razorpay payment gateway behind the pluggable payment seam + LIVE refund execution |
+| STATUS | COMPLETE locally (18 suites / 167 tests; 20 migrations applied + recorded; working-tree changes ready to commit — **PUSH REQUIRED**, needs a fresh one-shot GitHub token) |
+| NEXT SESSION | Product reviews, courier-delivering the dispatched replacement, or another owner-chosen priority |
+| NEXT WORKFLOW | Product reviews (ratingAvg refresh); flip the Razorpay provider to LIVE external keys (env-only, see SESSION 18 note) + wire the async `refund.processed`/`payment.failed` reconciliation webhooks for in-flight refunds; real courier-provider integration + per-slice payout (earn currently stays order-level); courier-assign the dispatched replacement (currently an OPERATOR `replacement/…` action, non-money) |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It
@@ -142,3 +142,43 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
   `src/commerce/{returns.service,returns.controller,return-ops.controller,
   returns.policy}.ts` (+ `.spec.ts` 14 tests), `dto/returns.dto.ts`,
   commerce.types.ts, commerce.module.ts.
+
+## SESSION 18 HANDOFF NOTES
+- **Gateway is now a real provider seam (`src/commerce/gateway/`), sandbox stays default.** Select with
+  `PAYMENT_GATEWAY_PROVIDER=sandbox|razorpay` (unset = sandbox). Config lives under `payments` in
+  `src/config/configuration.ts` (`RAZORPAY_KEY_ID/KEY_SECRET/WEBHOOK_SECRET/BASE_URL`). `main.ts` now enables
+  `rawBody: true` (needed for the Razorpay webhook HMAC over the exact bytes). A `PAYMENT_GATEWAY` token (registered +
+  exported by `CommerceModule` via `gateway.provider.ts`) injects the active gateway into `PaymentService` and
+  `ReturnsService`, each constructor making it **optional and defaulting to `new SandboxGateway()`** so the historical
+  unit-test shape `new PaymentService(prisma)` / `new ReturnsService(prisma, settlement)` stays green. Do not make the
+  gateway a required constructor arg or require ConfigService in those services (that would break the test seam).
+- **Interface is deliberately narrow** (`payment-gateway.interface.ts`): `createGatewayIntent`, `parseWebhook`, `refund`.
+  It owns ONLY external I/O + signature/normalisation. The money ledger (Payment/PaymentTransaction/PaymentWebhook
+  idempotency, order payment status, Refund + refund_transactions) stays provider-agnostic in PaymentService/ReturnsService.
+- **New Razorpay routes/behaviour**
+  - `POST /api/v1/payments/webhook/razorpay` — NOT JWT-protected; authenticity = `x-razorpay-signature` HMAC-SHA256 over
+    `req.rawBody`. Duplicate events idempotent via the same `UNIQUE(provider, providerEventId)` claim as sandbox.
+  - `PaymentService.createIntentTx` for a non-sandbox provider calls `gateway.createGatewayIntent` idempotently (receipt
+    = order idempotencyKey) and persists the real gateway order id into `Payment.providerPaymentId` in the same tx.
+  - `PaymentService.confirmFromGatewayEvent(event)` = provider-agnostic capture/failed confirm (locate by gateway order
+    id / paymentReference, amount-match, capture → CONFIRMED + order PAID + CAPTURE SUCCESS tx, failed → FAILED + CHARGE FAILED).
+- **LIVE refund execution (money-path, be careful).** `ReturnsService.completeRefund` for a GATEWAY-method refund now
+  executes the gateway refund **before** the DB transaction (an external call can never roll back with the tx): it
+  resolves `Payment.providerCaptureId`/`providerPaymentId` (throws a conflict if a real gateway has none), calls
+  `gateway.refund(...)` (idempotent on `refundReference`), then commits the real `gatewayRef` + provider to the Refund
+  and a `refund_transactions` row. Terminal gateway response → Refund COMPLETED + return COMPLETED + REFUND_COMPLETED
+  event + Session-13 seller-payable net-zero auto-debit. In-flight (`PROCESSING`) → Refund **PROCESSING** +
+  `REFUND_PROCESSING` event + NO request COMPLETED + NO auto-debit — the next session should add a reconciler that
+  consumes the gateway `refund.processed` webhook to drive PROCESSING→COMPLETED. COD refunds never hit the gateway.
+- **Flipping to LIVE Razorpay** requires only env: `PAYMENT_GATEWAY_PROVIDER=razorpay`, real test/live
+  `RAZORPAY_KEY_ID/KEY_SECRET`, the same WEBHOOK secret used when you configure the Razorpay dashboard webhook, and
+  `RAZORPAY_BASE_URL` unset (defaults to `https://api.razorpay.com`). No code change. The webhook endpoint URL is
+  `POST {host}/api/v1/payments/webhook/razorpay`.
+- **Local protocol mock for E2E:** `node scripts/razorpay-mock.mjs` (default `:3911`; speaks real wire: `POST /v1/orders`,
+  `POST /v1/payments/:id/refund`→`processed`, `GET /__orders`). Run the whole flow with
+  `PAYMENT_GATEWAY_PROVIDER=razorpay RAZORPAY_KEY_ID=rzp_test_key RAZORPAY_KEY_SECRET=secret
+  RAZORPAY_WEBHOOK_SECRET=whsec_e2e RAZORPAY_BASE_URL=http://localhost:3911 PORT=4000 node dist/main.js`, then
+  `node scripts/e2e-razorpay.mjs`. Fresh fixture logins all verified: customer `s12@example.com`/`Test@12345`, operator
+  `pfop@example.com`/`Operator@123`, seller `seller1@example.com`/`Seller@123`.
+- **Migration discipline:** Session 18 migration `20260908171500_return_refund_processing_enum` was applied via `psql -f`
+  + a manual `_prisma_migrations` row (never `prisma migrate dev/reset` on the live DB). 20 migrations total.
