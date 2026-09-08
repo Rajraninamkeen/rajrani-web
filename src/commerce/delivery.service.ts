@@ -209,14 +209,106 @@ export class DeliveryService {
     return a;
   }
 
+  // Session 29: courier console needs order/customer/items context on the slice-task
+  // surface (the replacement surface already carries customer + address). The list and
+  // the new detail both render through `courierTaskPublic` so the console is not hollow.
+  private async loadCourierTask(assignmentId: string) {
+    return this.prisma.deliveryAssignment.findUnique({
+      where: { id: assignmentId },
+      include: {
+        deliveryPartner: { include: { user: { select: { id: true, fullName: true, email: true } } } },
+        order: {
+          select: {
+            id: true, orderNumber: true, paymentMethod: true, addressSnapshot: true,
+            user: { select: { fullName: true, phone: true } },
+          },
+        },
+        sellerOrder: {
+          select: {
+            id: true, sellerOrderNumber: true, status: true, shippedAt: true, deliveredAt: true,
+            seller: { select: { displayName: true, sellerCode: true } },
+            items: {
+              select: {
+                id: true, productNameSnapshot: true, weightSnapshot: true, quantity: true, skuSnapshot: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  private courierTaskPublic(a: any) {
+    const base = this.assignmentPublic(a);
+    const order = a.order;
+    const addr = (order?.addressSnapshot ?? null) as any;
+    const items = (a.sellerOrder?.items ?? []).map((i: any) => ({
+      id: i.id,
+      productName: i.productNameSnapshot,
+      weight: i.weightSnapshot ?? null,
+      sku: i.skuSnapshot ?? null,
+      quantity: i.quantity,
+    }));
+    return {
+      ...base,
+      orderNumber: order?.orderNumber ?? null,
+      paymentMethod: order?.paymentMethod ?? null,
+      sellerName: a.sellerOrder?.seller?.displayName ?? null,
+      sellerCode: a.sellerOrder?.seller?.sellerCode ?? null,
+      items,
+      customer: addr
+        ? {
+            name: order?.user?.fullName ?? addr.name ?? addr.recipientName ?? null,
+            phone: addr.phone ?? addr.mobile ?? null,
+            address: addr,
+          }
+        : null,
+    };
+  }
+
   async partnerTasks(userId: string) {
     const { partner } = await this.requirePartner(userId);
     const rows = await this.prisma.deliveryAssignment.findMany({
       where: { deliveryPartnerId: partner.id, status: { in: PARTNER_ACTIVE } },
       orderBy: { createdAt: 'asc' },
-      include: { sellerOrder: { select: { id: true, sellerOrderNumber: true, deliveredAt: true } } },
+      include: {
+        sellerOrder: { select: { id: true, sellerOrderNumber: true, deliveredAt: true, items: { select: { quantity: true } } } },
+        order: { select: { orderNumber: true, addressSnapshot: true, user: { select: { fullName: true, phone: true } } } },
+      },
     });
-    return rows.map((r) => this.assignmentPublic(r));
+    // Enrich each list row with order + customer context so the courier can scan what/where.
+    return rows.map((r) => {
+      const addr = (r.order?.addressSnapshot ?? null) as any;
+      return {
+        ...this.assignmentPublic(r),
+        orderNumber: r.order?.orderNumber ?? null,
+        itemCount: (r.sellerOrder?.items ?? []).reduce((s: number, i: any) => s + (i.quantity ?? 0), 0),
+        customer: addr
+          ? {
+              name: r.order?.user?.fullName ?? addr.name ?? addr.recipientName ?? null,
+              phone: addr.phone ?? addr.mobile ?? null,
+              city: addr.city ?? null,
+            }
+          : null,
+      };
+    });
+  }
+
+  /** Courier views one of their own slice tasks (own, active) with full delivery context. */
+  async partnerTask(userId: string, assignmentId: string) {
+    const a = await this.loadCourierTask(assignmentId);
+    if (!a) throw new NotFoundException('Assignment not found');
+    if (a.deliveryPartnerId !== (await this.requirePartner(userId)).partner.id) {
+      throw new ForbiddenException('This assignment is not yours');
+    }
+    if (!PARTNER_ACTIVE.includes(a.status)) {
+      throw new ConflictException(`This assignment is not active (status ${a.status})`);
+    }
+    const events = await this.prisma.deliveryEvent.findMany({
+      where: { deliveryAssignmentId: a.id },
+      orderBy: { createdAt: 'asc' },
+    });
+    return { ...this.courierTaskPublic(a), events: events.map((e) => this.eventPublic(e)) };
   }
 
   async acceptTask(userId: string, assignmentId: string) {

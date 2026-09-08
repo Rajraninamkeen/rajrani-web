@@ -93,6 +93,12 @@ export class DeliveryPartnerController {
     return this.delivery.partnerTasks(userId);
   }
 
+  @Get(':assignmentId')
+  @Roles('DELIVERY')
+  task(@CurrentUserId() userId: string, @Param('assignmentId') id: string) {
+    return this.delivery.partnerTask(userId, id);
+  }
+
   @Post(':assignmentId/accept')
   @Roles('DELIVERY')
   accept(@CurrentUserId() userId: string, @Param('assignmentId') id: string) {

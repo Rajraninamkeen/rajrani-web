@@ -93,3 +93,25 @@ export const opsApi = {
   replacementComplete: (id) => api('POST', `/return-requests/${id}/replacement/complete`, { body: {} }),
   replacementCancel: (id, reason) => api('POST', `/return-requests/${id}/replacement/cancel`, { body: { reason } }),
 };
+
+// Session 29 — DELIVERY courier task surface (DELIVERY role): slice parcels + replacements.
+export const deliveryApi = {
+  tasks: () => api('GET', '/delivery/tasks'),
+  task: (id) => api('GET', `/delivery/tasks/${id}`),
+  // slice-task actions
+  taskAccept: (id) => api('POST', `/delivery/tasks/${id}/accept`, { body: {} }),
+  taskReject: (id, reason) => api('POST', `/delivery/tasks/${id}/reject`, { body: { reason } }),
+  taskPickup: (id) => api('POST', `/delivery/tasks/${id}/pickup`, { body: {} }),
+  taskOutForDelivery: (id) => api('POST', `/delivery/tasks/${id}/out-for-delivery`, { body: {} }),
+  taskDeliver: (id) => api('POST', `/delivery/tasks/${id}/deliver`, { body: {} }),
+  taskFail: (id, reason) => api('POST', `/delivery/tasks/${id}/fail`, { body: { reason } }),
+  // replacement-task surface
+  replacementTasks: () => api('GET', '/delivery/replacement-tasks'),
+  replacementTask: (id) => api('GET', `/delivery/replacement-tasks/${id}`),
+  replacementAccept: (id) => api('POST', `/delivery/replacement-tasks/${id}/accept`, { body: {} }),
+  replacementReject: (id, reason) => api('POST', `/delivery/replacement-tasks/${id}/reject`, { body: { reason } }),
+  replacementPickup: (id) => api('POST', `/delivery/replacement-tasks/${id}/pickup`, { body: {} }),
+  replacementOutForDelivery: (id) => api('POST', `/delivery/replacement-tasks/${id}/out-for-delivery`, { body: {} }),
+  replacementDeliver: (id) => api('POST', `/delivery/replacement-tasks/${id}/deliver`, { body: {} }),
+  replacementFail: (id, reason) => api('POST', `/delivery/replacement-tasks/${id}/fail`, { body: { reason } }),
+};

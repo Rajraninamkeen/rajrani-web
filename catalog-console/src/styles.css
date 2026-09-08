@@ -140,3 +140,19 @@ textarea { resize: vertical; }
 .badge.st-PICKUP_SCHEDULED, .badge.st-PICKED_UP, .badge.st-INSPECTION { background: #eef4fb; color: #34558b; }
 .badge.st-REPLACEMENT_ISSUED, .badge.st-PENDING_DISPATCH { background: #fff4e0; color: #a8670a; }
 .badge.st-DISPATCHED { background: #e8f0fe; color: #1a73e8; }
+
+/* Session 29 — delivery courier status badges */
+.badge.st-ASSIGNED { background: #e8f0fe; color: var(--brand); }
+.badge.st-ACCEPTED, .badge.st-PICKED_UP { background: #e6f4ea; color: var(--ok); }
+.badge.st-OUT_FOR_DELIVERY { background: #e8f0fe; color: #1a56db; }
+.badge.st-DELIVERED { background: #e6f4ea; color: var(--ok); }
+.badge.st-REJECTED, .badge.st-CANCELLED { background: #fce8e6; color: var(--err); }
+.badge.st-FAILED { background: #fce8e6; color: var(--err); }
+.btn.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.btn.ok:hover { background: #1a7f37; }
+.sub-nav { display: flex; gap: 8px; margin: 14px 0; }
+.seg { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 14px; cursor: pointer; font-weight: 700; font-size: 13px; }
+.seg.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.alert { background: #fce8e6; color: var(--err); padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; font-weight: 600; }
+.product-head { display: flex; justify-content: space-between; align-items: center; cursor: pointer; gap: 10px; }

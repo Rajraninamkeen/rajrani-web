@@ -6,6 +6,7 @@ import SellerDashboard from './views/SellerDashboard.jsx';
 import StaffReview from './views/StaffReview.jsx';
 import StaffReviews from './views/StaffReviews.jsx';
 import OperatorDashboard from './views/OperatorDashboard.jsx';
+import CourierTasks from './views/CourierTasks.jsx';
 
 // Role-based access: which console sections a signed-in role may open.
 const STAFF = new Set(['OPERATOR', 'ADMIN']);
@@ -13,7 +14,7 @@ const STAFF = new Set(['OPERATOR', 'ADMIN']);
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('catalog'); // 'catalog' (seller) | 'review' (staff)
+  const [tab, setTab] = useState('catalog'); // 'catalog' (seller) | 'ops'/'review' (staff) | 'courier'
   const [toast, setToast] = useState(null);
 
   const notify = (msg, tone = 'ok') => {
@@ -36,6 +37,7 @@ export default function App() {
     return {
       seller: user.role === 'SELLER',
       staff: STAFF.has(user.role),
+      courier: user.role === 'DELIVERY',
     };
   }, [user]);
 
@@ -58,10 +60,14 @@ export default function App() {
   if (!user) return <Login onLogin={handleLogin} notify={notify} />;
 
   // Pick a sensible default tab for the signed-in role.
-  const effectiveTab = !allowed.seller && allowed.staff ? 'ops' : tab;
+  const effectiveTab =
+    (!allowed.seller && !allowed.staff && allowed.courier) ? 'courier'
+      : (!allowed.seller && allowed.staff) ? 'ops'
+        : tab;
   const tabs = [
     ...(allowed.seller ? [{ id: 'catalog', label: 'My Catalog' }, { id: 'dashboard', label: 'Sales & Payouts' }] : []),
     ...(allowed.staff ? [{ id: 'ops', label: 'Operations' }, { id: 'review', label: 'Publishing Review' }, { id: 'reviews', label: 'Review Moderation' }] : []),
+    ...(allowed.courier ? [{ id: 'courier', label: 'My Deliveries' }] : []),
   ];
 
   return (
@@ -88,8 +94,9 @@ export default function App() {
         {allowed.staff && effectiveTab === 'ops' && <OperatorDashboard notify={notify} />}
         {allowed.staff && effectiveTab === 'review' && <StaffReview notify={notify} />}
         {allowed.staff && effectiveTab === 'reviews' && <StaffReviews notify={notify} />}
-        {(!allowed.seller && !allowed.staff) && (
-          <div className="card empty">Your role ({user.role}) has no catalog-console access. Please sign in as a SELLER or an OPERATOR/ADMIN.</div>
+        {allowed.courier && effectiveTab === 'courier' && <CourierTasks notify={notify} />}
+        {(!allowed.seller && !allowed.staff && !allowed.courier) && (
+          <div className="card empty">Your role ({user.role}) has no catalog-console access. Please sign in as a SELLER, an OPERATOR/ADMIN, or a DELIVERY partner.</div>
         )}
       </main>
       {toast && <div className={`toast ${toast.tone}`}>{toast.msg}</div>}
