@@ -321,11 +321,17 @@ model ProductReview {
   comment     String?
   status      ReviewStatus @default(PENDING)
   verifiedBuyer Boolean     @default(false)
+  // Session 21 — moderation audit (actor + note/reason, when the review was acted on).
+  moderatorId  String?
+  moderatedAt  DateTime?
+  moderationNote String? // staff note; required reason on reject, optional on approve/hide/unhide
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
+  // One review per customer per product (a repeat buyer updates their own review).
+  @@unique([productId, userId])
   @@index([productId])
-  @@index([userId])
+  @@index([userId, status])
   @@map("product_reviews")
 }
 
