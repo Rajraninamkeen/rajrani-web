@@ -1067,3 +1067,49 @@ Live E2E run — see VERIFICATION Session 05 table.
   `refund_transactions` SUCCESS, return request COMPLETED, order REFUNDED/REFUNDED, and `REFUND_COMPLETED` (SYSTEM)
   audit — replay idempotent. Ledger confirmed via psql. (The Session-18 synchronous terminal path is unchanged and
   still covered by the gateway `COMPLETED` completeRefund unit test.)
+
+## Session 20 — Product listing/publishing (2026-09-08, `/home/user/rajrani-web`)
+
+Owner-chosen next scope: **product listing/publishing** (product create + catalog-publish
+review/approval lifecycle). NO code was changed for onboarding/KYC, ratings/reviews, seller-ops
+order gating, or courier.
+
+- **Schema/migration `20260908175000_product_publishing`:** `Product.reviewNote` (nullable, last
+  staff note/reason surfaced to the seller) + a new `product_status_history` table/model
+  (`ProductStatusHistory`: productId FK cascade, fromStatus/toStatus, actorRole SELLER|OPERATOR|
+  ADMIN|SYSTEM, actorId, reason, createdAt; indexed by productId). Existing `Product.status`
+  (`DRAFT/PENDING_REVIEW/APPROVED/REJECTED/ARCHIVED`) + `visibility` (`LIVE/HIDDEN/…`) + `publishedAt`
+  were reused — no separate submission table was warranted. Applied via SQL-file + manual
+  `_prisma_migrations` row (≤36 chars), never `migrate dev/reset`; `prisma generate` OK.
+- **New `src/publishing/` module (wired into `app.module.ts`), no new role:**
+  - `SellerProductController @Controller('seller/catalog') @Roles(SELLER)` (distinct from the existing
+    read-only `GET /seller/products` in seller-ops): `GET` list (own, optional `?status`), `GET
+    /:productId`, `POST` create DRAFT, `PATCH /:productId` edit (DRAFT/REJECTED only), `POST
+    /:productId/submit` → PENDING_REVIEW (DRAFT/REJECTED only), `POST /:productId/archive`
+    (non-published only). Every write is strictly scoped to the caller's own ACTIVE seller
+    (`requireSeller` → SELLER role + `User.sellerId` + `Seller.status=ACTIVE`); reading/editing another
+    seller's product → 404. Slug auto-deduped; category must be `ACTIVE`+not-deleted.
+  - `CatalogPublishingController @Controller('catalog-publishing/products') @Roles(OPERATOR, ADMIN)`
+    (distinct staff review surface; REVIEWER is onboarding-only and NOT granted publishing):
+    `GET` PENDING_REVIEW list (+`?status`), `GET /:productId` review detail, `POST /:productId/approve`
+    (→ `APPROVED` + `visibility LIVE` + `publishedAt`; sets reviewNote) and `POST /:productId/reject`
+    (mandatory reason → `REJECTED` + `HIDDEN` + `publishedAt` null; reason stored in `reviewNote`).
+    Both mutate only a `PENDING_REVIEW` product (409 otherwise) and are staff-role-gated.
+  - `ProductStatusHistory` written for create/edit-free transitions: created-as-draft, submitted,
+    approve/reject each append a row (fromStatus → toStatus, actorRole, actorId, reason).
+  - **Public catalog untouched:** `catalog.service` still only exposes `status APPROVED` +
+    `visibility LIVE` + not-deleted. Approving a product feeds that filter so it appears; a DRAFT/
+    PENDING_REVIEW/REJECTED product never resolves publicly (404).
+- **Tests:** new `src/publishing/product-publishing.service.spec.ts` (8): seller-owner create DRAFT
+  scoped + history, non-seller 403, submit only from DRAFT/REJECTED (409 otherwise), cross-seller 404,
+  staff approve → APPROVED+LIVE+publishedAt+audit(actor role), staff reject → REJECTED+HIDDEN+reason,
+  non-staff (SELLER/CUSTOMER) approve 403, approve-already-APPROVED 409 → **19 suites / 181 tests**
+  (was 173); typecheck + `npm run build` clean.
+- **Live E2E (`scripts/e2e-publishing.mjs`, 13/13 ok, sandbox-provider API `:4300`):** `seller1@example.
+  com` (SELLER, ACTIVE `seller-legacy`) → created DRAFT (HIDDEN, appears in own list) → submit →
+  PENDING_REVIEW → `pfop@example.com` (OPERATOR) lists it → **approve** → `APPROVED`+`LIVE`+`publishedAt`,
+  publicly resolvable by slug (`GET /catalog/products/:slug` 200); second product **reject** path →
+  `REJECTED`+`HIDDEN`, reason `price below floor` surfaced in the seller's own detail (`reviewNote`) and
+  NOT publicly resolvable (404). RBAC: CUSTOMER denied both the OPERATOR review surface and the SELLER
+  authoring surface (403). DB audit for the approved product: `product_status_history`
+  `DRAFT→PENDING_REVIEW→APPROVED` (actorRole SELLER/OPERATOR + reasons). E2E test products cleaned up.

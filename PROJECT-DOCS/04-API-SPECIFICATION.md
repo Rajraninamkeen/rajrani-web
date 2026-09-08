@@ -3333,3 +3333,42 @@ signature-authenticated endpoint:
 Idempotency is by local Refund status: only a `PROCESSING` refund is acted on; a replayed terminal event for an
 already-`COMPLETED`/`FAILED` refund is a no-op (`{idempotent:true}`); an unknown `gatewayRefundId` returns
 `{matched:false}`. The webhook body's refund entity id (`payload.refund.entity.id`, `rfnd_…`) is the `gatewayRef` match key.
+
+## SESSION 20 ADDENDUM — Product listing / publishing API
+
+All endpoints under the `/api/v1` prefix, wrapped in the standard envelope. Auth = Bearer JWT.
+
+### SELLER authoring surface — `/seller/catalog` (`@Roles(SELLER)`, own ACTIVE seller only)
+- `GET /seller/catalog?status=DRAFT|PENDING_REVIEW|APPROVED|REJECTED|ARCHIVED` — list the caller's own
+  non-deleted products (default all; ordered by `updatedAt` desc). Includes category + media + history.
+- `GET /seller/catalog/:productId` — one owned product (cross-seller → 404).
+- `POST /seller/catalog` — create a **DRAFT** (HIDDEN). Body: `name`(req), `slug`(opt, auto-deduped),
+  `categoryId`(req, must be ACTIVE+not-deleted), `brand`, `regionOrigin`, `tagline`, `description`,
+  `basePrice`(req>0), `originalPrice`(MRP, opt), `weightLabel`, `spiceLevel`(MILD|MEDIUM|SPICY|FIERY),
+  `ingredients[]`, `nutritional`(object), `pairingSuggestion`, `isBestseller`, `isNew`, `stockOnHand`,
+  `stockStatus`, `media[]`(`url`,`altText?`,`kind?:IMAGE|VIDEO`,`sortOrder?`).
+- `PATCH /seller/catalog/:productId` — edit only a **DRAFT or REJECTED** product (else 409); slug/media
+  replaced if supplied; clears any previous `reviewNote`.
+- `POST /seller/catalog/:productId/submit` — DRAFT/REJECTED → **PENDING_REVIEW** (+HIDDEN) else 409.
+- `POST /seller/catalog/:productId/archive` — DRAFT/REJECTED/PENDING_REVIEW → **ARCHIVED** else 409.
+
+Response `product` object (shared shape for authoring + review): `{ id,name,slug,tagline,description,brand,
+regionOrigin,status,visibility,category:{id,name,slug},basePrice,originalPrice,weightLabel,spiceLevel,
+ingredients,nutritional,pairingSuggestion,isBestseller,isNew,stockStatus,stockOnHand,ratingAvg,reviewCount,
+reviewNote,publishedAt,createdAt,updatedAt,media[],history[{fromStatus,toStatus,actorRole,actorId,reason,
+createdAt}]}`. Monies are decimal.
+
+### STAFF catalog-publishing review surface — `/catalog-publishing/products` (`@Roles(OPERATOR, ADMIN)`)
+- `GET /catalog-publishing/products?status=…` — review queue (default `PENDING_REVIEW`), includes the
+  owning `seller`.
+- `GET /catalog-publishing/products/:productId` — full review detail incl. media + status history.
+- `POST /catalog-publishing/products/:productId/approve` — body `{note?}`; requires PENDING_REVIEW →
+  `status APPROVED`, `visibility LIVE`, `publishedAt=now`, `reviewNote=note`. The product is now served by
+  the **public** catalog (its `APPROVED`+`LIVE`+not-deleted filter is unchanged).
+- `POST /catalog-publishing/products/:productId/reject` — body `{reason}` (required) → `status REJECTED`,
+  `visibility HIDDEN`, `publishedAt=null`, `reviewNote=reason` (surfaced back to the seller).
+
+Guards: approve/reject on a non-PENDING_REVIEW product → 409; REVIEWER/CUSTOMER/SELLER cannot hit the
+staff surface (SELLER hits only `/seller/catalog`); CUSTOMER hits neither. No un-approved product is ever
+reachable through the public catalog (`GET /catalog/products/:identifier` → 404 for DRAFT/PENDING_REVIEW/
+REJECTED/ARCHIVED).

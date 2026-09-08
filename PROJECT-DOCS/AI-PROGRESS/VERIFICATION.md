@@ -433,3 +433,23 @@ refund `RFD-MTS23K0U-ZB5G`, gatewayRef `rfnd_mts23k1hwpmh`.
 | failure path | (unit) `refund.failed` → Refund FAILED + reason, PENDING txn→FAILED, `REFUND_FAILED` SYSTEM audit, request stays APPROVED_FOR_REFUND, no settle |
 | RBAC | `/api/v1/payments/webhook/razorpay` stays signature-authenticated (not JWT); refund completion remains OPERATOR/ADMIN; reconciliation is SYSTEM (webhook-driven) |
 | `git push origin main` | Session 19 feature + docs committed and pushed (see git log) |
+
+## Session 20 — Product listing/publishing (2026-09-08, `/home/user/rajrani-web`)
+
+Sandbox-provider API on `:4300` (`PORT=4300 node dist/main.js`, default `PAYMENT_GATEWAY_PROVIDER`,
+not used here) against the same dev DB; reusable driver `scripts/e2e-publishing.mjs` → 13 ok steps.
+Fixtures: SELLER `seller1@example.com` (ACTIVE `seller-legacy`), OPERATOR `pfop@example.com`,
+CUSTOMER `s12@example.com`, ACTIVE category `cmtrvg2j90005usnz1jaaa7mx`.
+
+| Check | Result |
+|---|---|
+| migrations | 22 applied, `prisma migrate status` up to date (`20260908175000_product_publishing`); `product_status_history` table + `products.reviewNote` present; `prisma generate` OK; typecheck + `npm run build` clean |
+| unit tests | new `src/publishing/product-publishing.service.spec.ts` (8) → **19 suites / 181 tests** green |
+| create | SELLER `POST /seller/catalog` → product DRAFT, HIDDEN, auto-slug, own-list visible (`GET /seller/catalog`) |
+| submit | `POST /seller/catalog/:id/submit` (DRAFT) → PENDING_REVIEW; appears in `GET /catalog-publishing/products?status=PENDING_REVIEW` for OPERATOR |
+| approve | OPERATOR `POST /catalog-publishing/products/:id/approve` → `APPROVED` + `visibility LIVE` + `publishedAt`; now resolves publicly: `GET /catalog/products/:slug` 200 (public filter `APPROVED`+`LIVE` untouched) |
+| reject | OPERATOR `POST …/reject {reason}` → `REJECTED` + `HIDDEN`, `publishedAt` null, reason in `reviewNote`; surfaced in SELLER's own `GET /seller/catalog/:id`; **not** publicly resolvable (404) |
+| RBAC | CUSTOMER `GET /catalog-publishing/products` → 403; CUSTOMER `POST /seller/catalog` → 403; only a PENDING_REVIEW product may be approved/rejected (409 otherwise); seller edits/submits only DRAFT/REJECTED (409 otherwise); cross-seller read/edit → 404 |
+| audit | psql `product_status_history` for the approved product: `DRAFT→PENDING_REVIEW→APPROVED` with actorRole SELLER/OPERATOR + reasons (created-as-draft, submitted, approved-by-operator) |
+| cleanup | E2E-created products (`pub-*`) hard-deleted after the run; public catalog clean |
+| `git push origin main` | Session 20 feature + docs committed and pushed (see git log) |

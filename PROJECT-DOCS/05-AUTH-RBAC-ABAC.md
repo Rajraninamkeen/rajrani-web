@@ -3528,3 +3528,24 @@ No new roles. Gate changes this session:
   initiate a new refund or touch a non-PROCESSING one.
 - `refund.failed` leaves the request APPROVED_FOR_REFUND for an operator retry (no new role surface).
 - Sessions 14–18 RBAC negatives remain valid.
+
+## SESSION 20 ADDENDUM — RBAC for product listing / publishing (no new role)
+
+Product listing/publishing rides the existing roles — no new role was introduced.
+
+- **SELLER** (bound to an ACTIVE seller org, `User.sellerId`) gains the product-authoring surface
+  `/seller/catalog`: create DRAFT, edit (DRAFT/REJECTED), submit (→ PENDING_REVIEW), archive, and
+  list/read **only its own** non-deleted products. Cross-seller reads/edits resolve to **404** (no
+  existence leak). A SELLER cannot approve/reject (that is staff-only) and cannot touch `/seller-ops`
+  money surfaces beyond what Session 09 granted.
+- **OPERATOR / ADMIN** gain the staff catalog-publishing review surface `/catalog-publishing/products`
+  (list PENDING_REVIEW, detail, **approve** → APPROVED+LIVE+publishedAt, **reject** → REJECTED with a
+  surfaced reason). This mirrors the other OPERATOR/ADMIN org-approval surfaces (fulfilment, returns,
+  finance, seller-onboarding seller create/status).
+- **REVIEWER is NOT granted publishing** — REVIEWER stays onboarding/KYC-only (Session 14). If future
+  product approvals should be a distinct reviewer, that is a new role decision, not part of Session 20.
+- **CUSTOMER / DELIVERY** cannot reach either surface (403). No un-approved product ever appears through
+  the public catalog (filter unchanged).
+- Staff actor identity is recorded on the immutable `product_status_history` audit (`actorRole`
+  OPERATOR/ADMIN + `actorId`); seller authoring records `actorRole SELLER`.
+- Sessions 14–19 RBAC negatives remain valid.

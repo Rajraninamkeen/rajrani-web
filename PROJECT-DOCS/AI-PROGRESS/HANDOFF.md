@@ -208,3 +208,41 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
   `payment.failed` and `refund.processed`/`refund.failed` events to it with the matching webhook secret.
 - **Migration discipline:** Session 19 migration `20260908172000_return_refund_failed_enum` applied via `psql -f` +
   manual `_prisma_migrations` row (id `20260908172000_refund_failed`). 21 migrations total.
+
+## SESSION 20 HANDOFF NOTES (product listing/publishing)
+- **New module `src/publishing/`**, wired into `app.module.ts` (no new role, no ABAC). Two surfaces:
+  - SELLER authoring **`SellerProductController` `@Controller('seller/catalog')`** — do NOT merge these
+    with the read-only `GET /seller/products` list owned by `src/commerce/seller-ops`. Routes:
+    `GET` (list, optional `?status`), `GET /:productId`, `POST` (create DRAFT), `PATCH /:productId`
+    (DRAFT/REJECTED only), `POST /:productId/submit` (→ PENDING_REVIEW; DRAFT/REJECTED only),
+    `POST /:productId/archive` (non-published only). All writes are strictly scoped to the caller's own
+    ACTIVE seller via `requireSeller` (SELLER role + `User.sellerId` + `Seller.status=ACTIVE`); a
+    cross-seller product read/edit resolves to **404** (not 403) to avoid existence leaks.
+  - STAFF review **`CatalogPublishingController` `@Controller('catalog-publishing/products')`,
+    `@Roles(OPERATOR, ADMIN)`** — REVIEWER is onboarding/KYC-only and is intentionally NOT granted
+    publishing. Routes: `GET` (defaults PENDING_REVIEW, `?status`), `GET /:productId`, `POST
+    /:productId/approve`, `POST /:productId/reject` (reason mandatory). Approve/reject only act on a
+    PENDING_REVIEW product (409 otherwise).
+- **State machine on the existing `Product` row** (no new submission table): `status`
+  DRAFT→PENDING_REVIEW→(APPROVED+`visibility LIVE`+`publishedAt` | REJECTED+`visibility HIDDEN`+
+  `publishedAt` null+`reviewNote` reason). A REJECTED product is editable and resubmittable → back to
+  PENDING_REVIEW. Nothing is ever publicly visible until OPERATOR/ADMIN approves, because the **public
+  catalog filter is untouched** (`status APPROVED`+`visibility LIVE`+not-deleted in `catalog.service`);
+  publishing only feeds that filter. Do not weaken the filter when adding future publishing features.
+- **Audit:** new `product_status_history` (`ProductStatusHistory`) — keep writing one row per real
+  transition (create, submit, approve, reject, archive). `actorRole` is SELLER for authoring and the
+  resolved staff role (OPERATOR/ADMIN) for review. Category is constrained to `ACTIVE`+not-deleted.
+  `Product.reviewNote` holds the last staff note/reason and is cleared on edit/submit.
+- **Migration discipline:** `20260908175000_product_publishing` applied via `psql -f` + a manual
+  `_prisma_migrations` row (id `20260908175000_product_publishing`, ≤36 chars) — never
+  `prisma migrate dev/reset` on the live DB. 22 migrations total.
+- **Tests/E2E:** `src/publishing/product-publishing.service.spec.ts` (8) → **19 suites / 181 tests**.
+  Live E2E driver `scripts/e2e-publishing.mjs` (13/13): `API`/`SELLER`/`SPW`/`OPER`/`OPW`/`CATEGORY`
+  env; run against a fresh sandbox-provider API (`PORT=4300 node dist/main.js` after `npm run build`).
+  Fixtures: SELLER `seller1@example.com`/`Seller@123` (ACTIVE `seller-legacy`), OPERATOR
+  `pfop@example.com`/`Operator@123`, CUSTOMER `s12@example.com`/`Test@12345`, ACTIVE category
+  `cmtrvg2j90005usnz1jaaa7mx`.
+- **Not in scope (do not add without a new session):** seller onboarding/KYC changes, ratings/reviews,
+  per-seller order gating changes, courier/delivery-provider integration.
+- For future work the natural next items are: **product reviews/ratings**, **courier-delivering the
+  dispatched replacement**, and the **catalog-publishing-web / seller-web UIs**.
