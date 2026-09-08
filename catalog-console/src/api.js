@@ -48,3 +48,14 @@ export const catalogApi = {
   reviewApprove: (id, note) => api('POST', `/catalog-publishing/products/${id}/approve`, { body: note ? { note } : {} }),
   reviewReject: (id, reason) => api('POST', `/catalog-publishing/products/${id}/reject`, { body: { reason } }),
 };
+
+// Session 21 product-review moderation (OPERATOR/ADMIN only). Same staff surface as
+// the publishing queue above, but for customer-written reviews.
+export const reviewModerationApi = {
+  list: (status) => api('GET', '/product-reviews' + (status ? `?status=${status}` : '')),
+  detail: (id) => api('GET', `/product-reviews/${id}`),
+  approve: (id, note) => api('POST', `/product-reviews/${id}/approve`, { body: note ? { note } : {} }),
+  reject: (id, reason) => api('POST', `/product-reviews/${id}/reject`, { body: { reason } }),
+  hide: (id, note) => api('POST', `/product-reviews/${id}/hide`, { body: note ? { note } : {} }),
+  unhide: (id, note) => api('POST', `/product-reviews/${id}/unhide`, { body: note ? { note } : {} }),
+};

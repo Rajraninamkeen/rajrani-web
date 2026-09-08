@@ -3,6 +3,7 @@ import { api, authApi, getToken, setToken } from './api.js';
 import Login from './views/Login.jsx';
 import SellerCatalog from './views/SellerCatalog.jsx';
 import StaffReview from './views/StaffReview.jsx';
+import StaffReviews from './views/StaffReviews.jsx';
 
 // Role-based access: which console sections a signed-in role may open.
 const STAFF = new Set(['OPERATOR', 'ADMIN']);
@@ -58,7 +59,7 @@ export default function App() {
   const effectiveTab = !allowed.seller && allowed.staff ? 'review' : tab;
   const tabs = [
     ...(allowed.seller ? [{ id: 'catalog', label: 'My Catalog' }] : []),
-    ...(allowed.staff ? [{ id: 'review', label: 'Publishing Review' }] : []),
+    ...(allowed.staff ? [{ id: 'review', label: 'Publishing Review' }, { id: 'reviews', label: 'Review Moderation' }] : []),
   ];
 
   return (
@@ -82,6 +83,7 @@ export default function App() {
       <main className="content">
         {allowed.seller && effectiveTab === 'catalog' && <SellerCatalog notify={notify} />}
         {allowed.staff && effectiveTab === 'review' && <StaffReview notify={notify} />}
+        {allowed.staff && effectiveTab === 'reviews' && <StaffReviews notify={notify} />}
         {(!allowed.seller && !allowed.staff) && (
           <div className="card empty">Your role ({user.role}) has no catalog-console access. Please sign in as a SELLER or an OPERATOR/ADMIN.</div>
         )}

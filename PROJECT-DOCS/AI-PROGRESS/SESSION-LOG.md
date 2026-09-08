@@ -1266,3 +1266,24 @@ Verified live (`/tmp/e2e-commerce.mjs`, **21/21** on a throwaway CUSTOMER): gues
 (with line ids) → authoritative preview → COD order + COD OTP (sandbox devOtp) verified → PREPAID order +
 payment intent → dev sandbox capture → payment CONFIRMED + order PAID → re-capture 400. Both orders
 cancelled (stock restored) and all `c25@` throwaway buyers + their order/cart rows were removed from the DB.
+
+## Session 26 — Staff review-moderation UI (OPERATOR/ADMIN) in the catalog console
+
+Added a third, staff-only tab — "Review Moderation" — to `catalog-console/`. It lets an OPERATOR/ADMIN
+moderate the Session 21 customer product reviews end-to-end over the live `/product-reviews` routes
+(frontend only; no backend change — the RBAC is already enforced server-side).
+
+- Review list filtered by status (PENDING / PUBLISHED / REJECTED / HIDDEN; default PENDING), each showing
+  the product, author, star rating, title, verified-buyer badge, timestamps.
+- Expandable detail shows full comment, moderator note + moderation time, and history-worthy flags.
+- Context-appropriate actions matching the backend state machine:
+  - PENDING → Approve (optional note) or Reject (required reason, surfaced to the author).
+  - PUBLISHED → Hide (note) ; HIDDEN → Unhide (note) ; REJECTED → read-only (author edits re-open it).
+- New `reviewModerationApi` in `catalog-console/src/api.js`. A CUSTOMER hitting the moderation routes still
+  gets 403 (guarded in the service).
+
+Verified live through the catalog-console proxy (`s12@example.com` verified buyer + `pfop@example.com`
+OPERATOR): submit 2 reviews → PENDING → moderation PENDING list shows both → reject one (REJECTED with
+reason; its product aggregate untouched) → approve the other (PUBLISHED) → hide → unhide (PUBLISHED);
+CUSTOMER on `/product-reviews` → 403. Test reviews deleted and both products' aggregates reset to seed
+(ratlami-sev 4.9/3820, shahi-kaju-mixture 4.9/2450).
