@@ -259,14 +259,17 @@ model Product {
   pairingSuggestion String?
   customerFavTag  String?
   publishedAt     DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  // Last catalog-review note (approve/reject reason) surfaced to the seller (Session 20).
+  reviewNote      String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
   deletedAt       DateTime?
 
   variants  ProductVariant[]
   media     ProductMedia[]
   reviews   ProductReview[]
   cartItems CartItem[]
+  statusHistory ProductStatusHistory[]
 
   @@index([categoryId])
   @@index([sellerId])
@@ -1398,4 +1401,22 @@ model DeliveryEvent {
 
   @@index([deliveryAssignmentId])
   @@map("delivery_events")
+}
+
+// Session 20 — immutable per-product catalog status audit. Records every
+// product lifecycle transition (seller draft/edit/submit, staff approve/reject)
+// with the actor role + optional reason, mirroring the SellerStatusHistory style.
+model ProductStatusHistory {
+  id         String        @id @default(cuid())
+  productId  String
+  product    Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fromStatus ProductStatus?
+  toStatus   ProductStatus
+  actorRole  String // SELLER | OPERATOR | ADMIN | SYSTEM
+  actorId    String?
+  reason     String?
+  createdAt  DateTime      @default(now())
+
+  @@index([productId])
+  @@map("product_status_history")
 }

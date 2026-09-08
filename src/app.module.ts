@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { CommerceModule } from './commerce/commerce.module';
 import { SellerModule } from './seller/seller-onboarding.module';
+import { PublishingModule } from './publishing/publishing.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -22,6 +23,7 @@ import { AppController } from './app.controller';
     CatalogModule,
     CommerceModule,
     SellerModule,
+    PublishingModule,
   ],
   controllers: [AppController],
 })
