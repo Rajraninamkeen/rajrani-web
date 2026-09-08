@@ -11,15 +11,15 @@
 | Branch | `main` |
 | Layout | `PROJECT-DOCS/` (specs + AI-PROGRESS) · `landing-page/` (frontend prototype) · backend at repo root (`src/`, `prisma/`) |
 | Stack (final) | **NestJS 11.2.3 + TypeScript 5.9.3 + Prisma ORM 7.10.0** (driver adapter, prisma.config.ts) + PostgreSQL 17 |
-| Current session | Session 13 — Finance reconciliation + reporting (auto return-debit) |
-| Current phase | Seller split-checkout + per-seller fulfilment gate + partial-fulfilment + seller payables/settlements + finance reconciliation & reporting (incl. automatic return-debit of earned seller payables) done; seller onboarding/KYC, per-slice delivery/replacement, reviews remain |
-| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery, returns/refunds incl. item-level, multi-seller split-checkout + seller-ops + per-seller fulfilment gate + partial-fulfilment resolution + seller payables/settlements + finance reconciliation/reporting with auto return-debit) on Prisma 7; all verified |
-| Completed sessions | 00–04, upgrade pass, 05 (buy-now + payments + COD), 06 (fulfilment/delivery), 07 (returns/refunds), 08 (item-level returns + pickup/inspection lifecycle), 09 (seller orgs + split-checkout + seller-ops core), 10 (per-seller fulfilment gating + delivery markers), 11 (partial fulfilment resolution of rejected seller slices), 12 (seller payables & settlements), 13 (finance reconciliation + reporting) |
-| Next session | Seller onboarding/KYC + orgs, per-slice delivery/courier handoff, replacement vs refund, reviews, or real payment-gateway provider |
-| Active blockers | Owner to rotate GitHub token before next push; keep `rajrani-web` canonical |
-| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments use the built-in **sandbox** gateway (pluggable provider) — real gateway + real refund execution deferred. Fulfilment/returns/finance gated behind `OPERATOR`/`ADMIN`; SELLER role can accept/reject slices and read own payables/settlements (no onboarding/KYC). Seller payables auto-earn at DELIVERED (commission = per-seller `commissionRateBps`; Bilokat 0, partner 10%); payables/settlement are DB-authoritative (settlement/adjustment audited); a completed customer refund auto-debits the returned goods' net earnings from the delivered slice's EARNED payable (owner rule: net-zero on full return) as a SYSTEM `seller_payable_adjustment` (a payable already in/after a settlement is intentionally not auto-debited and is surfaced by reconciliation). No real payout execution (Settlement PAID is a sandbox ledger mark), seller onboarding/KYC, replacement vs refund, evidence upload, per-slice delivery/courier handoff not implemented. Reconciliation is read-only and reports rather than auto-fixes discrepancies. |
-| Last verification | typecheck/build OK; `npm test` 110 passing (13 suites); migrate deploy clean (14); live finance E2E on `:4000` (Session 13): customer full item return on delivered Bilokat slice of `BK-MTRWFK4Z` (₹189 EARNED payable `cmtrwfv3…`) → operator approve→pickup→picked-up→inspection PASS→initiate `RFD-MTRX0MTT-PB39` ₹217.43→complete → **payable auto-debited ₹189 → net ₹0** with audited SYSTEM `-189` adjustment (`actorId` = returnRequestId, reason references return + refund); `GET /finance/reconciliation/summary` returns the reconciliation (correctly flags only the one **pre-existing** historical `delivered_slice_missing_payable` in the pre-settlement E2E order `cmtrvm3r9…`, not from the auto-debit); `GET /finance/report/totals` per-seller + grand totals (Bilokat goods ₹567, refund ₹189, adj ₹−189, net ₹378; Rajrani adj ₹−10, net ₹259.10; grand net ₹637.10); `?sellerId=` + `?from/`?to=` filters work; CUSTOMER → 403 / no token → 401 on finance endpoints; seller self-service `/seller/payables` scoped to own org (2026-09-08) |
-| Repository health | pushed to GitHub (`main`); no committed secrets |
+| Current session | Session 14 — Seller onboarding/KYC + Organizations (REVIEWER role) |
+| Current phase | Seller split-checkout + per-seller fulfilment gate + partial-fulfilment + seller payables/settlements + finance reconciliation & reporting + **seller onboarding/KYC (orgs, applications, documents, review, activation, REVIEWER role)** done; per-slice delivery/courier handoff, replacement vs refund, reviews remain |
+| Overall status | Backend (foundation, auth/RBAC, catalog, commerce cart/checkout/orders, buy-now + sandbox payments + COD OTP, fulfilment/delivery, returns/refunds incl. item-level, multi-seller split-checkout + seller-ops + per-seller fulfilment gate + partial-fulfilment resolution + seller payables/settlements + finance reconciliation/reporting with auto return-debit + **seller onboarding/KYC with Organizations + OWNER members + REVIEWER role**) on Prisma 7; all verified |
+| Completed sessions | 00–04, upgrade pass, 05 (buy-now + payments + COD), 06 (fulfilment/delivery), 07 (returns/refunds), 08 (item-level returns + pickup/inspection lifecycle), 09 (seller orgs + split-checkout + seller-ops core), 10 (per-seller fulfilment gating + delivery markers), 11 (partial fulfilment resolution of rejected seller slices), 12 (seller payables & settlements), 13 (finance reconciliation + reporting), 14 (seller onboarding/KYC + Organizations + REVIEWER) |
+| Next session | Per-slice delivery/courier handoff (delivery model + assignment/role), replacement vs refund, reviews, or real payment-gateway provider |
+| Active blockers | None (Session 14 pushed to `main` `8930517`); keep `rajrani-web` canonical |
+| Known technical debt | See `COMPLETION-MATRIX.md`; `src/generated/` gitignored; payments use the built-in **sandbox** gateway (pluggable provider) — real gateway + real refund execution deferred. Fulfilment/returns/finance gated behind `OPERATOR`/`ADMIN`; seller onboarding/KYC + orgs live (Session 14) with a separate `REVIEWER` (onboarding-only) role; SELLER role can accept/reject slices, read own payables/settlements, and run its own onboarding. Seller payables auto-earn at DELIVERED (commission = per-seller `commissionRateBps`; Bilokat 0, partner 10%); payables/settlement are DB-authoritative (settlement/adjustment audited); a completed customer refund auto-debits the returned goods' net earnings from the delivered slice's EARNED payable (owner rule: net-zero on full return) as a SYSTEM `seller_payable_adjustment` (a payable already in/after a settlement is intentionally not auto-debited and is surfaced by reconciliation). No real payout execution (Settlement PAID is a sandbox ledger mark), per-slice delivery/courier handoff, replacement vs refund, evidence upload, or product-listing/publishing not implemented. Reconciliation is read-only and reports rather than auto-fixes discrepancies. |
+| Last verification | typecheck/build OK; `npm test` **124 passing (15 suites)**; 15 migrations applied (`migrate status` up to date); live Session 14 E2E on `:4000` (see VERIFICATION Session 14) — REVIEWER RBAC negatives 403, seller-register→profile→doc→submit→review APPROVE→activate, closed-app/ACTIVE 409 guards, operator adminCreateSeller (ACTIVE + OWNER member), REVIEWER denied admin-create; plus the Session 13 finance E2E remains valid (customer full item return on delivered Bilokat slice of `BK-MTRWFK4Z` (₹189 EARNED payable `cmtrwfv3…`) → operator approve→pickup→picked-up→inspection PASS→initiate `RFD-MTRX0MTT-PB39` ₹217.43→complete → **payable auto-debited ₹189 → net ₹0** with audited SYSTEM `-189` adjustment (`actorId` = returnRequestId, reason references return + refund); `GET /finance/reconciliation/summary` returns the reconciliation (correctly flags only the one **pre-existing** historical `delivered_slice_missing_payable` in the pre-settlement E2E order `cmtrvm3r9…`, not from the auto-debit); `GET /finance/report/totals` per-seller + grand totals (Bilokat goods ₹567, refund ₹189, adj ₹−189, net ₹378; Rajrani adj ₹−10, net ₹259.10; grand net ₹637.10); `?sellerId=` + `?from/`?to=` filters work; CUSTOMER → 403 / no token → 401 on finance endpoints; seller self-service `/seller/payables` scoped to own org) (2026-09-08) | customer full item return on delivered Bilokat slice of `BK-MTRWFK4Z` (₹189 EARNED payable `cmtrwfv3…`) → operator approve→pickup→picked-up→inspection PASS→initiate `RFD-MTRX0MTT-PB39` ₹217.43→complete → **payable auto-debited ₹189 → net ₹0** with audited SYSTEM `-189` adjustment (`actorId` = returnRequestId, reason references return + refund); `GET /finance/reconciliation/summary` returns the reconciliation (correctly flags only the one **pre-existing** historical `delivered_slice_missing_payable` in the pre-settlement E2E order `cmtrvm3r9…`, not from the auto-debit); `GET /finance/report/totals` per-seller + grand totals (Bilokat goods ₹567, refund ₹189, adj ₹−189, net ₹378; Rajrani adj ₹−10, net ₹259.10; grand net ₹637.10); `?sellerId=` + `?from/`?to=` filters work; CUSTOMER → 403 / no token → 401 on finance endpoints; seller self-service `/seller/payables` scoped to own org (2026-09-08) |
+| Repository health | pushed to GitHub (`main` `8930517` Session 14); no committed secrets |
 
 > ## IMPORTANT PRODUCT DECISION (owner)
 > **`landing-page/` is a PROTOTYPE / UX reference only — NOT an exact pixel spec.**
@@ -167,12 +167,35 @@ multi-app platform.
     payables/settlements under `/seller`. Every step is audited via
     `settlement_events`/`seller_payable_adjustments`; no financial value is
     rewritten.
+  - Session 14: **Seller onboarding/KYC + Organizations + REVIEWER role**
+    (owner decision: full additive org model; application origin = BOTH self-service
+    and operator-managed; onboarding approval state machine on Seller). Schema/migration
+    `20260908100000_orgs_onboarding_kyc`: adds `Organization`/`OrganizationMember`
+    (a SELLER-type org per seller; seller operator bound as an OWNER member), expands
+    `SellerStatus` to `REGISTERED/PENDING/UNDER_REVIEW/APPROVED/REJECTED` (retaining
+    `ACTIVE/SUSPENDED/DEACTIVATED`), adds `Seller.organizationId` + `activatedAt`, and
+    tables `seller_applications` / `seller_documents` / `seller_reviews` /
+    `seller_status_history`. `Seller.operators` (via `users.sellerId`) is retained as a
+    denormalized convenience so all prior commerce code is untouched. New `REVIEWER`
+    role (onboarding-only). Public `POST /auth/seller-register` (self-service): creates
+    the SELLER org + a PENDING seller + a DRAFT application + an OWNER member, returns
+    tokens. New `src/seller/` module + controllers: owner surface
+    `/seller/onboarding/{me,profile,documents,submit}` (SELLER, bound to own seller;
+    document uploads are **storage-intent only**, no object store), staff
+    `/seller-onboarding/*` — `sellers` POST (OPERATOR/ADMIN create ACTIVE seller),
+    `applications` list/detail/review (REVIEWER/ADMIN), `documents/:id/verify`
+    (REVIEWER/ADMIN), `sellers/:id/activate` (REVIEWER/ADMIN/OPERATOR, APPROVED→ACTIVE),
+    `sellers/:id/status` (OPERATOR/ADMIN operational). REVIEWER is denied
+    finance/fulfilment/returns/seller-order/op-create routes; owner editing is blocked
+    once ACTIVE; every status transition is audited in `seller_status_history`. Seed
+    backfills sellers→orgs + OWNER membership.
 
 ### Absent (per spec) / deferred
-- No seller onboarding/KYC (applications/documents/status-history) or
-  org/organization_members, no per-slice shipment/delivery model or courier
-  handoff, no auto-cancel-all or reassign/retry, no reviews, no real payment-gateway
-  provider (razorpay/stripe) with live refund execution, no real delivery-courier
+- Seller onboarding/KYC + orgs (applications/documents/reviews/status-history +
+  Organization/OrganizationMember + REVIEWER role) now **implemented** (Session 14).
+  Still absent: per-slice shipment/delivery model or courier handoff, auto-cancel-all
+  or reassign/retry, product-listing/publishing, reviews, real payment-gateway
+  provider (razorpay/stripe) with live refund execution, real delivery-courier
   integration, and no **real payout execution** (a settlement reaching PAID is a
   sandbox-marked ledger state; the external transfer is out of scope). Seller
   payables/settlements now exist as a DB-authoritative ledger (Session 12), and a
@@ -192,9 +215,10 @@ multi-app platform.
   slices ship together, and at DELIVERED each accepted slice auto-earns its seller
   payable (cancelled slices earn nothing) which OPERATOR rolls into settlements.
 - Fulfilment/delivery/returns/refunds/payables/settlements exist as internal
-  operator flows (`OPERATOR`/`ADMIN`); a SELLER role can accept/reject its slices
-  and read its own payables/settlements; no dedicated finance/courier role or real
-  courier handoff yet.
+  operator flows (`OPERATOR`/`ADMIN`); a SELLER role can accept/reject its slices,
+  read its own payables/settlements, and complete its own onboarding/KYC (Session 14);
+  a separate `REVIEWER` handles KYC. No dedicated finance/courier role or real courier
+  handoff yet.
 - Return **replacement** (exchange) vs refund is not yet offered; no customer
   photo/evidence upload for returns yet (inspection is textual PASS/FAIL only).
   Item-level partial returns, pickup scheduling, per-line inspection and the

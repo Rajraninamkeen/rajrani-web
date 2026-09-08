@@ -735,3 +735,69 @@ Live E2E run — see VERIFICATION Session 05 table.
   `?sellerId=` and date filters verified; CUSTOMER→403 / no-token→401 on the finance
   routes; seller self-service `/seller/payables` scoped to own org. See VERIFICATION
   Session 13.
+
+## Session 14 — Seller onboarding/KYC + Organizations + REVIEWER role
+- **Date:** 2026-09-08
+- **Objective (owner-selected via ask_user):** (1) additive **full Organization /
+  OrganizationMember** model for seller orgs; (2) onboarding application origin =
+  **BOTH self-service and operator-managed**; (3) a **separate REVIEWER role** with
+  onboarding-only scope. This closes the "no seller onboarding/KYC" gap and gives the
+  SELLER lifecycle an explicit approval-state machine on top of the existing
+  ACTIVE/SUSPENDED/DEACTIVATED operational values.
+- **Schema/migration `20260908100000_orgs_onboarding_kyc`** (15th, applied to the live
+  DB via `psql -f` + manual `_prisma_migrations` insert using a plain `INSERT ...
+  WHERE NOT EXISTS` — `ON CONFLICT` fails because `_prisma_migrations` has no unique
+  constraint on `migration_name`; do not re-apply). Adds: `Organization` +
+  `OrganizationMember` (SELLER-type org per seller; the seller operator is bound as an
+  **OWNER** member via `organization_members`); `SellerStatus` expanded with
+  `REGISTERED/PENDING/UNDER_REVIEW/APPROVED/REJECTED` (ACTIVE/SUSPENDED/DEACTIVATED
+  retained as the operational gate values all commerce code already checks);
+  `Seller.organizationId` (FK → organizations) + `activatedAt`; tables
+  `seller_applications` / `seller_documents` / `seller_reviews` /
+  `seller_status_history`. `Seller.operators` (`users.sellerId`) is **retained** as a
+  denormalized convenience so Session 09-13 commerce/seller-ops/settlement code is
+  untouched (additive strategy).
+- **Auth:** `ROLES` gains `REVIEWER`. New public `POST /auth/seller-register`
+  (`SellerRegisterDto`; `AuthService.sellerRegister()`): one `$transaction` creating a
+  SELLER org (slug `org-<slugified-name>-<hex>`), a PENDING seller with a random
+  `SELL-XXXXXXXX` sellerCode, a DRAFT `SellerApplication`, an ACTIVE SELLER user and an
+  OWNER `OrganizationMember`; returns `{ user, tokens, seller }` (duplicate email 409).
+- **New `src/seller/` module (`SellerModule`)** with `SellerOnboardingService` +
+  owner/staff controllers. Lifecycle/state machine (audited each transition in
+  `seller_status_history`):
+  `REGISTERED → PENDING → UNDER_REVIEW →(approve)→ APPROVED →(activate)→ ACTIVE`;
+  reviewer CORRECTION_REQUIRED / ADDITIONAL_INFORMATION_REQUIRED returns the seller to
+  PENDING for a resubmit loop; REJECT → REJECTED; OPERATOR/ADMIN sets ACTIVE /
+  SUSPENDED / DEACTIVATED operationally.
+  - **Owner surface** `/api/v1/seller/onboarding/*` (`@Roles(SELLER)`, resolved to the
+    caller's own seller via `users.sellerId`): `GET me`, `PATCH profile`, `POST
+    documents` (records **storage-intent only** — storageObjectId/fileName/mimeType/
+    sizeBytes, PENDING; no real object store), `POST submit`. Owner editing/submit is
+    allowed only while seller is REGISTERED/PENDING/UNDER_REVIEW; once ACTIVE it is
+    409 ("not editable").
+  - **Staff surface** `/api/v1/seller-onboarding/*`:
+    `POST sellers` (**OPERATOR/ADMIN**; creates an already-ACTIVE seller org, optional
+    operatorEmail → OWNER member; regression: status-history is written on the `tx`
+    client inside the transaction — an earlier build wrote it via `this.prisma`,
+    which is invisible to the open transaction and caused an FK 500, now unit-tested);
+    `GET applications` + `GET applications/:id` (**REVIEWER/ADMIN**); `POST
+    applications/:id/review` (**REVIEWER/ADMIN**; APPROVE/REJECT/
+    CORRECTION_REQUIRED/ADDITIONAL_INFORMATION_REQUIRED, closed apps 409);
+    `POST documents/:id/verify` (**REVIEWER/ADMIN**); `POST sellers/:id/activate`
+    (**REVIEWER/ADMIN/OPERATOR**; APPROVED→ACTIVE only); `POST sellers/:id/status`
+    (**OPERATOR/ADMIN** operational).
+  - **REVIEWER RBAC:** onboarding-only — 403 on `/finance/**`, `/fulfilment/**`,
+    `/return-requests/**`, `/seller/orders/**`, and the OP/ADMIN seller-create/status
+    routes. `seed.ts` backfills each seeded seller's org + OWNER membership.
+- **Tests:** `seller-onboarding.service.spec.ts` +12 (me/profile/submit transitions,
+  terms gate, review APPROVE/REJECT/CORRECTION, closed-app guard, activate APPROVED→
+  ACTIVE + non-APPROVED 409, addDocument + block-when-ACTIVE, verifyDocument,
+  adminSetSellerStatus, adminCreateSeller tx-history regression, OWNER-member bind);
+  `auth.seller-register.spec.ts` +2. Full suite **15 suites / 124 tests** (was 110);
+  typecheck + build clean.
+- **Live E2E (`:4000`):** created a REVIEWER fixture; REVIEWER → 403 on owner/finance/
+  settlement/seller-order routes and on admin-create; seller self-register → me →
+  profile → upload doc → submit (SUBMITTED) → reviewer list/detail → review APPROVE →
+  activate (ACTIVE, activatedAt set) → 409 on re-review of a closed app + 409 on owner
+  editing once ACTIVE; OPERATOR `adminCreateSeller` returns an ACTIVE seller + OWNER
+  member (the FK 500 bug fixed in this pass). See VERIFICATION Session 14.

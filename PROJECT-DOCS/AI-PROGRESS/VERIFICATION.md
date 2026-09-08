@@ -322,3 +322,19 @@
 | RBAC | CUSTOMER → **403** on `/finance/reconciliation/summary` and `/finance/report/totals`; no token → **401** |
 | seller self-service | `seller1` (Bilokat) `GET /seller/payables` → own two payables (EARNED net ₹0 refund ₹189; EARNED net ₹378); scoped to own org |
 | `git push origin main` | deferred — waiting on owner-rotated GitHub token |
+## Session 14 — Seller onboarding/KYC + Organizations + REVIEWER (2026-09-08, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| migration `20260908100000_orgs_onboarding_kyc` | **15th migration**, applied to live DB via `psql -f` + manual `_prisma_migrations` insert (plain `INSERT ... WHERE NOT EXISTS`); `npx prisma migrate status` = 15, **up to date**; `npx prisma generate` ok |
+| `npm run typecheck` / `build` | exit 0 |
+| `npm test` | **15 suites / 124 tests PASS** (seller-onboarding.service.spec +12 incl. adminCreateSeller tx-history regression + OWNER-member bind; auth.seller-register.spec +2) |
+| schema tables | `organizations`, `organization_members`, `seller_applications`, `seller_documents`, `seller_reviews`, `seller_status_history` present; `sellers.organizationId`/`activatedAt` + expanded `SellerStatus` |
+| `POST /auth/seller-register` | 201 → SELLER user role=SELLER, seller **PENDING** w/ `SELL-XXXXXXXX`, org `organizationId` set, OWNER membership row |
+| REVIEWER RBAC negatives | REVIEWER token → **403** on `/seller/onboarding/me`, `/finance/payables`, `/finance/settlements`, `/seller/orders/:id/accept`, and `POST /seller-onboarding/sellers`; no token → 401 |
+| owner onboarding | `GET /seller/onboarding/me` 200; `PATCH /profile` (pan/address/agreedToTerms) 200 app DRAFT; `POST /documents` (storage-intent) → **PENDING**, no object store; `POST /submit` → app **SUBMITTED** |
+| staff review | REVIEWER `GET /seller-onboarding/applications` (list) 200; `GET .../:id` 200 (docs+reviews); `POST .../:id/review {APPROVE}` 201 → app **APPROVED** (`reviewedBy` set) |
+| activation | `POST /seller-onboarding/sellers/:id/activate` 201 → seller **ACTIVE** + `activatedAt` |
+| guards | re-review of closed (APPROVED) app → **409** "already closed"; owner `POST /submit` once ACTIVE → **409** "not editable" |
+| OPERATOR admin-create | `POST /seller-onboarding/sellers` (OPERATOR) → **201 ACTIVE** seller, commissionRateBps 250, org + `operatorCreated:true` (OWNER member) — after fixing the tx-scoped status-history FK 500 |
+| `git push origin main` | pushed `8930517` Session 14 to `main` (2026-09-08) |

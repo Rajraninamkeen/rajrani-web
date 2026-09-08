@@ -19,7 +19,7 @@
 | 00 | Project Initialization | COMPLETE | Repo/docs inspected, security audited, AI-PROGRESS created |
 | 01 | Backend Foundation | PARTIALLY_COMPLETE | `bilokat-api` scaffolded (NestJS+Prisma): config, PostgreSQL wiring + 2 migrations, health, response/error envelope, request-id, Identity+Catalog data model, unit tests — typecheck/build/migrate/tests all PASS. Remaining: feature modules in later sessions |
 | 02 | Authentication + Authorization | PARTIALLY_COMPLETE | Auth+RBAC foundation done (register/login/logout/me, JWT + rotating refresh in DB sessions, JwtAuthGuard, RolesGuard, @Roles/@CurrentUserId). ABAC/org/tenant/step-up deferred. Live API + unit tests passing |
-| 03 | Seller Onboarding | NOT_STARTED | (Catalog API built early out-of-order to serve landing page; see Catalog row) |
+| 03 | Seller Onboarding | PARTIALLY_COMPLETE | **Session 14**: backend onboarding/KYC + full additive Organization/OrganizationMember model + OWNER memberships + `REVIEWER` role + lifecycle (PENDING→UNDER_REVIEW→APPROVED→ACTIVE, correction loop, audit history) live under `/seller/onboarding` (owner) + `/seller-onboarding` (staff), plus public `POST /auth/seller-register`; document uploads are storage-intent only. Remaining: seller-web application, product listing/publishing, catalog-publishing approval UI. (Catalog API built early out-of-order to serve landing page; see Catalog row.) |
 | 04 | Catalog | PARTIALLY_COMPLETE | Public catalog read API live (/api/v1/catalog: categories, products w/ filters, detail) + seed (5 cats/8 prods) + display-field migration + tests. Attribute/variant/media mgmt & publishing UI deferred |
 | 05 | Catalog Publishing | NOT_STARTED | listings, approval/review, visibility, lifecycle |
 | 06 | Seller Platform | NOT_STARTED | seller apps for products/orders/inventory/returns |
@@ -49,7 +49,7 @@
 | Data model / DB migrations (Identity + Catalog + Commerce tables) | COMPLETE (7 migrations recorded incl. `commerce_models`, `cart_status_merged`; migrate deploy clean) |
 | Backend unit tests | COMPLETE (9 suites / 41 tests passing: exception filter, app, auth.service, roles.guard, catalog.service, cart.service, order.service, payment.service, cod.service) |
 | AuthN (sessions/tokens) | NOT_STARTED |
-| AuthZ (RBAC/ABAC, org/tenant isolation) | NOT_STARTED |
+| AuthZ (RBAC/ABAC, org/tenant isolation) | PARTIALLY_COMPLETE | RBAC done since Session 02 (RolesGuard + @Roles, now incl. REVIEWER in Session 14). Session 14 adds Organization/OrganizationMember (seller orgs, OWNER operator memberships) as the seed of org-aware authorization; resource scoping is still per-role + `users.sellerId` binding (SELLER→own seller), not full ABAC / general tenant isolation. |
 | Event/outbox infrastructure | NOT_STARTED |
 | Automated tests (any layer) | NOT_STARTED |
 | CI/CD | NOT_STARTED |

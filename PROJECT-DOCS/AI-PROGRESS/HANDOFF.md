@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 07 — Returns + refunds |
-| STATUS | COMPLETE (11 suites / 63 tests; live full PREPAID return→refund verified, audited, REFUND ledger) |
-| NEXT SESSION | Reviews, multi-seller/split-checkout, seller-ops, or real payment-gateway provider / settlements |
-| NEXT WORKFLOW | Product reviews (rating avg refresh); item-level/partial returns + pickup/inspection; a real gateway provider (razorpay/stripe via the pluggable provider) with live refunds; settlements/finance |
+| CURRENT SESSION | Session 14 — Seller onboarding/KYC + Organizations + REVIEWER role |
+| STATUS | COMPLETE (15 suites / 124 tests; migration applied + pushed to `main` `8930517`) |
+| NEXT SESSION | Session 15 — Per-slice delivery / courier handoff (owner-selected) |
+| NEXT WORKFLOW | Move delivery from order-level operator advance to a per-slice shipment/courier-handoff model with assignment + tracking and a delivery/assignment role; then replacement-vs-refund, reviews, real gateway remain |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It
