@@ -1439,3 +1439,36 @@ Increment landed this session (code + migration pushed):
   `MCK-…` waybill over real HTTP, replacement deliver captured `POD-MCK-…` and auto-completed
   (DELIVERED+POD+COMPLETED in DB), and the mock `/track` returned DELIVERED — all non-money. Session 30
   complete & pushed.
+
+---
+
+## Session 31 — courier tracking-read surface (customer/operator)
+- **Date:** 2026-09-08
+- **Objective:** Turn the Session 30 courier provider's live `track` into a customer/operator-facing
+  read surface so a user can see real courier status (slice parcel in transit, replacement delivered,
+  etc.) rather than only the stored waybill.
+- New additive, **read-only & NON-money** surface:
+  - `src/commerce/courier-tracking.service.ts` (`CourierTrackingService`) + `src/commerce/
+    courier-tracking.controller.ts` (`OrderCourierTrackingController`) → **`GET /orders/:id/tracking`**
+    (`@Roles(CUSTOMER, OPERATOR, ADMIN)`). It aggregates an order's courier legs — slice
+    `delivery_assignments` + `replacement_assignments` (both join by `orderId`), latest per
+    seller-slice/replacement, terminal (REJECTED/FAILED/CANCELLED) filtered — and calls the configured
+    `CourierProvider.track(trackingNumber)` **live** (best-effort) for each waybill, merged with the
+    locally-persisted leg state + POD. Legs with no waybill yet surface local state with
+    `provider: null`.
+  - Entitlement: order OWNER (CUSTOMER) or OPERATOR/ADMIN. Non-owner CUSTOMER → **404** (no leak),
+    any other role (SELLER/DELIVERY/…) → **403**.
+  - Registered/exported in `commerce.module.ts`. `CourierProvider` injected `@Optional` (unit-test seam).
+- Tests: `courier-tracking.service.spec.ts` (**8**) → **23 suites / 222 tests**; typecheck + `nest build`
+  clean. No migration (Session 30 tracking columns already present; still 25).
+- Connected UI: `customer-storefront/src/views/OrderView.jsx` fetches `orderApi.tracking(id)` and renders
+  a **"Track delivery"** timeline (per-leg live provider events + POD); `api.js` + `styles.css` updated;
+  Vite build clean.
+- Live E2E `/tmp/s31_tracking_e2e.mjs` (**14/14**) against an HTTP-provider API (`:4700`,
+  `COURIER_PROVIDER=http`, `COURIER_BASE_URL=http://localhost:9600`) + courier-protocol mock: order
+  `BK-MTS7EXB5` parcel `DLVA-08BA1C54` (PICKED_UP, `MCK-F79C7047`) → live provider `OUT_FOR_DELIVERY`;
+  order `BK-MTS7EXII` replacement `RDLA-996C06BF` (DELIVERED, `POD-MCK-84F6EF3E`) → live provider
+  `DELIVERED`; OPERATOR 200, non-owner CUSTOMER 404, DELIVERY role 403, unknown order 404. Storefront run
+  against that API surfaced the parcel leg + live status through the proxy. Canonical `:4600` (sandbox)
+  restarted onto the new build so the endpoint is served there too.
+- Session 31 complete & pushed.

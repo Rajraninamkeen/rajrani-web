@@ -541,3 +541,20 @@ real-HTTP provider against a local courier-protocol mock. Money untouched (selle
 | HTTP-provider live (`/tmp/s30_http_e2e.mjs`, API `:4700` with `COURIER_PROVIDER=http COURIER_BASE_URL=http://localhost:9600`, **8/8 ok**) | slice pickup books `MCK-F79C7047` (`Mock Courier`); replacement pickup books `MCK-84F6EF3E`; out-for-delivery → deliver captures `POD-MCK-84F6EF3E`; mock `/_state` + `/track` DELIVERED; DB shows replacement DELIVERED+POD+COMPLETED, slice parcel PICKED_UP w/ MCK waybill |
 | non-money | no seller payable/Refund touched by the HTTP-courier steps (slice left PICKED_UP; replacement delivery is the non-money leg) |
 | `git push origin main` | Session 30 increment pushed (see git log; `d2fb8b7` + follow-up) |
+
+## Session 31 — 2026-09-08 (courier tracking-read surface, live)
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| `npm run typecheck` | exit 0 |
+| `npm run build` | exit 0 (dist updated) |
+| `npx jest` | **23 suites / 222 tests passed** (added `courier-tracking.service.spec.ts`, 8) |
+| `git status` | new `src/commerce/courier-tracking.{service,controller}.ts` + spec; edited `commerce.module.ts`; storefront `api.js/styles.css/OrderView.jsx` |
+| Live stack | courier-protocol mock `node scripts/courier-mock.mjs` (:9600); API `PORT=4700 COURIER_PROVIDER=http COURIER_BASE_URL=http://localhost:9600 COURIER_CARRIER='Mock Courier' COURIER_API_KEY=dummy-key node dist/main.js`; storefront `API_TARGET=http://localhost:4700 npm run dev` (:5180) |
+| Mock seed | `POST /v1/shipments {ref:DLVA-08BA1C54,kind:parcel}` → `MCK-F79C7047`; `POST /v1/shipments {ref:RDLA-996C06BF,kind:replacement}` → `MCK-84F6EF3E`; `POST /v1/shipments/MCK-84F6EF3E/pod` → `POD-MCK-84F6EF3E` |
+| Live E2E `/tmp/s31_tracking_e2e.mjs` | **14/14 ok**: owner `GET /orders/BK-MTS7EXB5/tracking` → parcel leg `DLVA-08BA1C54` PICKED_UP `MCK-F79C7047` with live provider `OUT_FOR_DELIVERY` (3 events, no podRef); owner `GET /orders/BK-MTS7EXII/tracking` → replacement leg `RDLA-996C06BF` DELIVERED `POD-MCK-84F6EF3E` with live provider `DELIVERED` (4 events); OPERATOR 200; non-owner CUSTOMER 404; DELIVERY role 403; unknown order 404 |
+| Storefront proxy | `GET http://localhost:5180/api/v1/orders/<BK-MTS7EXB5>/tracking` (owner bearer) → `orderNumber BK-MTS7EXB5`, parcel `PICKED_UP MCK-F79C7047`, provider `OUT_FOR_DELIVERY` (200 through the Vite proxy) |
+| `curl :5180/` | 200 (app HTML served) |
+| Canonical API | restarted `:4600` (`node dist/main.js`, sandbox default) onto the S31 build → `Mapped {/api/v1/orders/:id/tracking, GET}` |
+| Money invariant | tracking read only; no Refund / payable / ledger touched (DB state unchanged beyond the throwaway registered customer) |

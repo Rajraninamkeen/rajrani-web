@@ -94,3 +94,22 @@ integration.
 | Courier mock | COMPLETE | `scripts/courier-mock.mjs` (local courier-protocol HTTP server, `/_state` inspection) |
 | Per-slice payout | DEFERRED (owner) | seller earn stays order-level; courier per-slice payout is a future money session |
 | Pushed | COMPLETE | Session 30 at `origin/main` (see git log) |
+
+---
+
+## Session 31 status — courier tracking-read surface (customer/operator) (2026-09-08)
+
+Workstream: per-slice courier delivery + courier last-mile replacement delivery → external courier-provider
+integration → live tracking read.
+
+| Item | Status | Notes |
+|---|---|---|
+| Backend read surface | COMPLETE/VERIFIED | `GET /orders/:id/tracking` (`CourierTrackingService`/`OrderCourierTrackingController`); aggregates an order's courier legs (slice `delivery_assignments` + `replacement_assignments`, latest per slice/replacement, terminal filtered) and calls `CourierProvider.track` LIVE per waybill, merged with local leg state + POD; read-only NON-money |
+| Entitlement | COMPLETE/VERIFIED | order OWNER (CUSTOMER) or OPERATOR/ADMIN; non-owner CUSTOMER 404 (no leak), other roles 403; `@Roles(CUSTOMER, OPERATOR, ADMIN)` |
+| Unit tests | COMPLETE | `courier-tracking.service.spec.ts` (8) → 23 suites / 222 tests green; typecheck + build clean |
+| Connected UI | COMPLETE/VERIFIED | `customer-storefront` OrderView "Track delivery" timeline (live provider events + POD); `api.js`/`styles.css`; Vite build clean |
+| Live E2E | COMPLETE/VERIFIED | `/tmp/s31_tracking_e2e.mjs` 14/14 vs HTTP-provider API + courier-protocol mock: parcel PICKED_UP `MCK-…` → live `OUT_FOR_DELIVERY`; replacement DELIVERED `POD-MCK-…` → live `DELIVERED`; RBAC 404/403 probed |
+| Storefront proxy | COMPLETE/VERIFIED | `http://localhost:5180/api/v1/orders/…/tracking` returned parcel leg + live status through the Vite proxy |
+| Migration | COMPLETE (none) | all tracking columns already shipped in S30 `courier_tracking`; 25 migrations unchanged |
+| Per-slice payout | DEFERRED (owner) | the money leg stays future work; seller earn remains order-level |
+| Pushed | COMPLETE | Session 31 at `origin/main` (see git log) |

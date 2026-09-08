@@ -114,6 +114,7 @@ export const orderApi = {
   codStatus: (id) => api('GET', `/orders/${id}/cod`),
   codSendOtp: (id, secondaryContact) => api('POST', `/orders/${id}/cod/otp`, { body: { secondaryContact } }),
   codVerify: (id, code) => api('POST', `/orders/${id}/cod/verify`, { body: { code } }),
+  tracking: (id) => api('GET', `/orders/${id}/tracking`),
 };
 
 // DEV-ONLY: simulate the sandbox gateway capture for a PREPAID order. Backend

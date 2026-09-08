@@ -26,6 +26,8 @@ import { PAYMENT_GATEWAY_PROVIDER } from './gateway/gateway.provider';
 import { COURIER_PROVIDER_TOKEN } from './courier/courier.provider';
 import { ReplacementCourierAdminController, ReplacementCourierPartnerController } from './replacement-courier.controller';
 import { ReplacementCourierService } from './replacement-courier.service';
+import { CourierTrackingService } from './courier-tracking.service';
+import { OrderCourierTrackingController } from './courier-tracking.controller';
 
 @Module({
   imports: [AuthModule], // for JwtModule (guards sign/verify) + exported guards
@@ -47,6 +49,7 @@ import { ReplacementCourierService } from './replacement-courier.service';
     DeliveryPartnerController,
     ReplacementCourierAdminController,
     ReplacementCourierPartnerController,
+    OrderCourierTrackingController,
   ],
   providers: [
     CartService,
@@ -59,9 +62,10 @@ import { ReplacementCourierService } from './replacement-courier.service';
     SettlementService,
     DeliveryService,
     ReplacementCourierService,
+    CourierTrackingService,
     PAYMENT_GATEWAY_PROVIDER,
     COURIER_PROVIDER_TOKEN,
   ],
-  exports: [PaymentService, CodService, OrderService, DeliveryService, ReplacementCourierService, PAYMENT_GATEWAY_PROVIDER, COURIER_PROVIDER_TOKEN],
+  exports: [PaymentService, CodService, OrderService, DeliveryService, ReplacementCourierService, CourierTrackingService, PAYMENT_GATEWAY_PROVIDER, COURIER_PROVIDER_TOKEN],
 })
 export class CommerceModule {}

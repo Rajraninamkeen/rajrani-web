@@ -10,6 +10,7 @@ export default function OrderView({ id, notify }) {
   const [busy, setBusy] = useState(false);
   const [payment, setPayment] = useState(null);
   const [cod, setCod] = useState(null);
+  const [tracking, setTracking] = useState(null);
 
   const load = async () => {
     const o = await orderApi.get(id);
@@ -19,6 +20,8 @@ export default function OrderView({ id, notify }) {
     } else {
       orderApi.codStatus(id).then(setCod).catch(() => {});
     }
+    // Session 31: live courier tracking (slice parcels + replacement dispatches).
+    orderApi.tracking(id).then(setTracking).catch(() => setTracking(null));
   };
   useEffect(() => {
     setErr('');
@@ -50,6 +53,10 @@ export default function OrderView({ id, notify }) {
         <div className="alert ok">Payment confirmed — your prepaid order is captured ({money(payment.amount)}).</div>
       )}
       {order.paymentMethod === 'COD' && <CodSection order={order} cod={cod} notify={notify} onStatus={setCod} />}
+
+      {tracking && Array.isArray(tracking.legs) && tracking.legs.length > 0 && (
+        <CourierTracking tracking={tracking} />
+      )}
 
       <section className="panel">
         <h3>Items</h3>
@@ -154,5 +161,63 @@ function CodSection({ order, cod, notify, onStatus }) {
         </>
       )}
     </section>
+  );
+}
+
+// Session 31 — live courier tracking for an order's courier legs (slice parcels +
+// replacement dispatches), from the courier-provider `track` read merged with the
+// locally-persisted leg state.
+const LEG_STATUS_LABEL = {
+  ASSIGNED: 'Courier assigned', ACCEPTED: 'Accepted by courier', PICKED_UP: 'Picked up',
+  OUT_FOR_DELIVERY: 'Out for delivery', DELIVERED: 'Delivered', REJECTED: 'Rejected',
+  FAILED: 'Delivery failed', CANCELLED: 'Cancelled',
+};
+const PROVIDER_STATUS_LABEL = {
+  CREATED: 'Shipment created', IN_TRANSIT: 'In transit', OUT_FOR_DELIVERY: 'Out for delivery',
+  DELIVERED: 'Delivered', FAILED: 'Delivery issue',
+};
+const stepColor = (s) => (s === 'DELIVERED' ? 'ok' : s === 'OUT_FOR_DELIVERY' || s === 'IN_TRANSIT' ? 'act' : '');
+
+function CourierTracking({ tracking }) {
+  return (
+    <section className="panel">
+      <h3>Track delivery</h3>
+      {tracking.legs.map((leg) => <TrackingLeg key={leg.assignmentId} leg={leg} />)}
+    </section>
+  );
+}
+
+function TrackingLeg({ leg }) {
+  const currentStatus = leg.provider?.status || leg.status;
+  const events = leg.provider?.events?.length
+    ? leg.provider.events
+    : leg.trackingNumber
+      ? [{ status: currentStatus, at: leg.outForDeliveryAt || leg.pickedUpAt || leg.assignedAt, note: null }]
+      : [{ status: currentStatus, at: leg.assignedAt, note: 'Courier not yet dispatched to provider' }];
+  const label = PROVIDER_STATUS_LABEL[leg.provider?.status] || LEG_STATUS_LABEL[leg.status] || leg.status;
+  return (
+    <div className="track-leg">
+      <div className="track-head">
+        <span className="pill st">{leg.legType === 'replacement' ? 'Replacement' : 'Parcel'}</span>
+        <b>{leg.title}</b>
+        {leg.reference && <span className="muted">#{leg.reference}</span>}
+      </div>
+      {leg.carrier && <p className="muted">Carrier: <b>{leg.carrier}</b>{leg.trackingNumber && <> · {leg.trackingNumber}</>}</p>}
+      <div className="track-timeline">
+        {events.map((ev, i) => (
+          <div key={i} className={`track-step ${stepColor(ev.status)}`}>
+            <div className="dot" />
+            <div>
+              <div className="track-status">{PROVIDER_STATUS_LABEL[ev.status] || LEG_STATUS_LABEL[ev.status] || ev.status}</div>
+              <div className="muted small">{ev.at ? new Date(ev.at).toLocaleString() : ''}{ev.note ? ` — ${ev.note}` : ''}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {leg.status === 'DELIVERED' && leg.podRef && (
+        <p className="small ok-line">✓ Delivered · POD {leg.podRef}{leg.podSignedBy ? ` (signed ${leg.podSignedBy})` : ''}</p>
+      )}
+      {leg.failureReason && <p className="alert err">{leg.failureReason}</p>}
+    </div>
   );
 }

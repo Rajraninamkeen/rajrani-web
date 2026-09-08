@@ -1,7 +1,7 @@
 # HANDOFF — BILOKAT
 
-> **NOTE (updated at Session 30 close, 2026-09-08):** The table below dates from the
-> Session 19 handoff. Sessions 20–30 have since shipped and been pushed. **`CURRENT-STATE.md`
+> **NOTE (updated at Session 31 close, 2026-09-08):** The table below dates from the
+> Session 19 handoff. Sessions 20–31 have since shipped and been pushed. **`CURRENT-STATE.md`
 > is the authoritative live snapshot** — please read that (and `SESSION-LOG.md` for session
 > details) rather than this stale header. In short: Sessions 23–29 built a connected,
 > role-aware React/Vite **catalog console** (`catalog-console/`) — SELLER authoring +
@@ -11,15 +11,18 @@
 > Session 30 added a **pluggable courier-provider seam** (sandbox default + real REST http,
 > Razorpay-style) recording **tracking (pickup books a waybill) + POD (deliver)**, verified live
 > over sandbox and against a local courier-protocol mock (`scripts/courier-mock.mjs`).
+> Session 31 added a **customer/operator courier tracking-read surface** (`GET /orders/:id/tracking`
+> calling the courier provider `track` live per leg) with a "Track delivery" timeline in the
+> customer storefront order detail.
 
 For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 30 — pluggable courier-provider integration (tracking + POD) |
-| STATUS | COMPLETE & **PUSHED** (see git log / `origin/main`); provider seam + migration + tracking/POD wiring; verified live over sandbox AND real-HTTP against `scripts/courier-mock.mjs`; 22 suites / 214 tests; typecheck + build clean |
-| NEXT SESSION | Session 31 (owner-chosen). Sessions 23–30 done & pushed |
-| NEXT WORKFLOW | A customer/operator tracking-read surface over the new courier `track`; per-slice courier payout (the money leg — deferred from S30); or another owner-chosen priority |
+| CURRENT SESSION | Session 31 — courier tracking-read surface (customer/operator) |
+| STATUS | COMPLETE & **PUSHED** (see git log / `origin/main`); `GET /orders/:id/tracking` aggregates an order's courier legs (slice parcels + replacement dispatches) and calls the configured `CourierProvider.track` LIVE per waybill (merged with local leg state + POD); owner CUSTOMER or OPERATOR/ADMIN may read (cross-owner 404 / wrong role 403); read-only NON-money; 23 suites / 222 tests; typecheck + build clean; 14/14 live HTTP-provider E2E; connected storefront "Track delivery" UI |
+| NEXT SESSION | Session 32 (owner-chosen). Sessions 23–31 done & pushed |
+| NEXT WORKFLOW | Per-slice courier payout (the money leg — deferred from S30/31); surfacing live courier status/tracking in the OPERATOR Operations + DELIVERY consoles; or another owner-chosen priority |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It
@@ -327,3 +330,59 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
   delivery pricing/zones, review- or catalog-publishing/seller storefront UIs.
 - Natural next items: **review/rating storefront UI**, **catalog-publishing/seller UIs**, or another
   owner-chosen feature.
+
+## SESSION 31 HANDOFF NOTES (customer/operator courier tracking-read surface)
+- **What was added (additive, read-only, NON-money):** `src/commerce/courier-tracking.service.ts`
+  (`CourierTrackingService`) + `src/commerce/courier-tracking.controller.ts`
+  (`OrderCourierTrackingController`) → **`GET /orders/:id/tracking`** (`@Roles(CUSTOMER, OPERATOR,
+  ADMIN)`). It does NOT book a shipment / confirm delivery / touch any Refund or ledger — it only
+  *reads* live courier status.
+- **Aggregation:** for an order it pulls slice `delivery_assignments` + `replacement_assignments`
+  (both join the order by `orderId`), keeps the **latest assignment per seller-slice and per
+  replacement** (so reassign history is collapsed), drops terminal pre-usage statuses
+  (REJECTED/FAILED/CANCELLED) as the current leg, and for each surviving leg calls
+  `CourierProvider.track(trackingNumber)` **live** (best-effort) when a waybill exists, merging the
+  provider result with the locally-persisted leg fields + POD. A waybill-less (not-yet-picked-up) leg
+  returns `provider: null` with local `ASSIGNED/ACCEPTED` state; a provider outage likewise degrades to
+  local state only (never throws).
+- **Response shape:** `{ orderId, orderNumber, legs: [ { legType: 'parcel'|'replacement', title,
+  reference, assignmentId, assignmentNumber, status(local), carrier, trackingNumber, trackingUrl,
+  assignedAt…podAt timestamps, failureReason, podRef, podSignedBy, podAt,
+  provider: { carrier, status, events:[{status,at,note}] } | null } ] }`. Session 30's
+  `CourierTrackingStatus` (CREATED/IN_TRANSIT/OUT_FOR_DELIVERY/DELIVERED/FAILED) is the provider
+  vocabulary; `events` is the provider event timeline for the frontend to render as steps.
+- **Entitlement (keep):** the service reads the caller's `role` from the DB. `CUSTOMER` is scoped to
+  their own order (a non-owner gets **404** to avoid existence leaks, matching `OrderService.getOrder`);
+  `OPERATOR/ADMIN` read any order. Any other role (SELLER/DELIVERY/…) → **403**. The `@Roles` guard
+  already excludes non-trackable roles before the service runs.
+- **DI/optionality:** `CourierTrackingService` injects the `COURIER_PROVIDER` token as
+  `@Optional()` so historical unit-test constructors (`new CourierTrackingService(prisma)`) stay green;
+  a missing provider just yields `provider: null` legs. Register it in `commerce.module.ts`
+  (controllers + providers + exports).
+- **Connected UI:** `customer-storefront/src/views/OrderView.jsx` fetches `orderApi.tracking(id)` on
+  load and renders a **"Track delivery"** panel (`CourierTracking`/`TrackingLeg`) — one leg per courier
+  movement with a live provider event timeline (green = DELIVERED, amber = OUT_FOR_DELIVERY/IN_TRANSIT)
+  + POD line. Styles in `styles.css` (`.track-leg/.track-timeline/.track-step/…`). Added `tracking` to
+  `api.js` `orderApi`. Vite build clean.
+- **Tests/E2E:** `src/commerce/courier-tracking.service.spec.ts` (**8 tests**: role forbid, owner-scope
+  404, owner live-merge, operator-any, terminal/duplicate filtering, waybill-less `provider:null`,
+  no-provider resolves local, missing order 404) → **23 suites / 222 tests**. Live E2E
+  `/tmp/s31_tracking_e2e.mjs` (**14/14**) ran against an HTTP-provider API (`PORT=4700
+  COURIER_PROVIDER=http COURIER_BASE_URL=http://localhost:9600 …` after `npm run build`) + the
+  courier-protocol mock: order `BK-MTS7EXB5` parcel `DLVA-08BA1C54` (`PICKED_UP`, `MCK-F79C7047`) →
+  live provider `OUT_FOR_DELIVERY`; order `BK-MTS7EXII` replacement `RDLA-996C06BF`
+  (`DELIVERED`, `POD-MCK-84F6EF3E`) → live provider `DELIVERED`; OPERATOR 200, non-owner CUSTOMER 404,
+  DELIVERY role 403, unknown order 404. The storefront was run against that API (`customer-storefront/`,
+  `API_TARGET=http://localhost:4700`) and the proxy `/api/v1/orders/<BK-MTS7EXB5>/tracking` returned the
+  parcel leg + `provider.status=OUT_FOR_DELIVERY` through the browser path.
+- **Note on sandbox vs http:** the default Sandbox provider's `track` returns a **canned** DELIVERED
+  timeline (no memory), so a live-looking "in progress" demo needs `COURIER_PROVIDER=http` against the
+  stateful mock `scripts/courier-mock.mjs` (seed its `/v1/shipments` for the waybills whose DB rows
+  already exist). Do not rely on sandbox `track` for accurate mid-journey status.
+- **Migration discipline:** none this session (all courier tracking columns already shipped in Session
+  30's `20260908190000_courier_tracking`). 25 migrations total unchanged.
+- **Not in scope (add only in a new session):** per-slice courier payout (the deferred money leg),
+  surfacing live courier status inside the OPERATOR Operations / DELIVERY consoles, tracking on a
+  seller-scoped slice view, push/email/SMS tracking notifications.
+- Natural next items: **per-slice courier payout** (money leg — seller earn currently stays order-level),
+  or surfacing the live courier `track` in the back-office consoles.

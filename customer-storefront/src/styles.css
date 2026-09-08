@@ -261,3 +261,18 @@ main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 8px 18p
 .cod-form, .cod-verify { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
 .cod-form .input { margin: 0; }
 @media (max-width: 780px) { .cart-layout, .checkout-layout { grid-template-columns: 1fr; } .summary { position: static; } }
+
+/* Session 31 — courier tracking timeline */
+.track-leg { border-top: 1px solid #eee; padding: 14px 0; }
+.track-leg:first-of-type { border-top: none; padding-top: 2px; }
+.track-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.track-timeline { margin: 10px 0 2px; }
+.track-step { display: flex; gap: 10px; align-items: flex-start; padding: 5px 0; color: #98a2b3; }
+.track-step .dot { width: 10px; height: 10px; border-radius: 50%; background: #d0d5dd; margin-top: 4px; flex: 0 0 auto; }
+.track-step.act .dot { background: #f59e0b; box-shadow: 0 0 0 3px #fef3c7; }
+.track-step.ok .dot { background: #16a34a; box-shadow: 0 0 0 3px #dcfce7; }
+.track-step.ok { color: #16a34a; }
+.track-step .track-status { font-weight: 600; color: #111827; }
+.track-step:not(.ok):not(.act) .track-status { color: #475467; }
+.small { font-size: 12px; }
+.ok-line { color: #16a34a; font-weight: 600; margin-top: 6px; }
