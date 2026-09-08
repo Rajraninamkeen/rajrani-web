@@ -585,3 +585,14 @@ Run from repo root after `npm run build`.
 | Security headers (live `:4600`) | public catalog `GET` returns `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`, `X-XSS-Protection: 0`; **no** `X-Powered-By` |
 | Rate limiting (live `:4600`) | `POST /auth/login` ×10 → `401`×8 then `429`×2 (limit 8/min); uniform 401s confirm no user enumeration |
 | `git push origin main` | Session 33 feature + docs committed and pushed (see git log) |
+
+### Session 34 — back-office Finance console
+
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| `catalog-console` `npm run build` | clean |
+| Live E2E `scripts/e2e-finance.mjs` (sandbox API `:4600`, **32/32 ok**) | RBAC negatives (CUSTOMER/SELLER/DELIVERY → 403 on `/finance/*` + courier-payout staff routes); OPERATOR read shapes (reconciliation checked/discrepancyCount/ok, report perSeller+totals, payout summary currency+partners); throwaway money round-trip → courier parcel deliver **EARNED ₹35** + seller payable EARNED → payout summary lists partner pending → **settle** `{settled:1,totalAmount:35}` → row **SETTLED** (settledAt) → seller **settlement create** (PENDING) → illegal `PENDING→PAID` **409** → `PENDING→APPROVED` → appears in the list read; script **self-cleans** every row and asserts `cp=0,sp=0,st=0` |
+| Console proxy `:5173` | OPERATOR login + `/finance/reconciliation/summary` + `/delivery/payouts/summary` read return the shapes the FinanceOps tab renders |
+| `git push origin main` | Session 34 feature + docs committed and pushed (see git log) |

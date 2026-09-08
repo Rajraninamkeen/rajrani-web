@@ -94,6 +94,30 @@ export const opsApi = {
   replacementCancel: (id, reason) => api('POST', `/return-requests/${id}/replacement/cancel`, { body: { reason } }),
 };
 
+// Session 34 — back-office Finance (OPERATOR/ADMIN): courier payouts + seller ledger
+// over the existing /delivery/payouts and /finance routes (Sessions 12/13/32).
+export const payoutApi = {
+  all: (params) => api('GET', '/delivery/payouts/all' + qs(params)),
+  summary: () => api('GET', '/delivery/payouts/summary'),
+  settle: (deliveryPartnerId) => api('POST', '/delivery/payouts/settle', { body: { deliveryPartnerId } }),
+};
+export const financeApi = {
+  payables: (params) => api('GET', '/finance/payables' + qs(params)),
+  payable: (id) => api('GET', `/finance/payables/${id}`),
+  adjust: (id, amount, reason) => api('POST', `/finance/payables/${id}/adjustments`, { body: { amount, reason } }),
+  settlements: (params) => api('GET', '/finance/settlements' + qs(params)),
+  settlement: (id) => api('GET', `/finance/settlements/${id}`),
+  createSettlement: (sellerId, payableIds, reason) => api('POST', '/finance/settlements', { body: { sellerId, payableIds, reason } }),
+  advance: (id, toStatus, reason) => api('POST', `/finance/settlements/${id}/advance`, { body: { toStatus, reason } }),
+  reconciliation: () => api('GET', '/finance/reconciliation/summary'),
+  report: (params) => api('GET', '/finance/report/totals' + qs(params)),
+};
+
+function qs(params = {}) {
+  const p = Object.entries(params).filter(([, v]) => v !== undefined && v !== '' && v !== null);
+  return p.length ? '?' + p.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&') : '';
+}
+
 // Session 29 — DELIVERY courier task surface (DELIVERY role): slice parcels + replacements.
 export const deliveryApi = {
   tasks: () => api('GET', '/delivery/tasks'),

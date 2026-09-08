@@ -1562,3 +1562,46 @@ Increment landed this session (code + migration pushed):
   Hitting `POST /auth/login` with bogus credentials 10× returned `401`×8 then `429`×2 — the
   limiter (8/min) blocks the excess, and the uniform 401s confirm no user enumeration.
 - Session 33 complete & pushed.
+
+## Session 34 — Back-office Finance console (courier payout + seller ledger)
+
+- **Date:** 2026-09-08
+- **Objective (owner-chosen via ask_user):** a Finance/back-office payout console bringing courier-payout
+  settlement and seller payout/settlement views together for back-office staff. Frontend-only — it consumes
+  the existing OPERATOR/ADMIN routes from Sessions 12/13/32 (`/delivery/payouts/*`, `/finance/*`), which
+  already enforce RBAC, so no backend change was needed.
+- **Delivered in `catalog-console/`:**
+  - `src/api.js` — new `payoutApi` (`all`, `summary`, `settle`) + `financeApi` (`payables`, `payable`,
+    `adjust`, `settlements`, `settlement`, `createSettlement`, `advance`, `reconciliation`, `report`) and a
+    small `qs()` helper.
+  - `src/views/FinanceOps.jsx` (NEW) — an OPERATOR/ADMIN "Finance" tab with four sub-sections:
+    - **Overview & Reconciliation** — reconciliation card (ok / discrepancy count / delivered-orders checked)
+      + the per-seller finance report (`/finance/report/totals`) as a table with grand totals; lists any
+      reconciliation discrepancies.
+    - **Courier Payouts** (`/delivery/payouts/{summary,all,settle}`) — pending/paid KPIs; a "settle a
+      partner" list (per-partner pending amount + count) with a **Settle** button driving
+      `POST /delivery/payouts/settle` (EARNED→SETTLED), and a status-filtered courier-payout ledger table.
+    - **Seller Payables** (`/finance/payables`) — status filter, expandable rows showing the full
+      breakdown + append-only adjustment ledger, and (on EARNED) an inline signed **adjustment** form
+      (`POST /finance/payables/:id/adjustments`).
+    - **Seller Settlements** (`/finance/settlements`) — a **create-settlement** picker (group EARNED payables
+      by seller, multi-select) driving `POST /finance/settlements`, plus the settlement ledger with an
+      **advance** control that only offers the legal next statuses (mirrors the backend `SETTLEMENT_NEXT`;
+      requires a reason for FAILED) hitting `POST /finance/settlements/:id/advance`.
+  - `src/App.jsx` — added the staff "Finance" tab (renders `FinanceOps`). `npm run build` clean.
+- **Tests:** no new backend code/tests (UI + an E2E script only). `npm run typecheck`/`nest build`/`npx
+  jest` unaffected (still 26 suites / 238 tests). Added `scripts/e2e-finance.mjs` (a committed live E2E
+  driver like the other e2e-*.mjs scripts).
+- **Live verification (`scripts/e2e-finance.mjs`, 32/32, sandbox API `:4600`):** RBAC negatives on the whole
+  Finance surface (CUSTOMER/SELLER/DELIVERY → 403 on `/finance/*` and the courier-payout staff routes);
+  OPERATOR read shapes (reconciliation `checked/discrepancyCount/ok`, report `perSeller+totals`, payout
+  `summary` currency+partners); then a **throwaway money round-trip** — fresh PREPAID order → sandbox
+  capture → seller accept + operator SHIPPED → slice courier assign/accept/pickup/out-for-delivery/deliver →
+  courier payout **EARNED ₹35** + seller payable EARNED; payout summary lists the partner pending; OPERATOR
+  **settle** → `{settled:1,totalAmount:35}` and the row moves to **SETTLED** (settledAt); then a seller
+  **settlement create** (PENDING) with the illegal `PENDING→PAID` **409** guard and `PENDING→APPROVED`
+  advance, and it appears in the list read. The script **self-cleans** every created row (courier_payouts /
+  seller_payables / settlement / assignment / payment / order / buyer + stock restored) and asserts the DB is
+  clean (`cp=0,sp=0,st=0`). Also verified through the console Vite proxy (`:5173`): OPERATOR login + a
+  `/finance/reconciliation/summary` and `/delivery/payouts/summary` read return the shapes the tab renders.
+- Session 34 complete & pushed.

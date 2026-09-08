@@ -7,6 +7,7 @@ import StaffReview from './views/StaffReview.jsx';
 import StaffReviews from './views/StaffReviews.jsx';
 import OperatorDashboard from './views/OperatorDashboard.jsx';
 import CourierTasks from './views/CourierTasks.jsx';
+import FinanceOps from './views/FinanceOps.jsx';
 
 // Role-based access: which console sections a signed-in role may open.
 const STAFF = new Set(['OPERATOR', 'ADMIN']);
@@ -66,7 +67,7 @@ export default function App() {
         : tab;
   const tabs = [
     ...(allowed.seller ? [{ id: 'catalog', label: 'My Catalog' }, { id: 'dashboard', label: 'Sales & Payouts' }] : []),
-    ...(allowed.staff ? [{ id: 'ops', label: 'Operations' }, { id: 'review', label: 'Publishing Review' }, { id: 'reviews', label: 'Review Moderation' }] : []),
+    ...(allowed.staff ? [{ id: 'ops', label: 'Operations' }, { id: 'finance', label: 'Finance' }, { id: 'review', label: 'Publishing Review' }, { id: 'reviews', label: 'Review Moderation' }] : []),
     ...(allowed.courier ? [{ id: 'courier', label: 'My Deliveries' }] : []),
   ];
 
@@ -92,6 +93,7 @@ export default function App() {
         {allowed.seller && effectiveTab === 'catalog' && <SellerCatalog notify={notify} />}
         {allowed.seller && effectiveTab === 'dashboard' && <SellerDashboard notify={notify} />}
         {allowed.staff && effectiveTab === 'ops' && <OperatorDashboard notify={notify} />}
+        {allowed.staff && effectiveTab === 'finance' && <FinanceOps notify={notify} />}
         {allowed.staff && effectiveTab === 'review' && <StaffReview notify={notify} />}
         {allowed.staff && effectiveTab === 'reviews' && <StaffReviews notify={notify} />}
         {allowed.courier && effectiveTab === 'courier' && <CourierTasks notify={notify} />}
