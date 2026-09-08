@@ -572,3 +572,16 @@ Run from repo root after `npm run build`.
 | Money cleaned | `courier_payouts` = 0 after E2E cleanup; E2E orders (`BK-MTS934VE`, `BK-MTS93XIA`, `BK-MTS96F5C`, `BK-MTS9AHAS`) + their seller payables/assignments deleted; S29/S30 demo orders (`BK-MTS7EXB5`, `BK-MTS7EXII`) + their 1 payable / 1 slice assignment / replacement assignment left intact |
 | Seller-earn invariant | order-level seller payable path unchanged; only new courier payouts accrue on delivery |
 | `git push origin main` | Session 32 feature + docs committed and pushed (see git log) |
+
+### Session 33 — baseline security hardening
+
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run build` | clean |
+| `npx jest` | **26 suites / 238 tests passed** (added `throttle.guard.spec.ts` + `security-headers.middleware.spec.ts`, +5) |
+| Security headers (live `:4600`) | public catalog `GET` returns `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`, `X-XSS-Protection: 0`; **no** `X-Powered-By` |
+| Rate limiting (live `:4600`) | `POST /auth/login` ×10 → `401`×8 then `429`×2 (limit 8/min); uniform 401s confirm no user enumeration |
+| `git push origin main` | Session 33 feature + docs committed and pushed (see git log) |

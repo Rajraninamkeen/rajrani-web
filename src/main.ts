@@ -5,6 +5,7 @@ import { AppModule } from './app.module';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware';
+import { securityHeadersMiddleware } from './common/middleware/security-headers.middleware';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: false, rawBody: true });
@@ -15,6 +16,11 @@ async function bootstrap(): Promise<void> {
 
   // Request id / correlation id on every request
   app.use(requestIdMiddleware);
+
+  // Baseline security headers + hide the framework (Security Spec §22).
+  app.use(securityHeadersMiddleware);
+  // Do not advertise the web framework.
+  (app.getHttpAdapter().getInstance() as { disable?: (k: string) => void }).disable?.('x-powered-by');
 
   app.enableCors({
     origin: config.get<string[]>('corsOrigins'),
@@ -32,9 +38,6 @@ async function bootstrap(): Promise<void> {
 
   app.useGlobalInterceptors(new TransformInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter());
-
-  // Trust proxy for secure headers behind a reverse proxy
-  (app.getHttpAdapter().getInstance() as { set?: (k: string, v: string) => void }).set?.('X-Content-Type-Options', 'nosniff');
 
   const port = config.get<number>('port') ?? 4000;
   await app.listen(port, '0.0.0.0');

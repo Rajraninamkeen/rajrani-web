@@ -4,27 +4,37 @@ import { LoginDto, RefreshDto, RegisterDto, SellerRegisterDto } from './dto/auth
 import { LogoutDto } from './dto/logout.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUserId } from './decorators/current-user.decorator';
+import { Throttle } from '../common/throttle/throttle.decorator';
+import { ThrottleGuard } from '../common/throttle/throttle.guard';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  @UseGuards(ThrottleGuard)
+  @Throttle(10, 3600) // account creation: 10/hour per IP
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
 
+  @UseGuards(ThrottleGuard)
+  @Throttle(10, 3600) // account creation: 10/hour per IP
   @Post('seller-register')
   sellerRegister(@Body() dto: SellerRegisterDto) {
     return this.auth.sellerRegister(dto);
   }
 
+  @UseGuards(ThrottleGuard)
+  @Throttle(8, 60) // brute-force protection on login
   @HttpCode(HttpStatus.OK)
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
   }
 
+  @UseGuards(ThrottleGuard)
+  @Throttle(60, 60) // token refresh is legitimate but still bounded
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   refresh(@Body() dto: RefreshDto) {

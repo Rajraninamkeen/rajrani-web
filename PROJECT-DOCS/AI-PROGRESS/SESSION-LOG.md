@@ -1517,3 +1517,48 @@ Increment landed this session (code + migration pushed):
   `SETTLED` with `settledAt`; RBAC 403s both directions. Money fully cleaned afterwards (`courier_payouts=0`;
   E2E orders + their seller payables deleted; S29/S30 demo orders untouched).
 - Session 32 complete & pushed.
+
+## Session 33 — Baseline security hardening (response headers + credential rate limiting)
+
+- **Date:** 2026-09-08
+- **Objective:** Close the pre-deploy security-spec gaps that belong in this code pass (no
+  external credentials required). The CI/CD + Docker packaging workstream was completed and
+  pushed just ahead of this session (commits `cf6939d` scripts → `b30a067` docs refresh →
+  `d38ea0c` infra: GitHub Actions `.github/workflows/ci.yml`, root API `Dockerfile` +
+  `docker-compose.prod.yml`, `Dockerfile` template under each frontend, `.dockerignore`/
+  `.env.example` refresh; frontend `/api` proxy stays **local-dev only**, deliberately NOT baked
+  into the nginx container outputs). This session adds the always-on security response headers +
+  an in-memory rate limiter on credential / account-creation / OTP endpoints, then pushes it.
+- **Security hardening delivered (no schema change, no new role):**
+  - `src/common/middleware/security-headers.middleware.ts` — sets `X-Content-Type-Options:
+    nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+    `Cross-Origin-Opener-Policy: same-origin`, `X-XSS-Protection: 0`, and removes
+    `X-Powered-By`. Wired globally via `app.use(securityHeadersMiddleware)` in `main.ts`;
+    the legacy `set?.(...)` single-header line was removed. (Spec §22 Security Headers.)
+  - `src/common/throttle/throttle.decorator.ts` + `src/common/throttle/throttle.guard.ts` —
+    a decorator/guard that applies an in-memory sliding-window limit keyed by
+    `ip|method|route`, bounded at 10,000 entries, returning HTTP **429** once the limit is hit.
+    Applied with `@UseGuards(ThrottleGuard)` + `@Throttle(limit, windowSeconds)`.
+  - **Applied limits:** `auth.register` + `auth.seller-register` `10/hour` per IP;
+    `auth.login` `8/min`; `auth.refresh` `60/min`; COD `POST otp` + `POST verify`
+    `5/min`. Covers account-creation, credential login and OTP abuse (Spec §45 Rate
+    Limiting + §44 enumeration protection hardening).
+  - Baseline already-strong-by-construction items were NOT re-touched (confirmed present):
+    bcrypt hashing + `IsStrongPassword` policy (§7), whitelist + `forbidNonWhitelisted`
+    ValidationPipe, generic login error (no user enumeration, §44), JWT session/refresh
+    revocability, generic controller errors.
+- **Deferred (out of scope for this code pass, recorded for ops/deploy):** HTTPS/TLS
+  termination, CDN/WAF, real secrets management, horizontally-scaled (Redis) rate limits,
+  per-deployment CSP profile. The in-memory limiter is per-instance (fine for a single
+  container, must move to shared storage behind a load balancer).
+- **Tests:** new `throttle.guard.spec.ts` (limit honoured, 429 once exceeded, per-IP + per-route
+  separation) + `security-headers.middleware.spec.ts` (headers set, X-Powered-By removed, next()
+  called). Full suite **26 suites / 238 tests green** (was 24/233 — the two new suites add 5);
+  `npm run typecheck` + `npm run build` clean. No HTTP/controller-level tests exist, so the
+  new global middleware/guards are safe for the suite.
+- **Live verification (sandbox API `:4600`):** a public catalog `GET` returns
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+  `Cross-Origin-Opener-Policy: same-origin`, `X-XSS-Protection: 0`, and **no** `X-Powered-By`.
+  Hitting `POST /auth/login` with bogus credentials 10× returned `401`×8 then `429`×2 — the
+  limiter (8/min) blocks the excess, and the uniform 401s confirm no user enumeration.
+- Session 33 complete & pushed.
