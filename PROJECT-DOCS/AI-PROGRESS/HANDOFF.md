@@ -5,7 +5,7 @@ For the next AI session.
 | Key | Value |
 |---|---|
 | CURRENT SESSION | Session 19 — Razorpay async refund reconciliation (`refund.processed`/`refund.failed` finalise in-flight PROCESSING refunds) |
-| STATUS | COMPLETE locally (18 suites / 173 tests; 21 migrations applied + recorded; code+migration+docs committed — **PUSH REQUIRED**, needs a one-shot GitHub token) |
+| STATUS | COMPLETE & **PUSHED** to GitHub (`main` up to `1bd86dd`; 18 suites / 173 tests; 21 migrations applied + recorded) |
 | NEXT SESSION | Product reviews, courier-delivering the dispatched replacement, or another owner-chosen priority |
 | NEXT WORKFLOW | Product reviews (ratingAvg refresh); flip the Razorpay provider to LIVE external keys (env-only — intent, capture, and BOTH sync + async refund paths are implemented & mock-E2E'd); real courier-provider integration + per-slice payout (earn currently stays order-level); courier-assign the dispatched replacement (currently an OPERATOR `replacement/…` action, non-money) |
 
