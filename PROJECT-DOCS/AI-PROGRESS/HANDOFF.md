@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 18 — Real Razorpay payment gateway behind the pluggable payment seam + LIVE refund execution |
-| STATUS | COMPLETE locally (18 suites / 167 tests; 20 migrations applied + recorded; working-tree changes ready to commit — **PUSH REQUIRED**, needs a fresh one-shot GitHub token) |
+| CURRENT SESSION | Session 19 — Razorpay async refund reconciliation (`refund.processed`/`refund.failed` finalise in-flight PROCESSING refunds) |
+| STATUS | COMPLETE locally (18 suites / 173 tests; 21 migrations applied + recorded; code+migration+docs committed — **PUSH REQUIRED**, needs a one-shot GitHub token) |
 | NEXT SESSION | Product reviews, courier-delivering the dispatched replacement, or another owner-chosen priority |
-| NEXT WORKFLOW | Product reviews (ratingAvg refresh); flip the Razorpay provider to LIVE external keys (env-only, see SESSION 18 note) + wire the async `refund.processed`/`payment.failed` reconciliation webhooks for in-flight refunds; real courier-provider integration + per-slice payout (earn currently stays order-level); courier-assign the dispatched replacement (currently an OPERATOR `replacement/…` action, non-money) |
+| NEXT WORKFLOW | Product reviews (ratingAvg refresh); flip the Razorpay provider to LIVE external keys (env-only — intent, capture, and BOTH sync + async refund paths are implemented & mock-E2E'd); real courier-provider integration + per-slice payout (earn currently stays order-level); courier-assign the dispatched replacement (currently an OPERATOR `replacement/…` action, non-money) |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It
@@ -182,3 +182,29 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
   `pfop@example.com`/`Operator@123`, seller `seller1@example.com`/`Seller@123`.
 - **Migration discipline:** Session 18 migration `20260908171500_return_refund_processing_enum` was applied via `psql -f`
   + a manual `_prisma_migrations` row (never `prisma migrate dev/reset` on the live DB). 20 migrations total.
+
+## SESSION 19 HANDOFF NOTES (async refund reconciliation — completes Session 18's in-flight path)
+- **What was added:** `GatewayRefundEvent` (+`category` on the payment event), `PaymentGateway.parseWebhook` now returns
+  `Promise<GatewayWebhookEvent>`; `RazorpayGateway.parseWebhook` recognises `refund.processed`/`refund.failed`.
+  `PaymentController` injects `ReturnsService` and routes refund events to the new `ReturnsService.reconcileRefundFromEvent`.
+- **Reconcile semantics (idempotent by Refund status, money-safe):** finds the local Refund by
+  `gatewayRef == gatewayRefundId`; acts ONLY on a `PROCESSING` refund. `refund.processed` → Refund COMPLETED +
+  PENDING `refund_transactions` row → SUCCESS + return request COMPLETED + `REFUND_COMPLETED` (SYSTEM) + Session-13
+  seller auto-debit + aggregate order REFUNDED. `refund.failed` → Refund FAILED + reason + txn FAILED +
+  `REFUND_FAILED` (SYSTEM) + request stays `APPROVED_FOR_REFUND` (operator can retry). Already-COMPLETED/FAILED replay →
+  idempotent no-op. Unknown rfnd → matched:false. Provider must match the refund's stored `gatewayProvider`.
+- **`completeRefund`'s terminal side-effects were refactored** into the private `applyRefundTerminalEffects(...)` used by
+  BOTH the operator path and the reconciler — keep future terminal changes in that one helper.
+- **Retry after FAILED is intentionally left to a future session** (no operator endpoint yet resets a FAILED refund to
+  re-attempt the gateway); the refund/complete endpoint still requires PENDING. When adding retry, allow GATEWAY FAILED →
+  re-execute with a new gateway attempt on the same Refund row (keep the FAILED transaction row, add a fresh attempt).
+- **Mock:** `scripts/razorpay-mock.mjs` honours `REFUND_ASYNC=1` (refunds return `pending`, recorded in `GET /__refunds`);
+  unset stays `processed` (Session 18 sync path). Driver `scripts/e2e-refund-async.mjs` runs the whole async loop
+  (`node scripts/e2e-refund-async.mjs` with `API`/`MOCK`/`RAZORPAY_WEBHOOK_SECRET` env; 20 ok steps, exits non-zero on
+  failure). Run the API with `PAYMENT_GATEWAY_PROVIDER=razorpay RAZORPAY_BASE_URL=<mock> RAZORPAY_KEY_ID/KEY_SECRET/
+  WEBHOOK_SECRET` (test keys `rzp_test_key`/`secret`/`whsec_e2e` are fine against the local mock).
+- **Flipping to LIVE Razorpay** is still env-only and now complete for both refund timings. The live webhook endpoint is
+  `POST {host}/api/v1/payments/webhook/razorpay`; configure the Razorpay dashboard to send `payment.captured`,
+  `payment.failed` and `refund.processed`/`refund.failed` events to it with the matching webhook secret.
+- **Migration discipline:** Session 19 migration `20260908172000_return_refund_failed_enum` applied via `psql -f` +
+  manual `_prisma_migrations` row (id `20260908172000_refund_failed`). 21 migrations total.

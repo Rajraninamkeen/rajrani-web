@@ -411,3 +411,25 @@ Fresh run: order `BK-MTS18BPF` (DB `cmts18bpg0021khnznff3abja`), razorpay mock o
 | ledger | psql: `refunds` row `RFD-MTS18BWI-7LJE` `gatewayProvider=razorpay` `gatewayRef=rfnd_mts18bx35tzu` COMPLETED; `refund_transactions` provider `razorpay` `rfnd_mts18bx35tzu` SUCCESS; return request COMPLETED; order `REFUNDED`/`REFUNDED`; events …REFUND_INITIATED → REFUND_COMPLETED |
 | RBAC | `/api/v1/payments/webhook/razorpay` is intentionally NOT JWT-protected (authenticity = raw-body signature HMAC), consistent with the sandbox webhook route |
 | `git push origin main` | pending (needs a fresh one-shot token) |
+
+## Session 19 — Razorpay async refund reconciliation (2026-09-08, `/home/user/rajrani-web`)
+
+API in **razorpay mode** on `:4100` (`PAYMENT_GATEWAY_PROVIDER=razorpay RAZORPAY_KEY_ID=rzp_test_key
+RAZORPAY_KEY_SECRET=secret RAZORPAY_WEBHOOK_SECRET=whsec_e2e RAZORPAY_BASE_URL=http://localhost:3912 PORT=4100 node
+dist/main.js`); the **local Razorpay-protocol mock** `scripts/razorpay-mock.mjs` ran in **async mode** on `:3912`
+(`REFUND_ASYNC=1` → refunds return `pending`). Reusable driver `scripts/e2e-refund-async.mjs` → 20 ok steps.
+Fresh run: order `BK-MTS23JIS` (DB `cmts23jje000316nz1vllwv51`), razorpay order `order_13jlm`, payment `pay_e2e_mts23jn3`,
+refund `RFD-MTS23K0U-ZB5G`, gatewayRef `rfnd_mts23k1hwpmh`.
+
+| Check | Result |
+|---|---|
+| migrations | 21 applied, `prisma migrate status` up to date (`20260908172000_return_refund_failed_enum`); `ReturnEventType.REFUND_FAILED` present in the live DB enum; `prisma generate` OK; typecheck + `npm run build` clean |
+| unit tests | `razorpay.gateway.spec.ts` +2 (refund.processed/.failed normalisation), `returns.service.spec.ts` +4 (reconcile PROCESSING→COMPLETED, idempotent replay, refund.failed→FAILED, unknown rfnd) → **18 suites / 173 tests** green |
+| intent/capture | buy-now razorpay PREPAID ₹194.95 → razorpay order `order_13jlm` (mock) + stored; `payment.captured` raw-body-HMAC webhook → order PAID (unchanged from Session 18) |
+| submit in-flight | `refund/complete` submitted the live gateway refund; mock returned `pending` → Refund left **PROCESSING** with real `gatewayRef rfnd_mts23k1hwpmh`, `REFUND_PROCESSING` event, PENDING refund_transactions row |
+| async reconcile | signed `refund.processed` webhook (`payload.refund.entity`, `id=rfnd_mts23k1hwpmh`) → `ReturnsService.reconcileRefundFromEvent` → Refund **COMPLETED**, `refund_transactions` SUCCESS + completedAt, return request **COMPLETED**, `REFUND_COMPLETED` (SYSTEM) event |
+| ledger | psql: refund `RFD-MTS23K0U-ZB5G` `gatewayProvider=razorpay` `gatewayRef=rfnd_mts23k1hwpmh` COMPLETED completedAt=t; txn `razorpay` SUCCESS completedAt=t; order `REFUNDED`/`REFUNDED`; events REQUESTED…REFUND_PROCESSING(OPERATOR) then REFUND_COMPLETED(SYSTEM) |
+| idempotency | replay of the same `refund.processed` → `{idempotent:true, status:'COMPLETED'}` (no double-complete/no double-debit) |
+| failure path | (unit) `refund.failed` → Refund FAILED + reason, PENDING txn→FAILED, `REFUND_FAILED` SYSTEM audit, request stays APPROVED_FOR_REFUND, no settle |
+| RBAC | `/api/v1/payments/webhook/razorpay` stays signature-authenticated (not JWT); refund completion remains OPERATOR/ADMIN; reconciliation is SYSTEM (webhook-driven) |
+| `git push origin main` | Session 19 feature + docs committed and pushed (see git log) |

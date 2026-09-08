@@ -3514,3 +3514,17 @@ No new roles. Gate changes this session:
 - `RazorpayGateway` uses two distinct secrets: the API `keySecret` (Basic auth for outbound calls, server-side only,
   never exposed) and the `webhookSecret` (inbound signature verification). Neither is returned by any API route.
 - No DELIVERY/REVIEWER surface was opened; Sessions 14–17 RBAC negatives remain valid.
+
+# Session 19 addendum — Async refund reconciliation (RBAC)
+
+No new roles. Gate changes this session:
+
+- The same signature-authenticated `/api/v1/payments/webhook/razorpay` endpoint now ALSO handles `refund.processed` /
+  `refund.failed` events. These finalise a refund the operator previously submitted in-flight; the actor is **SYSTEM**
+  (webhook-driven reconciliation), and authenticity remains the `x-razorpay-signature` HMAC over the raw body (no user
+  session, matching the payment webhook and sandbox webhook).
+- No refund action is opened to CUSTOMER/SELLER/DELIVERY/REVIEWER: initiating and (operator) completing a refund stay
+  OPERATOR/ADMIN. The async reconciler only acts on a refund the operator already submitted to the gateway; it cannot
+  initiate a new refund or touch a non-PROCESSING one.
+- `refund.failed` leaves the request APPROVED_FOR_REFUND for an operator retry (no new role surface).
+- Sessions 14–18 RBAC negatives remain valid.

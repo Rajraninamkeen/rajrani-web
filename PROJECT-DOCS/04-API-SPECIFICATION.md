@@ -3316,3 +3316,20 @@ with a tx): it targets the captured razorpay payment and records the real `rfnd_
 order → `REFUNDED`/`REFUNDED`, seller-payable net-zero auto-debit runs. A gateway `PROCESSING` (in-flight) refund leaves
 the Refund `PROCESSING` (new `REFUND_PROCESSING` return event), does NOT complete the request and does NOT auto-debit —
 to be reconciled later from the gateway `refund.processed` webhook (next session). COD refunds never hit the gateway.
+
+# Session 19 addendum — Async gateway refund reconciliation (reference)
+
+When a GATEWAY refund is submitted in `POST /api/v1/return-requests/:id/refund/complete` and the gateway returns it
+in-flight (`pending`), the Refund is left `PROCESSING` (a `refund_transactions` row stays `PENDING`, the return request
+stays `APPROVED_FOR_REFUND`, `REFUND_PROCESSING` event). The gateway later reports terminal via the SAME
+signature-authenticated endpoint:
+
+- `POST /api/v1/payments/webhook/razorpay` with event `refund.processed` → finalise the PROCESSING Refund by
+  `gatewayRef`: Refund `COMPLETED`, PENDING transaction row → `SUCCESS`, return request `COMPLETED`,
+  `REFUND_COMPLETED` (SYSTEM) event, Session-13 seller-payable auto-debit, order → `REFUNDED` once fully refunded.
+- event `refund.failed` → Refund `FAILED` (+`failedReason`), transaction row → `FAILED`, `REFUND_FAILED` (SYSTEM)
+  event; the request is left `APPROVED_FOR_REFUND` for an operator retry.
+
+Idempotency is by local Refund status: only a `PROCESSING` refund is acted on; a replayed terminal event for an
+already-`COMPLETED`/`FAILED` refund is a no-op (`{idempotent:true}`); an unknown `gatewayRefundId` returns
+`{matched:false}`. The webhook body's refund entity id (`payload.refund.entity.id`, `rfnd_…`) is the `gatewayRef` match key.

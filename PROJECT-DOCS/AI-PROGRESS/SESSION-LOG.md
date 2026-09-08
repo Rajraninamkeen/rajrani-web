@@ -1012,3 +1012,58 @@ Live E2E run — see VERIFICATION Session 05 table.
   `gatewayRef rfnd_mts18bx35tzu` with `gatewayProvider=razorpay` and a `refund_transactions` SUCCESS row → return request
   COMPLETED → order `REFUNDED`/`REFUNDED`. Ledger confirmed via psql; mock also exposes `GET /__orders` to assert only
   one order create per run.
+
+## Session 19 — Razorpay async refund reconciliation (drive in-flight PROCESSING refunds to terminal)
+
+- **Date:** 2026-09-08
+- **Owner decision:** "Razorpay refund reconciliation" — finish Session 18's in-flight refund path: when a GATEWAY
+  refund that `ReturnsService.completeRefund` left in-flight (`PROCESSING`, gateway returned `pending`) later reports
+  terminal via the async `refund.processed` / `refund.failed` webhook, finalise the local Refund accordingly. Session
+  18 proved the synchronous terminal path; Session 19 adds the async completion so a real (asynchronous) gateway refund
+  is never left dangling. No new roles; money stays operator/system-gated; sandbox default unchanged.
+- **Schema (additive; migration `20260908172000_return_refund_failed_enum` — 21 migrations total):** adds
+  `ReturnEventType.REFUND_FAILED` (for the failed-refund audit event). Applied via `psql -f` + a manual
+  `_prisma_migrations` insert (id `20260908172000_refund_failed`); `prisma generate`; `migrate status` up to date; DB
+  enum verified via psql.
+- **Gateway interface/events (`src/commerce/gateway/payment-gateway.interface.ts`, `razorpay.gateway.ts`):**
+  `GatewayPaymentEvent` now carries `category: 'payment'`; a new `GatewayRefundEvent` (`category: 'refund'`) carries the
+  terminal refund fields (`eventType refund.processed|refund.failed`, `gatewayRefundId`, `gatewayPaymentId`,
+  `terminalStatus COMPLETED|FAILED`, `failureReason`, amount in rupees). `PaymentGateway.parseWebhook` now returns
+  `Promise<GatewayWebhookEvent>` (union). `RazorpayGateway.parseWebhook` recognises `refund.processed`/`refund.failed`
+  (entity under `payload.refund.entity`, id = `rfnd_…`, `error_description` → failureReason) alongside the existing
+  payment events. Sandbox still has no parseWebhook.
+- **PaymentService:** `parseGatewayWebhook` returns the union; `isPaymentEvent()` narrows it. `confirmFromGatewayEvent`
+  (payment only) unchanged.
+- **PaymentController (`/api/v1/payments/webhook/razorpay`):** now injects `ReturnsService` and dispatches by event
+  category — payment events → `PaymentService.confirmFromGatewayEvent`, refund events →
+  `ReturnsService.reconcileRefundFromEvent` (same signature-authenticated raw-body endpoint).
+- **ReturnsService.reconcileRefundFromEvent (Session 19):** finds the local Refund by `gatewayRef ==
+  gatewayRefundId`. Idempotent by Refund status: only a `PROCESSING` refund is acted on; already-`COMPLETED`/`FAILED`
+  (or not-in-flight) → idempotent no-op replay; unknown rfnd → `matched:false`. Requires the refund's stored
+  `gatewayProvider` to match the event provider.
+  - `refund.processed` → in one tx: Refund `COMPLETED` (+ `completedAt`), its PENDING `refund_transactions` row
+    updated to SUCCESS (+ `completedAt`; a safety-net SUCCESS row is created if none was pending), then the shared
+    `applyRefundTerminalEffects` completes the return request (`COMPLETED` + `REFUND_COMPLETED` SYSTEM event) and runs
+    the Session-13 seller-payable net-zero auto-debit + aggregate order `REFUNDED`. Returns the completed public request.
+  - `refund.failed` → Refund `FAILED` + `failedReason`, PENDING txn → FAILED, `REFUND_FAILED` SYSTEM event; the request
+    stays `APPROVED_FOR_REFUND` (no completion, no auto-debit) so the operator can retry.
+  - `completeRefund`'s inline terminal side-effects were refactored into the shared private
+    `applyRefundTerminalEffects` (behaviour unchanged) so the operator-complete path and the async reconciler stay in
+    lockstep.
+- **Mock + driver (`scripts/razorpay-mock.mjs`, `scripts/e2e-refund-async.mjs`):** the mock honours `REFUND_ASYNC=1` —
+  refunds return `status:'pending'` (in-flight) and are recorded in `GET /__refunds` (default still `processed`), so the
+  app's `completeRefund` leaves Refund PROCESSING; the driver then POSTs a signed raw-body `refund.processed` webhook
+  and asserts reconciliation to COMPLETED + idempotent replay.
+- **Tests:** `razorpay.gateway.spec.ts` +2 (refund.processed / refund.failed normalisation), `returns.service.spec.ts`
+  +4 (reconcile PROCESSING→COMPLETED nets the seller payable + marks order REFUNDED + updates the PENDING txn to
+  SUCCESS; idempotent replay when already COMPLETED; refund.failed → FAILED + FAILED txn + REFUND_FAILED audit + no
+  settle; unknown rfnd → unmatched). Full suite **18 suites / 173 tests** (was 167); typecheck + build clean.
+- **Live E2E (`:4100` razorpay mode against `:3912` async mock; `scripts/e2e-refund-async.mjs` → 20 ok steps):** fresh
+  order `BK-MTS23JIS` (DB order `cmts23jje000316nz1vllwv51`): razorpay order `order_13jlm` → `payment.captured` webhook
+  → PAID → operator CONFIRMED/PACKED, seller accepted slice, SHIPPED/DELIVERED → customer return → decision/inspection
+  PASS → refund `RFD-MTS23K0U-ZB5G` initiate → `refund/complete` submitted the live razorpay refund and, because the
+  mock returned `pending`, left Refund **PROCESSING** with real `gatewayRef rfnd_mts23k1hwpmh` (`REFUND_PROCESSING`
+  event) → driver POSTed a signed `refund.processed` webhook → **reconciled to COMPLETED**: Refund COMPLETED,
+  `refund_transactions` SUCCESS, return request COMPLETED, order REFUNDED/REFUNDED, and `REFUND_COMPLETED` (SYSTEM)
+  audit — replay idempotent. Ledger confirmed via psql. (The Session-18 synchronous terminal path is unchanged and
+  still covered by the gateway `COMPLETED` completeRefund unit test.)
