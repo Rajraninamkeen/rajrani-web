@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { sellerOpsApi } from '../api.js';
+import { sellerOpsApi, sellerNotificationsApi } from '../api.js';
+import NotificationsBell from './NotificationsBell.jsx';
 
 const SO_STATUS = { PLACED: 'Awaiting confirm', ACCEPTED: 'Accepted', REJECTED: 'Rejected', CANCELLED: 'Cancelled' };
 const PAY_STATUS = { EARNED: 'Earned', IN_SETTLEMENT: 'In settlement', SETTLED: 'Settled' };
@@ -62,6 +63,7 @@ export default function SellerDashboard({ notify }) {
 
   return (
     <div className="seller-dash">
+      <NotificationsBell api={sellerNotificationsApi} role="Seller" />
       {me && (
         <div className="kpis">
           <div className="kpi"><div className="kpi-v">{me.sellerCode}</div><div className="kpi-l">{me.displayName}</div></div>

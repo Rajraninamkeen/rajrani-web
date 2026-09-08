@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { deliveryApi } from '../api.js';
+import { deliveryApi, deliveryNotificationsApi } from '../api.js';
 import TrackPanel from './TrackPanel.jsx';
+import NotificationsBell from './NotificationsBell.jsx';
 
 // DeliveryAssignmentStatus display.
 const AS = {
@@ -210,6 +211,7 @@ export default function CourierTasks({ notify }) {
 
   return (
     <div className="seller-dash">
+      <NotificationsBell api={deliveryNotificationsApi} role="Delivery partner" />
       <div className="kpis">
         <div className="kpi"><div className="kpi-v">{activeParcels.length}</div><div className="kpi-l">parcels active</div></div>
         <div className="kpi"><div className="kpi-v warn">{activeReplacements.length}</div><div className="kpi-l">replacements active</div></div>

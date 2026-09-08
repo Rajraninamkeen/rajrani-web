@@ -30,6 +30,12 @@ import { CourierTrackingService } from './courier-tracking.service';
 import { OrderCourierTrackingController } from './courier-tracking.controller';
 import { CourierPayoutService } from './courier-payout.service';
 import { CourierPartnerPayoutController, CourierPayoutAdminController } from './courier-payout.controller';
+import { NotificationService } from './notification.service';
+import {
+  DeliveryNotificationsController,
+  SellerNotificationsController,
+  NotificationsAdminController,
+} from './notification.controller';
 
 @Module({
   imports: [AuthModule], // for JwtModule (guards sign/verify) + exported guards
@@ -54,6 +60,9 @@ import { CourierPartnerPayoutController, CourierPayoutAdminController } from './
     OrderCourierTrackingController,
     CourierPartnerPayoutController,
     CourierPayoutAdminController,
+    DeliveryNotificationsController,
+    SellerNotificationsController,
+    NotificationsAdminController,
   ],
   providers: [
     CartService,
@@ -68,9 +77,10 @@ import { CourierPartnerPayoutController, CourierPayoutAdminController } from './
     ReplacementCourierService,
     CourierTrackingService,
     CourierPayoutService,
+    NotificationService,
     PAYMENT_GATEWAY_PROVIDER,
     COURIER_PROVIDER_TOKEN,
   ],
-  exports: [PaymentService, CodService, OrderService, DeliveryService, ReplacementCourierService, CourierTrackingService, CourierPayoutService, PAYMENT_GATEWAY_PROVIDER, COURIER_PROVIDER_TOKEN],
+  exports: [PaymentService, CodService, OrderService, DeliveryService, ReplacementCourierService, CourierTrackingService, CourierPayoutService, NotificationService, PAYMENT_GATEWAY_PROVIDER, COURIER_PROVIDER_TOKEN],
 })
 export class CommerceModule {}

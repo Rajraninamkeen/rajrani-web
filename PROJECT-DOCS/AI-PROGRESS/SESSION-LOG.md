@@ -1714,3 +1714,52 @@ Increment landed this session (code + migration pushed):
   `/delivery/payouts/summary?from&to`, `/finance/report/totals?from&to` all return 200; invalid dates on each
   endpoint return 400. Read-only — no DB writes.
 - Session 37 complete & pushed.
+
+## Session 38 — Finance/payout notifications (in-app ledger + dispatch outbox)
+
+- **Date:** 2026-09-08
+- **Objective (owner-chosen via ask_user):** emit a notification event when money lands on the
+  finance ledger — a courier fee is earned/settled, a seller payable is earned, or a settlement
+  advances — as an **in-app ledger + an SMS/email dispatch outbox**. Additive, read-mostly, never
+  affects the money flow.
+- **Schema (additive migration `20260908220000_finance_notifications`, applied; no money-model
+  change):** `notifications` (recipientUserId → users, category, title/message, refKind/refId,
+  readAt) + `notification_outbox` (notificationId, channel EMAIL/SMS, destination, status, attempt,
+  lastError, sentAt); enums `NotificationCategory` (COURIER_FEE_EARNED, COURIER_FEE_SETTLED,
+  PAYABLE_EARNED, SETTLEMENT_ADVANCED), `NotificationChannel`, `OutboxStatus`; User gains
+  `notifications[]`. Client regenerated.
+- **Backend:**
+  - `src/commerce/notification.service.ts` (NEW) — `NotificationService`: composes templates,
+    `enqueueTx`/`enqueueSellerTx` (in-tx, courier partner user / seller operators) and
+    `enqueue`/`enqueueSeller` (post-commit), writes Notification + PENDING EMAIL/SMS outbox rows from
+    the recipient's email/phone; `dispatch()` sweeps PENDING rows (no provider configured → SKIPPED,
+    terminal — a real gateway seam for later); recipient self-service (`forUser`, `unreadCount`,
+    `markRead` own-only, `markAllRead`) and operator oversight (`staffList`, `outboxList`, `dispatch`).
+  - `notification.controller.ts` (NEW) — `DeliveryNotificationsController` (`/delivery/notifications`,
+    DELIVERY), `SellerNotificationsController` (`/seller/notifications`, SELLER), and
+    `NotificationsAdminController` (`/finance/notifications`, OPERATOR/ADMIN incl. outbox + dispatch).
+    Registered + exported in `commerce.module.ts`.
+  - Money seams (best-effort, try/catch, injected `@Optional()` so money-service unit tests stay
+    independent): `CourierPayoutService.earnCourierDelivery` → COURIER_FEE_EARNED (in-tx, to the
+    partner user); `settlePartnerEarned` → COURIER_FEE_SETTLED (in-tx, when it actually pays out);
+    `SettlementService.earnDeliveredSlices` → PAYABLE_EARNED (in-tx, per seller operator);
+    `createSettlement` → SETTLEMENT_ADVANCED (PENDING) and `advanceSettlement` → SETTLEMENT_ADVANCED
+    (post-commit, to the seller). A notification failure can never roll back or block a
+    delivery/settlement.
+  - **Tests (+10):** new `notification.service.spec.ts` (7: enqueue → notification + EMAIL/SMS outbox,
+    enqueueSellerTx multi-operator, forUser shapes, markRead own-only guard, markAllRead, dispatch→SKIPPED
+    without a gateway, staffList) + 3 seam tests in `courier-payout.service.spec.ts` (SETTLED emit,
+    no-emit-on-noop, EARNED emit). Affected suites green (48/48 across the 3 suites); typecheck/build clean.
+- **Frontend (`catalog-console/`):** `api.js` adds `deliveryNotificationsApi`, `sellerNotificationsApi`,
+  `financeNotificationsApi`; new shared `NotificationsBell.jsx` (self-contained inline styles) with an
+  unread badge, a dropdown listing notices, mark-one/mark-all, 30s auto-refresh — mounted in the DELIVERY
+  console (`CourierTasks.jsx`) and the SELLER console (`SellerDashboard.jsx`). `npm run build` clean.
+- **Live verification (`scripts/e2e-notifications.mjs`, sandbox API `:4600`, **40/40 ok**):** RBAC
+  negatives across all three surfaces (CUSTOMER/OPERATOR on the partner route, DELIVERY on the seller
+  route, SELLER on outbox); a fresh courier-delivered parcel → COURIER_FEE_EARNED + PAYABLE_EARNED appear
+  on the respective DELIVERY/SELLER self-service reads (with message text + refId); courier settle →
+  COURIER_FEE_SETTLED; settlement create + advance → two SETTLEMENT_ADVANCED notices; unread-count /
+  mark-one / read-all / mark-all return correct transitions; cross-user mark-read 403; OPERATOR ledger +
+  outbox reads and `POST dispatch` (→ 7 SKIPPED, no gateway); script **self-cleans** the money rows AND the
+  new notification/outbox rows and asserts `cp=sp=st=notifications=0` for the run.
+- Session 38 complete & pushed.

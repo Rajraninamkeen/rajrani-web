@@ -128,6 +128,42 @@ describe('CourierPayoutService (Session 32 — money leg)', () => {
       prisma.deliveryPartner.findUnique.mockResolvedValue(null);
       await expect(service.settlePartnerEarned('op1', 'nope')).rejects.toBeInstanceOf(NotFoundException);
     });
+
+    it('emits a COURIER_FEE_SETTLED notice when it pays a partner out (Session 38)', async () => {
+      prisma.deliveryPartner.findUnique.mockResolvedValue({ id: 'p1', partnerCode: 'DLV-1', userId: 'ur1' });
+      tx.courierPayout.findMany.mockResolvedValue([{ feeAmount: { toNumber: () => 35 } }]);
+      tx.user = { findUnique: jest.fn().mockResolvedValue({ email: 'r@x.co', phone: null }) };
+      const notif = { enqueueTx: jest.fn().mockResolvedValue(undefined) };
+      const svc = new CourierPayoutService(prisma as any, undefined, notif as any);
+      const out = await svc.settlePartnerEarned('op1', 'p1');
+      expect(out.settled).toBe(1);
+      expect(notif.enqueueTx).toHaveBeenCalled();
+      expect(notif.enqueueTx.mock.calls[0][1].category).toBe('COURIER_FEE_SETTLED');
+      expect(notif.enqueueTx.mock.calls[0][1].recipientUserId).toBe('ur1');
+    });
+
+    it('does not emit when there is nothing to pay out (Session 38)', async () => {
+      prisma.deliveryPartner.findUnique.mockResolvedValue({ id: 'p1', userId: 'ur1' });
+      tx.courierPayout.findMany.mockResolvedValue([]);
+      const notif = { enqueueTx: jest.fn().mockResolvedValue(undefined) };
+      const svc = new CourierPayoutService(prisma as any, undefined, notif as any);
+      await svc.settlePartnerEarned('op1', 'p1');
+      expect(notif.enqueueTx).not.toHaveBeenCalled();
+    });
+
+    it('emits COURIER_FEE_EARNED when it accrues a fee (Session 38)', async () => {
+      tx.courierPayout.findFirst.mockResolvedValue(null);
+      tx.courierPayout.create.mockResolvedValue({ id: 'cp1' });
+      tx.deliveryPartner = { findUnique: jest.fn().mockResolvedValue({ userId: 'ur1' }) };
+      tx.user = { findUnique: jest.fn().mockResolvedValue({ email: 'r@x.co', phone: null }) };
+      const notif = { enqueueTx: jest.fn().mockResolvedValue(undefined) };
+      const svc = new CourierPayoutService(prisma as any, undefined, notif as any);
+      await svc.earnCourierDelivery(tx, {
+        deliveryPartnerId: 'p1', kind: 'parcel', orderId: 'o1', deliveryAssignmentId: 'da1',
+      });
+      expect(notif.enqueueTx).toHaveBeenCalled();
+      expect(notif.enqueueTx.mock.calls[0][1].category).toBe('COURIER_FEE_EARNED');
+    });
   });
 
   describe('staff list', () => {

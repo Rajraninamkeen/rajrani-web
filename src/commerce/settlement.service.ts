@@ -4,10 +4,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from './notification.service';
 import {
+  NotificationCategory,
   OrderStatus,
   PayableStatus,
   Prisma,
@@ -112,7 +115,11 @@ type PayableRow = {
 
 @Injectable()
 export class SettlementService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so money-service unit tests stay independent; Session 38 notifications.
+    @Optional() private readonly notifications?: NotificationService,
+  ) {}
 
   private async requireSeller(userId: string): Promise<string> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -160,7 +167,7 @@ export class SettlementService {
       const b = computePayableBreakdown(so);
       const exists = await tx.sellerPayable.findUnique({ where: { sellerOrderId: so.id } });
       if (exists) continue;
-      await tx.sellerPayable.create({
+      const payable = await tx.sellerPayable.create({
         data: {
           sellerId: so.sellerId,
           orderId,
@@ -179,6 +186,17 @@ export class SettlementService {
           status: PayableStatus.EARNED,
         },
       });
+      // Session 38 — best-effort notice to the seller's operator(s). Never throws into the money tx.
+      if (this.notifications) {
+        try {
+          await this.notifications.enqueueSellerTx(tx, so.sellerId, {
+            category: NotificationCategory.PAYABLE_EARNED,
+            amount: b.netPayable,
+            refKind: 'sellerPayable',
+            refId: payable.id,
+          });
+        } catch { /* best-effort */ }
+      }
       earned++;
     }
     return earned;
@@ -339,6 +357,19 @@ export class SettlementService {
       }
       return created;
     });
+    // Session 38 — best-effort notice to the seller that a settlement was opened.
+    if (this.notifications) {
+      try {
+        await this.notifications.enqueueSeller(settlement.sellerId, {
+          category: NotificationCategory.SETTLEMENT_ADVANCED,
+          settlementRef: settlement.settlementReference,
+          toLabel: 'Pending',
+          amount: settlement.netPayable?.toNumber?.() ?? 0,
+          refKind: 'settlement',
+          refId: settlement.id,
+        });
+      } catch { /* best-effort */ }
+    }
     return this.getSettlement(settlement.id);
   }
 
@@ -453,6 +484,24 @@ export class SettlementService {
         });
       }
     });
+    // Session 38 — best-effort notice to the seller when the settlement advances.
+    if (this.notifications) {
+      try {
+        const lbl: Record<string, string> = {
+          PENDING: 'Pending', APPROVED: 'Approved', PROCESSING: 'Processing',
+          PAID: 'Paid', RECONCILED: 'Reconciled', FAILED: 'Failed',
+        };
+        await this.notifications.enqueueSeller(settlement.sellerId, {
+          category: NotificationCategory.SETTLEMENT_ADVANCED,
+          settlementRef: settlement.settlementReference,
+          fromLabel: lbl[settlement.status] ?? settlement.status,
+          toLabel: lbl[to] ?? to,
+          amount: settlement.netPayable?.toNumber?.() ?? 0,
+          refKind: 'settlement',
+          refId: settlementId,
+        });
+      } catch { /* best-effort */ }
+    }
     return this.getSettlement(settlementId);
   }
 

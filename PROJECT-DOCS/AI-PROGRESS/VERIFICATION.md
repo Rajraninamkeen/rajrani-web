@@ -635,3 +635,17 @@ Run from repo root after `npm run build`.
 | Live verify `scripts/live-period-verify.mjs` (sandbox API `:4600`, read-only) | OPERATOR scoped `GET /finance/payables?from&to`, `/finance/settlements?from&to`, `/delivery/payouts/all?from&to`, `/delivery/payouts/summary?from&to`, `/finance/report/totals?from&to` all **200**; invalid dates on `from`/`to` across payables/settlements/courier-payouts each return **400**; date-only `to` treated inclusive end-of-day |
 | Console | `FinanceOps.jsx` Period (From/To) bar `Apply`/`Clear` scopes every list + KPI (reconciliation stays global); served via HMR (`:5174`) |
 | `git push origin main` | Session 37 feature + docs committed and pushed (see git log) |
+
+### Session 38 — finance/payout notifications (in-app ledger + dispatch outbox)
+
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| migration | `prisma/migrations/20260908220000_finance_notifications` applied via `migrate deploy` + client regenerated; `notifications` + `notification_outbox` tables + enums present |
+| `npm run typecheck` / `npm run build` | clean |
+| `npx jest` (affected suites) | `notification.service.spec.ts` + `courier-payout.service.spec.ts` + `settlement.service.spec.ts` **48/48 passed** (new notification spec +7, courier seam tests +3; money suites still green with the optional notification injection) |
+| `catalog-console` `npm run build` | clean |
+| Live E2E `scripts/e2e-notifications.mjs` (sandbox API `:4600`, **40/40 ok**, self-clean) | RBAC 403s (CUSTOMER/OPERATOR on `/delivery/notifications`, DELIVERY on `/seller/notifications`, CUSTOMER+SELLER on `/finance/notifications/*`); fresh courier-delivered parcel → **COURIER_FEE_EARNED** + **PAYABLE_EARNED** on the DELIVERY/SELLER reads (message + refId); courier **settle** → **COURIER_FEE_SETTLED**; settlement create + advance → two **SETTLEMENT_ADVANCED** notices; unread-count → mark-one → read-all → unread 0; cross-user mark-read 403; OPERATOR ledger/outbox reads; `POST /finance/notifications/dispatch` → 7 SKIPPED (no gateway); script self-cleans money rows + notification/outbox rows and asserts `cp=sp=st=notifications=0` |
+| Console | `NotificationsBell` (unread badge + dropdown + mark-one/mark-all) in the DELIVERY + SELLER consoles; served via HMR (`:5174`) |
+| `git push origin main` | Session 38 feature + docs committed and pushed (see git log) |

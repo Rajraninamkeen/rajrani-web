@@ -161,3 +161,21 @@ export const deliveryOpsApi = {
   // payout ledger read (shared with the Session-34 Finance console).
   payoutsAll: (params) => api('GET', '/delivery/payouts/all' + qs(params)),
 };
+
+// Session 38 — finance/payout notifications.
+// A generic self-service reader factory bound to a recipient base path (DELIVERY/SELLER).
+const notifApi = (base) => ({
+  mine: (p) => api('GET', base + qs(p || {})),
+  unread: () => api('GET', `${base}/unread-count`),
+  markRead: (id) => api('POST', `${base}/${id}/read`, { body: {} }),
+  readAll: () => api('POST', `${base}/read-all`, { body: {} }),
+});
+export const deliveryNotificationsApi = notifApi('/delivery/notifications');
+export const sellerNotificationsApi = notifApi('/seller/notifications');
+
+// OPERATOR/ADMIN oversight of the notification ledger + dispatch outbox.
+export const financeNotificationsApi = {
+  list: (p) => api('GET', '/finance/notifications' + qs(p || {})),
+  outbox: (p) => api('GET', '/finance/notifications/outbox' + qs(p || {})),
+  dispatch: () => api('POST', '/finance/notifications/dispatch', { body: {} }),
+};

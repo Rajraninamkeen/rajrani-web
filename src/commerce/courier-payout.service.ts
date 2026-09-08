@@ -11,9 +11,11 @@ import { ConfigService } from '@nestjs/config';
 import {
   CourierPayoutStatus,
   DeliveryPartnerStatus,
+  NotificationCategory,
   Prisma,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from './notification.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -41,6 +43,8 @@ export class CourierPayoutService {
     private readonly prisma: PrismaService,
     // Optional so historical unit tests keep `new CourierPayoutService(prisma)`.
     @Optional() private readonly config?: ConfigService,
+    // Optional so money-service unit tests stay independent; Session 38 notifications.
+    @Optional() private readonly notifications?: NotificationService,
   ) {}
 
   private feeFor(kind: 'parcel' | 'replacement'): number {
@@ -80,7 +84,7 @@ export class CourierPayoutService {
       },
     });
     if (existing) return null;
-    return db.courierPayout.create({
+    const created = await db.courierPayout.create({
       data: {
         deliveryPartnerId: args.deliveryPartnerId,
         kind: args.kind,
@@ -92,6 +96,27 @@ export class CourierPayoutService {
         status: CourierPayoutStatus.EARNED,
       },
     });
+    // Session 38 — best-effort in-app notice to the partner that a fee was earned.
+    // Runs inside the same tx (consistent) and must never throw into the money flow.
+    if (this.notifications) {
+      try {
+        const pu = await db.deliveryPartner.findUnique({
+          where: { id: args.deliveryPartnerId as string },
+          select: { userId: true },
+        });
+        if (pu) {
+          await this.notifications.enqueueTx(db, {
+            recipientUserId: pu.userId,
+            category: NotificationCategory.COURIER_FEE_EARNED,
+            amount: feeAmount,
+            kind: args.kind,
+            refKind: 'courierPayout',
+            refId: created.id,
+          });
+        }
+      } catch { /* best-effort */ }
+    }
+    return created;
   }
 
   // =============================== DELIVERY partner (self-service reads) ===============================
@@ -267,6 +292,18 @@ export class CourierPayoutService {
         where: { deliveryPartnerId, status: CourierPayoutStatus.EARNED },
         data: { status: CourierPayoutStatus.SETTLED, settledAt: new Date(), settledById: actorId },
       });
+      // Session 38 — best-effort notice to the partner that fees were paid out.
+      if (this.notifications && target.length > 0) {
+        try {
+          await this.notifications.enqueueTx(tx, {
+            recipientUserId: partner.userId,
+            category: NotificationCategory.COURIER_FEE_SETTLED,
+            amount: total,
+            refKind: 'deliveryPartner',
+            refId: partner.id,
+          });
+        } catch { /* best-effort */ }
+      }
       return { settled: target.length, totalAmount: total };
     });
     return result;

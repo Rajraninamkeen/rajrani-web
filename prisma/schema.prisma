@@ -147,6 +147,7 @@ model User {
   seller          Seller?              @relation("SellerOperators", fields: [sellerId], references: [id])
   memberships     OrganizationMember[] // Session 14: org memberships (seller operator owners)
   deliveryPartner DeliveryPartner? // Session 15: DELIVERY-role partner profile
+  notifications   Notification[]  // Session 38: in-app finance/payout notification ledger
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
   deletedAt       DateTime?
@@ -1529,4 +1530,68 @@ model CourierPayout {
   @@index([kind])
   @@index([orderId])
   @@map("courier_payouts")
+}
+
+// ============================================================================
+// Session 38 — Finance/payout notifications (in-app ledger + dispatch outbox).
+// Additive. When a money event happens (a courier fee is earned/settled, a seller
+// payable is earned, a settlement advances) we write an in-app Notification row
+// to the money-owner's user (DELIVERY partner / SELLER operator) and enqueue
+// NotificationOutbox dispatch rows (EMAIL/SMS). A dispatch gateway processes the
+// outbox; with no provider configured rows resolve to SKIPPED (never retried).
+// This ledger is purely informational — it never affects the money flow.
+// ============================================================================
+
+enum NotificationCategory {
+  COURIER_FEE_EARNED
+  COURIER_FEE_SETTLED
+  PAYABLE_EARNED
+  SETTLEMENT_ADVANCED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+}
+
+enum OutboxStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model Notification {
+  id            String               @id @default(cuid())
+  recipientUserId String             // User the notice is for (DELIVERY partner / SELLER operator)
+  recipientUser User                 @relation(fields: [recipientUserId], references: [id])
+  category      NotificationCategory
+  title         String
+  message       String
+  refKind       String?              // e.g. 'courierPayout' | 'sellerPayable' | 'settlement'
+  refId         String?              // the money row this notice refers to
+  readAt        DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  outboxes NotificationOutbox[]
+
+  @@index([recipientUserId, createdAt])
+  @@map("notifications")
+}
+
+model NotificationOutbox {
+  id             String            @id @default(cuid())
+  notificationId String
+  notification   Notification      @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  channel        NotificationChannel
+  destination    String            // resolved contact: email address or phone (may be empty/redacted)
+  status         OutboxStatus      @default(PENDING)
+  attempt        Int               @default(0)
+  lastError      String?
+  sentAt         DateTime?
+  createdAt      DateTime          @default(now())
+
+  @@index([status, createdAt])
+  @@map("notification_outbox")
 }
