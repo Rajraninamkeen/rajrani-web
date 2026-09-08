@@ -1605,3 +1605,38 @@ Increment landed this session (code + migration pushed):
   clean (`cp=0,sp=0,st=0`). Also verified through the console Vite proxy (`:5173`): OPERATOR login + a
   `/finance/reconciliation/summary` and `/delivery/payouts/summary` read return the shapes the tab renders.
 - Session 34 complete & pushed.
+
+## Session 35 — DELIVERY-partner management console
+
+- **Date:** 2026-09-08
+- **Objective (owner-chosen via ask_user):** a back-office DELIVERY-partner management console for
+  OPERATOR/ADMIN: register a DELIVERY-role user as a delivery partner, toggle partner status
+  ACTIVE/SUSPENDED, and view each partner's assignments plus the courier-payout summary/ledger. It consumes
+  the existing OPERATOR/ADMIN `/delivery/*` routes (Sessions 15/30/32), which already enforce RBAC.
+- **Delivered in `catalog-console/`:**
+  - `src/api.js` — new `deliveryOpsApi` (`partners`, `partnerCandidates`, `registerPartner`,
+    `partnerStatus`, `assignments`, `assignment`, `assignmentCancel`, `payoutsAll`).
+  - `src/views/DeliveryOps.jsx` (NEW) — an OPERATOR/ADMIN **"Delivery Partners"** tab with three sub-sections:
+    - **Partners** — a register form fed by `/delivery/partner-candidates` (DELIVERY-role users with no
+      partner profile yet; auto `DLV-…` code + optional vehicle type) driving `POST /delivery/partners`, plus
+      the partner list (code/name/email/vehicle + ACTIVE/SUSPENDED badges) with **Activate/Suspend** buttons
+      (`PATCH /delivery/partners/:id/status`) and a "View assignments" jump.
+    - **Assignments** — a status + per-partner filter over `/delivery/assignments` (expandable rows opening
+      `/delivery/assignments/:id` full detail with partner/carrier/POD + the assignment events timeline).
+    - **Courier Payouts** — read-only KPIs + per-partner pending list + the payout ledger
+      (`/delivery/payouts/{summary,all}`); settlement execution stays on the Session-34 Finance tab.
+  - `src/App.jsx` — added the staff "Delivery Partners" tab. `npm run build` clean.
+- **Backend (additive, no schema change):** `GET /delivery/partner-candidates`
+  (`DeliveryController` + `DeliveryService.listPartnerCandidates`: DELIVERY-role users whose `deliveryPartner`
+  is null, ordered by email) so the register form lists onboardable candidates; `@Roles(OPERATOR, ADMIN)`.
+  Added one unit test in `delivery.service.spec.ts`. Full suite stays green.
+- **Live verification (`scripts/e2e-deliveryops.mjs`, 22/22, sandbox API `:4600`):** RBAC negatives — CUSTOMER /
+  SELLER / DELIVERY all get **403** on `/delivery/partners`, `/delivery/partner-candidates`,
+  `/delivery/assignments`; a throwaway DELIVERY-role user appears in `/delivery/partner-candidates`;
+  `POST /delivery/partners` registers it **ACTIVE** (auto `DLV-…` code + vehicleType) and it drops out of
+  candidates; duplicate register → **409**; **SUSPENDED → ACTIVE** status toggle round-trip; it appears in
+  `/delivery/partners`; assignments list shape + per-partner filter isolation (fresh partner total 0, seeded
+  partner resolves) + a detail row (assignmentNumber/status/sellerOrder/events); payout summary (INR +
+  partners) + ledger shapes. The script **self-cleans** the throwaway partner + DELIVERY user + customer and
+  asserts the partner roster is back to the 1 seeded row.
+- Session 35 complete & pushed.

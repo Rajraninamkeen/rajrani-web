@@ -156,3 +156,13 @@ textarea { resize: vertical; }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .alert { background: #fce8e6; color: var(--err); padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; font-weight: 600; }
 .product-head { display: flex; justify-content: space-between; align-items: center; cursor: pointer; gap: 10px; }
+
+/* Session 35 — delivery partner + assignment status badges */
+.badge.st-ACTIVE { background: #e6f6ec; color: #1e7d46; }
+.badge.st-REGISTERED, .badge.st-INACTIVE { background: #eef1f5; color: #555; }
+.badge.st-SUSPENDED { background: #fdeaea; color: #c0392b; }
+.badge.st-ASSIGNED { background: #fff4e0; color: #a8670a; }
+.badge.st-ACCEPTED, .badge.st-DELIVERED { background: #e6f6ec; color: #1e7d46; }
+.badge.st-PICKED_UP { background: #e3f2fd; color: #1565c0; }
+.badge.st-OUT_FOR_DELIVERY { background: #ede7f6; color: #5e35b1; }
+.badge.st-SUSPENDED, .badge.st-FAILED, .badge.st-REJECTED { background: #fdeaea; color: #c0392b; }

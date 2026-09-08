@@ -40,6 +40,12 @@ export class DeliveryAdminController {
     return this.delivery.listPartners();
   }
 
+  @Get('partner-candidates')
+  @Roles('OPERATOR', 'ADMIN')
+  partnerCandidates() {
+    return this.delivery.listPartnerCandidates();
+  }
+
   @Patch('partners/:partnerId/status')
   @Roles('OPERATOR', 'ADMIN')
   partnerStatus(

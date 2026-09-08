@@ -139,3 +139,19 @@ export const deliveryApi = {
   replacementDeliver: (id) => api('POST', `/delivery/replacement-tasks/${id}/deliver`, { body: {} }),
   replacementFail: (id, reason) => api('POST', `/delivery/replacement-tasks/${id}/fail`, { body: { reason } }),
 };
+
+// Session 35 — back-office DELIVERY-partner management (OPERATOR/ADMIN): register
+// partners, toggle partner status, and inspect partner assignments over the existing
+// /delivery partner/assignment routes (Sessions 15/30).
+export const deliveryOpsApi = {
+  partners: () => api('GET', '/delivery/partners'),
+  partnerCandidates: () => api('GET', '/delivery/partner-candidates'),
+  registerPartner: (userId, partnerCode, vehicleType) =>
+    api('POST', '/delivery/partners', { body: { userId, partnerCode, vehicleType } }),
+  partnerStatus: (partnerId, status) => api('PATCH', `/delivery/partners/${partnerId}/status`, { body: { status } }),
+  assignments: (params) => api('GET', '/delivery/assignments' + qs(params)),
+  assignment: (id) => api('GET', `/delivery/assignments/${id}`),
+  assignmentCancel: (id) => api('POST', `/delivery/assignments/${id}/cancel`, { body: {} }),
+  // payout ledger read (shared with the Session-34 Finance console).
+  payoutsAll: (params) => api('GET', '/delivery/payouts/all' + qs(params)),
+};

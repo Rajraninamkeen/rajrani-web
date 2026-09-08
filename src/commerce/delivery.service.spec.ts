@@ -77,6 +77,19 @@ describe('DeliveryService (Session 15)', () => {
     expect(p.id).toBe('p9');
   });
 
+  it('listPartnerCandidates returns DELIVERY users without a partner profile', async () => {
+    prisma.user.findMany = jest.fn().mockResolvedValue([
+      { id: 'u20', email: 'rider20@e.co', fullName: 'Rider Twenty' },
+      { id: 'u21', email: 'rider21@e.co', fullName: 'Rider Twenty-One' },
+    ]);
+    const out = await service.listPartnerCandidates();
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ role: 'DELIVERY', deliveryPartner: null }),
+    }));
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual({ userId: 'u20', email: 'rider20@e.co', fullName: 'Rider Twenty' });
+  });
+
   it('assignSlice rejects a slice that is not ACCEPTED', async () => {
     prisma.sellerOrder.findUnique.mockResolvedValue(sellerOrder({ status: SellerOrderStatus.PLACED }));
     await expect(service.assignSlice('op1', 'so1', { deliveryPartnerId: 'p1' } as any)).rejects.toThrow(ConflictException);

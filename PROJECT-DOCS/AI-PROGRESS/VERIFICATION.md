@@ -596,3 +596,15 @@ Run from repo root after `npm run build`.
 | Live E2E `scripts/e2e-finance.mjs` (sandbox API `:4600`, **32/32 ok**) | RBAC negatives (CUSTOMER/SELLER/DELIVERY → 403 on `/finance/*` + courier-payout staff routes); OPERATOR read shapes (reconciliation checked/discrepancyCount/ok, report perSeller+totals, payout summary currency+partners); throwaway money round-trip → courier parcel deliver **EARNED ₹35** + seller payable EARNED → payout summary lists partner pending → **settle** `{settled:1,totalAmount:35}` → row **SETTLED** (settledAt) → seller **settlement create** (PENDING) → illegal `PENDING→PAID` **409** → `PENDING→APPROVED` → appears in the list read; script **self-cleans** every row and asserts `cp=0,sp=0,st=0` |
 | Console proxy `:5173` | OPERATOR login + `/finance/reconciliation/summary` + `/delivery/payouts/summary` read return the shapes the FinanceOps tab renders |
 | `git push origin main` | Session 34 feature + docs committed and pushed (see git log) |
+
+### Session 35 — DELIVERY-partner management console
+
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| `npm run typecheck` / `npm run build` | clean |
+| `npx jest` | **26 suites / 239 tests passed** (added `listPartnerCandidates` unit case to `delivery.service.spec.ts`, +1) |
+| `catalog-console` `npm run build` | clean |
+| Live E2E `scripts/e2e-deliveryops.mjs` (sandbox API `:4600`, **22/22 ok**) | RBAC negatives (CUSTOMER/SELLER/DELIVERY → 403 on `/delivery/partners`, `/delivery/partner-candidates`, `/delivery/assignments`); throwaway DELIVERY-role user appears in candidates; `POST /delivery/partners` → **ACTIVE** auto `DLV-…` + vehicleType, then drops out of candidates; duplicate → **409**; **SUSPENDED → ACTIVE** toggle; appears in `/delivery/partners`; assignments list shape + per-partner filter isolation (fresh partner 0 / seeded resolves) + a detail row (number/status/sellerOrder/events); payout summary (INR + partners) + ledger shapes; script **self-cleans** the throwaway partner + DELIVERY user + customer and asserts the roster is back to the 1 seeded partner |
+| `git push origin main` | Session 35 feature + docs committed and pushed (see git log) |

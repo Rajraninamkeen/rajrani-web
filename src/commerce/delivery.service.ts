@@ -93,6 +93,20 @@ export class DeliveryService {
     return rows.map((p) => this.partnerPublic(p));
   }
 
+  /**
+   * DELIVERY-role users who do not yet have a delivery-partner profile — the
+   * registerable candidates an OPERATOR sees in the partner-management console.
+   * Read-only; additive staff read surface (Session 35).
+   */
+  async listPartnerCandidates() {
+    const rows = await this.prisma.user.findMany({
+      where: { role: 'DELIVERY', deliveryPartner: null },
+      orderBy: { email: 'asc' },
+      select: { id: true, email: true, fullName: true },
+    });
+    return rows.map((u) => ({ userId: u.id, email: u.email, fullName: u.fullName }));
+  }
+
   async setPartnerStatus(actorId: string, partnerId: string, status: DeliveryPartnerStatus) {
     const p = await this.prisma.deliveryPartner.findUnique({ where: { id: partnerId } });
     if (!p) throw new NotFoundException('Delivery partner not found');
