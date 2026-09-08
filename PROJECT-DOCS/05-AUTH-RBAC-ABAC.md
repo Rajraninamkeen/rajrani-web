@@ -3394,3 +3394,51 @@ Observability
 Failure Recovery
 ```
 
+
+
+---
+
+# Session 14 addendum — Seller onboarding / KYC (orgs, applications, REVIEWER)
+
+Role gates that changed this session:
+
+- A dedicated `REVIEWER` staff role was added with **onboarding-only scope**. A REVIEWER
+  may list/read seller applications and reviews, verify KYC documents, and activate an
+  APPROVED seller to ACTIVE. A REVIEWER is **denied** finance (`/finance/**`),
+  settlement, fulfilment (`/fulfilment/**`), returns operator (`/return-requests/**`),
+  seller order ops (`/seller/orders/**`), and seller admin-create routes.
+- `OPERATOR`/`ADMIN` retain operational control: `adminCreateSeller`, and setting
+  ACTIVE/SUSPENDED/DEACTIVATED via the seller status route.
+- `ADMIN` inherits REVIEWER capabilities (list/review/verify/activate) in addition to its
+  own.
+
+New/auth-touched endpoints:
+
+- `POST /auth/seller-register` (public) — self-service seller signup. Creates a SELLER-type
+  `Organization`, a PENDING `Seller`, a DRAFT `SellerApplication`, an ACTIVE SELLER user and an
+  OWNER `OrganizationMember`, then returns `{ user, tokens, seller }`.
+- `GET/PATCH /seller/onboarding/me|profile`, `POST /seller/onboarding/documents`,
+  `POST /seller/onboarding/submit` (SELLER-role owner only; bound to the caller's own seller).
+- `POST /seller-onboarding/sellers` (OPERATOR/ADMIN) — operator-managed seller creation.
+- `GET /seller-onboarding/applications`, `GET .../applications/:id`,
+  `POST .../applications/:id/review` (REVIEWER/ADMIN).
+- `POST /seller-onboarding/documents/:id/verify` (REVIEWER/ADMIN).
+- `POST /seller-onboarding/sellers/:id/activate` (REVIEWER/ADMIN/OPERATOR).
+- `POST /seller-onboarding/sellers/:id/status` (OPERATOR/ADMIN).
+
+Seller lifecycle used by onboarding (state machine):
+
+```
+REGISTERED -> PENDING -> UNDER_REVIEW --(approve)--> APPROVED --(activate)--> ACTIVE
+                                \--(correction/additional info)--> PENDING (resubmit loop)
+                                \--(reject)--> REJECTED
+ACTIVE --(operator)--> SUSPENDED | DEACTIVATED  ;  SUSPENDED/DEACTIVATED --(operator)--> ACTIVE
+```
+
+Owner editing/submission is allowed only while the seller is REGISTERED/PENDING/UNDER_REVIEW;
+once ACTIVE the owner's onboarding surface is read-only (`409 Onboarding is not editable`).
+
+Document uploads record **storage intent only** (`storageObjectId`, `fileName`, `mimeType`,
+`sizeBytes`); no real object store is contacted. Bank details are stored as holder name,
+account last-4 and IFSC only.
+

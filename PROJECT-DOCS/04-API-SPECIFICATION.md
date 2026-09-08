@@ -3148,3 +3148,51 @@ BILOKAT/
     └── 04-API-SPECIFICATION.md   ← नया
 ```
 
+
+
+---
+
+# Session 14 addendum — Seller onboarding / KYC endpoints (reference)
+
+## POST /api/v1/auth/seller-register  (public)
+Seller self-service registration.
+Request:
+```json
+{ "email": "s@ex.com", "password": "Secret1!", "fullName": "Owner",
+  "legalName": "Legal Entity Pvt Ltd", "businessName": "Shop Name",
+  "gstin": "27AAACP1234F1Z5",   // optional
+  "pan": "AABCD1234E",           // optional
+  "commissionRateBps": 0 }       // optional, 0..10000
+```
+Creates a SELLER Organization (slug `org-<name>-<hex>`), a PENDING Seller with a random
+`sellerCode` (`SELL-XXXXXXXX`), a DRAFT SellerApplication, an ACTIVE SELLER User and an OWNER
+OrganizationMember. Response 201:
+```json
+{ "success": true, "data": { "user": {"id":"","email":"","role":"SELLER","status":"ACTIVE"},
+  "tokens": {"accessToken":"","refreshToken":"","expiresIn":900},
+  "seller": {"id":"","sellerCode":"SELL-XXXXXXXX","legalName":"","displayName":"",
+             "status":"PENDING","organizationId":""} } }
+```
+Errors: 409 duplicate email, 400 validation.
+
+## Seller owner surface (Bearer, role SELLER, bound to own seller) — prefix `/api/v1/seller/onboarding`
+- `GET  /me` — seller org + latest application + its documents.
+- `PATCH /profile` — body subsets of { gstin, pan, businessAddress, city, state,
+  bankAccountHolder, bankAccountLast4, bankIfsc, payoutPreference, businessName, agreedToTerms }.
+- `POST /documents` — body { documentType, storageObjectId, fileName, mimeType?, sizeBytes? }.
+  Storage-intent only; no object store is contacted. Returns the PENDING document record.
+- `POST /submit` — moves application to SUBMITTED (or RESUBMITTED) and seller to UNDER_REVIEW.
+  Requires agreedToTerms. 409 when seller not in an editable state.
+
+## Marketplace staff — prefix `/api/v1/seller-onboarding`
+- `POST /sellers`                      (OPERATOR/ADMIN) create ACTIVE seller; optional operatorEmail.
+- `GET  /applications?status=&sellerId=&page=&limit=` (REVIEWER/ADMIN) paged list.
+- `GET  /applications/:id`             (REVIEWER/ADMIN) detail + documents + review history.
+- `POST /applications/:id/review`      (REVIEWER/ADMIN) { decision: APPROVE|REJECT|CORRECTION_REQUIRED|ADDITIONAL_INFORMATION_REQUIRED, reason?, notes? }.
+- `POST /documents/:id/verify`         (REVIEWER/ADMIN) { approved, reason? }.
+- `POST /sellers/:id/activate`         (REVIEWER/ADMIN/OPERATOR) APPROVED -> ACTIVE only.
+- `POST /sellers/:id/status`           (OPERATOR/ADMIN) { status: ACTIVE|SUSPENDED|DEACTIVATED, reason? }.
+
+Note: a REVIEWER has onboarding scope only and receives 403 on `/finance/**`, `/fulfilment/**`,
+`/return-requests/**`, `/seller/orders/**`, and the OP/ADMIN seller-create & status routes.
+

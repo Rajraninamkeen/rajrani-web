@@ -145,6 +145,7 @@ model User {
   // (Session 09 split-checkout; organisations/org-members is a later refinement).
   sellerId  String?
   seller    Seller?    @relation("SellerOperators", fields: [sellerId], references: [id])
+  memberships OrganizationMember[] // Session 14: org memberships (seller operator owners)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   deletedAt DateTime?
@@ -792,7 +793,12 @@ model RefundTransaction {
 // ===================== Session 09: Seller orgs + split-checkout =====================
 
 enum SellerStatus {
-  ACTIVE
+  REGISTERED // account created; profile/application not yet complete (Session 14)
+  PENDING // awaiting profile completion / submission
+  UNDER_REVIEW // application submitted; reviewer acting on it
+  APPROVED // onboarding approved; not yet activated
+  ACTIVE // approved + activated: may operate (existing operational gate value)
+  REJECTED // onboarding rejected
   SUSPENDED
   DEACTIVATED
 }
@@ -813,16 +819,27 @@ model Seller {
   // Platform commission this seller is charged on the goods value they sell
   // (basis points, Session 12). Bilokat's own storefront seller is 0.
   commissionRateBps Int    @default(0)
+  // Session 14: additive organization binding. The seller's SELLER-type org
+  // (Organization) plus a nullable direct link are populated for new/backfilled
+  // sellers; existing `operators` (User[] via users.sellerId) is retained as a
+  // denormalized convenience so prior commerce code is untouched.
+  organizationId String?
+  organization   Organization? @relation("SellerOrg", fields: [organizationId], references: [id])
+  activatedAt    DateTime?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  products     Product[] // products this seller owns
-  sellerOrders SellerOrder[]
-  operators    User[]     @relation("SellerOperators") // SELLER-role users bound here
-  payables     SellerPayable[]
-  settlements  Settlement[]
+  products      Product[] // products this seller owns
+  sellerOrders  SellerOrder[]
+  operators     User[]     @relation("SellerOperators") // SELLER-role users bound here
+  payables      SellerPayable[]
+  settlements   Settlement[]
+  applications  SellerApplication[]
+  documents     SellerDocument[]
+  statusHistory SellerStatusHistory[]
 
   @@index([status])
+  @@index([organizationId])
   @@map("sellers")
 }
 
@@ -1029,4 +1046,189 @@ model SettlementEvent {
 
   @@index([settlementId])
   @@map("settlement_events")
+}
+
+// ===================== Session 14: Organizations + seller onboarding/KYC =====================
+
+enum OrganizationType {
+  SELLER
+  INTERNAL
+  PARTNER
+  OTHER
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum OrganizationMemberStatus {
+  ACTIVE
+  INVITED
+  REMOVED
+}
+
+enum OrganizationMemberRole {
+  OWNER // founder/owner operator of the seller org
+  OPERATOR // day-to-day operator within the seller org
+  VIEWER // read-only within the org
+}
+
+model Organization {
+  id     String           @id @default(cuid())
+  name   String
+  slug   String           @unique
+  type   OrganizationType @default(SELLER)
+  status OrganizationStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sellers Seller[] @relation("SellerOrg")
+  members OrganizationMember[]
+
+  @@index([type])
+  @@index([status])
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String                  @id @default(cuid())
+  organizationId String
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           OrganizationMemberRole  @default(OPERATOR)
+  status         OrganizationMemberStatus @default(ACTIVE)
+  joinedAt       DateTime                @default(now())
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+enum SellerApplicationStatus {
+  DRAFT // in progress, not submitted
+  SUBMITTED // awaiting review
+  UNDER_REVIEW // reviewer has begun
+  RESUBMITTED // resubmitted after correction
+  CORRECTION_REQUIRED // reviewer asked for changes
+  ADDITIONAL_INFORMATION_REQUIRED
+  APPROVED
+  REJECTED
+}
+
+enum SellerDocumentType {
+  GST_CERTIFICATE
+  PAN_CARD
+  BANK_ACCOUNT_PROOF
+  ADDRESS_PROOF
+  BUSINESS_REGISTRATION
+  ID_PROOF
+  OTHER
+}
+
+enum DocumentVerificationStatus {
+  PENDING // uploaded, not yet reviewed
+  SUBMITTED
+  VERIFIED // reviewer approved
+  REJECTED
+}
+
+enum ReviewDecision {
+  APPROVE
+  REJECT
+  CORRECTION_REQUIRED
+  ADDITIONAL_INFORMATION_REQUIRED
+}
+
+model SellerApplication {
+  id               String                 @id @default(cuid())
+  sellerId         String
+  seller           Seller                 @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  applicationNumber String                @unique
+  status           SellerApplicationStatus @default(DRAFT)
+  // Business / KYC profile captured on the application (representative typed subset;
+  // official identity records are the SellerDocuments. Bank details stored as safe
+  // last-4 + IFSC rather than full account numbers).
+  gstin            String?
+  pan              String?
+  businessAddress  String?
+  city             String?
+  state            String?
+  bankAccountHolder String?
+  bankAccountLast4 String?
+  bankIfsc         String?
+  payoutPreference String?
+  agreedToTerms    Boolean                @default(false)
+  agreedToTermsAt  DateTime?
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewedBy       String?
+  rejectionReason  String?
+  correctionReason String?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  reviews   SellerReview[]
+  documents SellerDocument[]
+
+  @@index([sellerId])
+  @@index([status])
+  @@map("seller_applications")
+}
+
+model SellerDocument {
+  id            String                     @id @default(cuid())
+  sellerId      String
+  seller        Seller                     @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  applicationId String?
+  application   SellerApplication?         @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  documentType  SellerDocumentType
+  storageObjectId String                   @unique
+  fileName      String
+  mimeType      String?
+  sizeBytes     Int?
+  status        DocumentVerificationStatus @default(PENDING)
+  uploadedBy    String?
+  uploadedAt    DateTime                   @default(now())
+  verifiedAt    DateTime?
+  verifiedBy    String?
+  rejectionReason String?
+  createdAt     DateTime                   @default(now())
+
+  @@index([sellerId])
+  @@index([documentType])
+  @@map("seller_documents")
+}
+
+// Audited reviewer decisions on an application.
+model SellerReview {
+  id                 String        @id @default(cuid())
+  sellerApplicationId String
+  sellerApplication  SellerApplication @relation(fields: [sellerApplicationId], references: [id], onDelete: Cascade)
+  reviewerId         String
+  decision           ReviewDecision
+  reason             String?
+  notes              String?
+  createdAt          DateTime      @default(now())
+
+  @@index([sellerApplicationId])
+  @@map("seller_reviews")
+}
+
+// Immutable seller lifecycle audit (Session 14 onboarding status transitions).
+model SellerStatusHistory {
+  id             String       @id @default(cuid())
+  sellerId       String
+  seller         Seller       @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  fromStatus     SellerStatus?
+  toStatus       SellerStatus
+  changedBy      String?
+  reason         String?
+  createdAt      DateTime     @default(now())
+
+  @@index([sellerId])
+  @@map("seller_status_history")
 }

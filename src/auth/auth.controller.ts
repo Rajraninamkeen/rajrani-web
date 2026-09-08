@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { LoginDto, RefreshDto, RegisterDto } from './dto/auth.dto';
+import { LoginDto, RefreshDto, RegisterDto, SellerRegisterDto } from './dto/auth.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUserId } from './decorators/current-user.decorator';
@@ -12,6 +12,11 @@ export class AuthController {
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
+  }
+
+  @Post('seller-register')
+  sellerRegister(@Body() dto: SellerRegisterDto) {
+    return this.auth.sellerRegister(dto);
   }
 
   @HttpCode(HttpStatus.OK)

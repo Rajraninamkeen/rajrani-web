@@ -6,6 +6,7 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { CommerceModule } from './commerce/commerce.module';
+import { SellerModule } from './seller/seller-onboarding.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -20,6 +21,7 @@ import { AppController } from './app.controller';
     AuthModule,
     CatalogModule,
     CommerceModule,
+    SellerModule,
   ],
   controllers: [AppController],
 })

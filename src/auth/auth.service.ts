@@ -9,7 +9,7 @@ import { User, UserStatus } from '../generated/prisma/client';
 import { compare, hash } from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { LoginDto, RefreshDto, RegisterDto } from './dto/auth.dto';
+import { LoginDto, RefreshDto, RegisterDto, SellerRegisterDto } from './dto/auth.dto';
 import {
   AccessTokenPayload,
   PublicUser,
@@ -17,6 +17,14 @@ import {
 } from './auth.types';
 
 const ACCESS_BCRYPT_ROUNDS = 12;
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+}
 
 @Injectable()
 export class AuthService {
@@ -53,6 +61,83 @@ export class AuthService {
 
     const tokens = await this.issueTokens(user, 'register');
     return { user: this.toPublic(user), tokens };
+  }
+
+  /**
+   * Public seller self-registration (Session 14). Registration ≠ approval: creates a
+   * PENDING seller under a SELLER-type Organization, a draft SellerApplication, the
+   * applicant as a SELLER-role user + an OWNER OrganizationMember, and returns tokens.
+   * The seller cannot operate until a REVIEWER approves and an operator ACTIVATES it.
+   */
+  async sellerRegister(dto: SellerRegisterDto): Promise<{ user: PublicUser; tokens: TokenPair; seller: any }> {
+    const existing = await this.prisma.user.findFirst({
+      where: { OR: [{ email: dto.email.toLowerCase() }, ...(dto.phone ? [{ phone: dto.phone }] : [])] },
+      select: { email: true, phone: true },
+    });
+    if (existing) {
+      if (existing.email === dto.email.toLowerCase()) {
+        throw new ConflictException('An account with this email already exists');
+      }
+      throw new ConflictException('An account with this mobile number already exists');
+    }
+    const passwordHash = await hash(dto.password, ACCESS_BCRYPT_ROUNDS);
+    const sellerCode = `SELL-${randomBytes(4).toString('hex').toUpperCase()}`;
+    const orgSlug = `org-${slugify(dto.businessName)}-${randomBytes(2).toString('hex')}`;
+
+    const out = await this.prisma.$transaction(async (tx) => {
+      const org = await tx.organization.create({
+        data: { name: dto.businessName, slug: orgSlug, type: 'SELLER', status: 'ACTIVE' },
+      });
+      const seller = await tx.seller.create({
+        data: {
+          sellerCode,
+          legalName: dto.legalName,
+          displayName: dto.businessName,
+          status: 'PENDING',
+          commissionRateBps: dto.commissionRateBps ?? 0,
+          organizationId: org.id,
+        },
+      });
+      await tx.sellerApplication.create({
+        data: {
+          sellerId: seller.id,
+          applicationNumber: `SAPP-${randomBytes(4).toString('hex').toUpperCase()}`,
+          status: 'DRAFT',
+          gstin: dto.gstin ?? null,
+          pan: dto.pan ?? null,
+          agreedToTerms: false,
+        },
+      });
+      const user = await tx.user.create({
+        data: {
+          email: dto.email.toLowerCase(),
+          phone: dto.phone ?? null,
+          fullName: dto.fullName ?? dto.legalName,
+          passwordHash,
+          status: 'ACTIVE',
+          role: 'SELLER',
+          sellerId: seller.id,
+        },
+      });
+      await tx.organizationMember.create({
+        data: { organizationId: org.id, userId: user.id, role: 'OWNER', status: 'ACTIVE' },
+      });
+      return { org, seller, user };
+    });
+
+    const tokens = await this.issueTokens(out.user, 'seller-register');
+    return {
+      user: this.toPublic(out.user),
+      tokens,
+      seller: {
+        id: out.seller.id,
+        sellerCode: out.seller.sellerCode,
+        legalName: out.seller.legalName,
+        displayName: out.seller.displayName,
+        status: out.seller.status,
+        organizationId: out.org.id,
+      },
+    };
   }
 
   // ---------- login ----------

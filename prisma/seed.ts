@@ -37,10 +37,17 @@ async function main(): Promise<void> {
   ];
   const sellerByCode: Record<string, string> = {};
   for (const s of SELLERS) {
+    // Session 14: each seller belongs to a SELLER-type Organization.
+    const orgSlug = 'org_' + s.sellerCode.replace(/_/g, '-').toLowerCase();
+    const org = await prisma.organization.upsert({
+      where: { slug: orgSlug },
+      update: { name: s.displayName, status: 'ACTIVE' },
+      create: { slug: orgSlug, name: s.displayName, type: 'SELLER', status: 'ACTIVE' },
+    });
     await prisma.seller.upsert({
       where: { id: s.id },
-      update: { sellerCode: s.sellerCode, legalName: s.legalName, displayName: s.displayName, status: 'ACTIVE', commissionRateBps: s.commissionRateBps },
-      create: { id: s.id, sellerCode: s.sellerCode, legalName: s.legalName, displayName: s.displayName, status: 'ACTIVE', commissionRateBps: s.commissionRateBps },
+      update: { sellerCode: s.sellerCode, legalName: s.legalName, displayName: s.displayName, status: 'ACTIVE', commissionRateBps: s.commissionRateBps, organizationId: org.id, activatedAt: new Date() },
+      create: { id: s.id, sellerCode: s.sellerCode, legalName: s.legalName, displayName: s.displayName, status: 'ACTIVE', commissionRateBps: s.commissionRateBps, organizationId: org.id, activatedAt: new Date() },
     });
     sellerByCode[s.sellerCode] = s.id;
   }
@@ -167,7 +174,7 @@ async function main(): Promise<void> {
   ];
   for (const u of sellerOps) {
     const passwordHash = await hash('Seller@123', 12);
-    await prisma.user.upsert({
+    const created = await prisma.user.upsert({
       where: { email: u.email },
       update: { fullName: u.fullName, role: 'SELLER', sellerId: u.sellerId, status: 'ACTIVE' },
       create: {
@@ -179,6 +186,15 @@ async function main(): Promise<void> {
         status: 'ACTIVE',
       },
     });
+    // Session 14: bind the seller operator as an OWNER member of their seller org.
+    const sel = await prisma.seller.findUnique({ where: { id: u.sellerId } });
+    if (sel?.organizationId) {
+      await prisma.organizationMember.upsert({
+        where: { organizationId_userId: { organizationId: sel.organizationId, userId: created.id } },
+        update: { role: 'OWNER', status: 'ACTIVE' },
+        create: { organizationId: sel.organizationId, userId: created.id, role: 'OWNER', status: 'ACTIVE' },
+      });
+    }
   }
   console.log('  ✓ seller operators');
 

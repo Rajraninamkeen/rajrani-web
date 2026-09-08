@@ -1,10 +1,13 @@
 import {
   IsEmail,
+  IsInt,
   IsOptional,
   IsString,
   IsStrongPassword,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -38,6 +41,34 @@ export class LoginDto {
   @IsString()
   @MinLength(1)
   password!: string;
+}
+
+export class SellerRegisterDto extends RegisterDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(200)
+  legalName!: string; // legal / registered business name
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(200)
+  businessName!: string; // display name / brand
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10000)
+  commissionRateBps?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(15)
+  gstin?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  pan?: string;
 }
 
 export class RefreshDto {
