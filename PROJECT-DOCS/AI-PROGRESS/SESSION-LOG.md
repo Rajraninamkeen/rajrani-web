@@ -801,3 +801,49 @@ Live E2E run — see VERIFICATION Session 05 table.
   activate (ACTIVE, activatedAt set) → 409 on re-review of a closed app + 409 on owner
   editing once ACTIVE; OPERATOR `adminCreateSeller` returns an ACTIVE seller + OWNER
   member (the FK 500 bug fixed in this pass). See VERIFICATION Session 14.
+## Session 15 — Per-slice delivery / courier handoff (DELIVERY role)
+- **Date:** 2026-09-08
+- **Objective (owner-selected via ask_user):** move the delivery last-mile from the generic
+  order-level operator advance onto a **per-slice courier model** with a dedicated
+  **DELIVERY** role, running as an additive layer **on top of** the existing order-level
+  delivery + money trigger. Owner decision: **seller payables still auto-earn at order
+  DELIVERED** (Session 12/13 net-zero money + reconciliation unchanged) — per-slice courier
+  delivery finalizes the order only when every non-cancelled slice is delivered.
+- **Schema/migration `20260908150000_seller_slice_delivery_courier`** (16th, applied to the
+  live DB via `psql -f` + `_prisma_migrations` insert; `migrate status` up to date). Adds
+  `delivery_partners`, `delivery_assignments` (keyed to a `seller_orders` slice, with
+  denormalized `orderId` + assignment audit timeline), `delivery_events`, and enums
+  `DeliveryPartnerStatus` + `DeliveryAssignmentStatus`
+  (ASSIGNED→ACCEPTED→PICKED_UP→OUT_FOR_DELIVERY→DELIVERED, plus REJECTED/FAILED/CANCELLED).
+  No ALTERs to existing money/order tables — fully additive. Back-relations added on
+  `Order`/`SellerOrder`/`User`.
+- **Auth:** `ROLES` gains `DELIVERY` (courier/delivery partner). Partner profiles bind a
+  DELIVERY-role user one-to-one (`delivery_partners.userId` unique).
+- **New `src/commerce/delivery.service.ts` + controllers (registered in CommerceModule):**
+  - OPERATOR/ADMIN `/delivery`: `POST /partners` (register a DELIVERY user as an ACTIVE
+    partner), `GET /partners`, `PATCH /partners/:id/status`, `GET /assignments`,
+    `GET /assignments/:id` (detail + events), `POST /slices/:sellerOrderId/assign` and
+    `/reassign`, `POST /assignments/:id/cancel`.
+  - DELIVERY `/delivery/tasks`: `GET` (my active tasks), and `accept`, `reject` (reason),
+    `pickup`, `out-for-delivery`, `deliver`, `fail` (reason) per assignment.
+  - Guards: assign requires the slice ACCEPTED + not delivered + order SHIPPED/OUT_FOR_DELIVERY
+    + an ACTIVE partner + no existing active assignment; a partner can only act on its own
+    assignment; steps are ordered (ASSIGNED→ACCEPTED→PICKED_UP→OUT_FOR_DELIVERY→DELIVERED).
+  - **`deliver`** sets the slice's `deliveredAt` and the assignment DELIVERED; when no
+    non-cancelled slice of the order remains undelivered it finalizes the order to DELIVERED
+    in the same transaction (order `deliveredAt`, COD_PAID for COD, an `order_status_history`
+    CONTROL row) and calls `SettlementService.earnDeliveredSlices(tx, orderId)` — reusing the
+    Session 12/13 earn path unchanged. Delivery events audit every step.
+  - RBAC: DELIVERY is courier-scoped — 403 on finance/fulfilment/seller/onboarding/op-create
+    routes; OPERATOR/REVIEWER are 403 on the DELIVERY-only task surface.
+- **Tests:** `delivery.service.spec.ts` +12 (registerPartner role/dup, assign guards, courier
+  step ordering, own-assignment authorization, reject/fail, non-last-slice vs last-slice
+  deliver → earn only on the last slice). Full suite **16 suites / 136 tests** (was 124);
+  typecheck + build clean.
+- **Live E2E (`:4000`):** created a DELIVERY fixture; OPERATOR registered its ACTIVE partner
+  profile (`DLV-…`); DELIVERY → 403 on `/delivery/partners`, `/delivery/assignments`, and
+  `/finance/settlements`; OPERATOR → 403 on `/delivery/tasks` and REVIEWER → 403 on
+  `/delivery/partners`; DELIVERY `GET /delivery/tasks` 200 (empty); OPERATOR assignment list
+  200 (0); `assign` on a bogus slice → 404. Full slice→DELIVERED+earn courier delivery was
+  **unit-tested**, not re-run live (no courier-stage order existed in the live DB). See
+  VERIFICATION Session 15.

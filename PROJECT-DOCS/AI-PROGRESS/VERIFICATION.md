@@ -338,3 +338,16 @@
 | guards | re-review of closed (APPROVED) app → **409** "already closed"; owner `POST /submit` once ACTIVE → **409** "not editable" |
 | OPERATOR admin-create | `POST /seller-onboarding/sellers` (OPERATOR) → **201 ACTIVE** seller, commissionRateBps 250, org + `operatorCreated:true` (OWNER member) — after fixing the tx-scoped status-history FK 500 |
 | `git push origin main` | pushed `8930517` Session 14 to `main` (2026-09-08) |
+## Session 15 — Per-slice delivery / courier handoff (DELIVERY role) (2026-09-08, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| migration `20260908150000_seller_slice_delivery_courier` | **16th**, applied to live DB via `psql -f` + `_prisma_migrations` insert; `npx prisma migrate status` = 16, up to date; `prisma generate` ok |
+| `npm run typecheck` / `build` | exit 0 |
+| `npm test` | **16 suites / 136 tests PASS** (delivery.service.spec +12) |
+| tables/enums | `delivery_partners`, `delivery_assignments`, `delivery_events`, `DeliveryPartnerStatus`, `DeliveryAssignmentStatus`; no ALTERs to order/seller_order/payable tables |
+| partner registry | OPERATOR `POST /delivery/partners` for a DELIVERY user → **201 ACTIVE** partner `DLV-…`; OPERATOR `GET /delivery/partners` 200 |
+| RBAC | DELIVERY → **403** on `/delivery/partners`, `/delivery/assignments`, `/finance/settlements`; OPERATOR → **403** on `/delivery/tasks`; REVIEWER → **403** on `/delivery/partners`; DELIVERY `GET /delivery/tasks` **200** (empty) |
+| operator surfaces | `GET /delivery/assignments` 200 (total 0); `POST /delivery/slices/:id/assign` on a bogus slice → **404** (route reachable) |
+| courier slice flow (accept→pickup→out-for-delivery→deliver/fail, own-assignment authz, step ordering, final-slice earn) | covered by `delivery.service.spec` (12 tests); final-slice `deliver` asserts `settlement.earnDeliveredSlices(tx, orderId)` only on the last slice — not re-run live this pass (no courier-stage order existed in the live DB) |
+| `git push origin main` | pending (this session) |

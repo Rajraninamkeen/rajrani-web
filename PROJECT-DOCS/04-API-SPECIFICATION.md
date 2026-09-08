@@ -3196,3 +3196,28 @@ Errors: 409 duplicate email, 400 validation.
 Note: a REVIEWER has onboarding scope only and receives 403 on `/finance/**`, `/fulfilment/**`,
 `/return-requests/**`, `/seller/orders/**`, and the OP/ADMIN seller-create & status routes.
 
+
+---
+
+# Session 15 addendum — Delivery/courier endpoints (reference)
+
+## OPERATOR/ADMIN — `/api/v1/delivery`
+- `POST /partners` `{ userId (a DELIVERY-role user), partnerCode?, vehicleType? }` → creates an ACTIVE `DeliveryPartner` (one per user). 409 if the user already has a profile; 400 if the user is not DELIVERY-role.
+- `GET /partners`, `PATCH /partners/:id/status` `{ status: ACTIVE|SUSPENDED|INACTIVE|REGISTERED }`.
+- `GET /assignments?status=&deliveryPartnerId=&orderId=&sellerOrderId=&page=&limit=` (paged).
+- `GET /assignments/:id` (assignment + its `delivery_events`).
+- `POST /slices/:sellerOrderId/assign` `{ deliveryPartnerId }` and `/reassign` → new ASSIGNED `DeliveryAssignment`. Guards: slice ACCEPTED + not delivered, order SHIPPED/OUT_FOR_DELIVERY, partner ACTIVE, no existing active assignment.
+- `POST /assignments/:id/cancel` (only while ASSIGNED/ACCEPTED/PICKED_UP/OUT_FOR_DELIVERY).
+
+## DELIVERY partner — `/api/v1/delivery/tasks` (DELIVERY role; own assignments only)
+- `GET /tasks` — my active (ACCEPTED/PICKED_UP/OUT_FOR_DELIVERY) assignments.
+- `POST /tasks/:id/{accept,reject}` (reject body `{ reason }`) from ASSIGNED.
+- `POST /tasks/:id/{pickup,out-for-delivery}` (ordered steps).
+- `POST /tasks/:id/deliver` — marks the slice `deliveredAt`; if it was the last outstanding
+  slice, finalizes the order to DELIVERED (earn payables) in the same transaction.
+- `POST /tasks/:id/fail` `{ reason }` from any partner-active step.
+
+```
+ASSIGNED → ACCEPTED → PICKED_UP → OUT_FOR_DELIVERY → DELIVERED
+              \--REJECTED   \--FAILED   (operator reassigns/cancels)
+```

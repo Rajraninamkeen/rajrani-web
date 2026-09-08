@@ -3442,3 +3442,29 @@ Document uploads record **storage intent only** (`storageObjectId`, `fileName`, 
 `sizeBytes`); no real object store is contacted. Bank details are stored as holder name,
 account last-4 and IFSC only.
 
+
+---
+
+# Session 15 addendum — DELIVERY role + per-slice courier delivery
+
+A new `DELIVERY` role (courier / delivery partner) was added with courier-task-only scope. A
+DELIVERY user has exactly one bound `DeliveryPartner` profile (registered by OPERATOR/ADMIN).
+A DELIVERY user may only read and act on its own delivery assignments; it is denied finance,
+fulfilment/returns operator, seller, and admin-delivery routes. OPERATOR/ADMIN register and
+manage partners + assignments; REVIEWER/OPERATOR/SELLER/CUSTOMER are denied the courier task
+surface.
+
+Endpoints added (all under `/api/v1`):
+- OPERATOR/ADMIN `POST /delivery/partners`, `GET /delivery/partners`,
+  `PATCH /delivery/partners/:partnerId/status`, `GET /delivery/assignments`,
+  `GET /delivery/assignments/:id`, `POST /delivery/slices/:sellerOrderId/assign`,
+  `POST /delivery/slices/:sellerOrderId/reassign`, `POST /delivery/assignments/:id/cancel`.
+- DELIVERY `GET /delivery/tasks`, and per assignment `POST /delivery/tasks/:id/accept |
+  reject | pickup | out-for-delivery | deliver | fail` (reject/fail require a reason).
+
+Slice assignment lifecycle: ASSIGNED → ACCEPTED → PICKED_UP → OUT_FOR_DELIVERY → DELIVERED,
+with REJECTED / FAILED / CANCELLED. Assign requires the slice ACCEPTED + not delivered and the
+order SHIPPED or OUT_FOR_DELIVERY. Delivering the last outstanding slice finalizes the order to
+DELIVERED (order `deliveredAt`, COD_PAID for COD, `order_status_history`) and auto-earns the
+accepted slices' seller payables — the Session 12/13 money trigger is unchanged (order-level,
+per owner decision). `delivery_events` audit every step.

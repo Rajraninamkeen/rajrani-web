@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 14 — Seller onboarding/KYC + Organizations + REVIEWER role |
-| STATUS | COMPLETE (15 suites / 124 tests; migration applied + pushed to `main` `8930517`) |
-| NEXT SESSION | Session 15 — Per-slice delivery / courier handoff (owner-selected) |
-| NEXT WORKFLOW | Move delivery from order-level operator advance to a per-slice shipment/courier-handoff model with assignment + tracking and a delivery/assignment role; then replacement-vs-refund, reviews, real gateway remain |
+| CURRENT SESSION | Session 15 — Per-slice delivery / courier handoff (DELIVERY role) |
+| STATUS | COMPLETE (16 suites / 136 tests; migration applied; commits `2c9f8d6` S14 docs, `5168b36` S15) |
+| NEXT SESSION | Return replacement vs refund (+ evidence upload), reviews, or real payment-gateway provider |
+| NEXT WORKFLOW | Replacement/exchange vs refund on the existing item-level returns flow; product reviews (ratingAvg refresh); a real gateway provider (razorpay/stripe) with live refunds; real courier-provider integration + per-slice payout (earn currently stays order-level) |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It
