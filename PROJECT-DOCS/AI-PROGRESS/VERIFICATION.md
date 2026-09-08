@@ -558,3 +558,17 @@ Run from repo root after `npm run build`.
 | `curl :5180/` | 200 (app HTML served) |
 | Canonical API | restarted `:4600` (`node dist/main.js`, sandbox default) onto the S31 build → `Mapped {/api/v1/orders/:id/tracking, GET}` |
 | Money invariant | tracking read only; no Refund / payable / ledger touched (DB state unchanged beyond the throwaway registered customer) |
+
+## Session 32 — 2026-09-08 (courier delivery-fee payout / money leg)
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| migration | `prisma/migrations/20260908210000_courier_payout` applied + recorded; `courier_payouts` table + `CourierPayoutStatus` enum present; typecheck + build clean |
+| `npx jest` | **24 suites / 233 tests passed** (added `courier-payout.service.spec.ts`, 11) |
+| DI fix | `delivery.service` / `replacement-courier.service` now `@Optional() @Inject(CourierPayoutService)` (union `\| null` otherwise erased the class from `design:paramtypes`, so payouts never accrued) |
+| Live E2E `/tmp/s32_payout_e2e.mjs` (sandbox API `:4600`, **18/18 ok**) | fresh PREPAID order shipped; slice courier assigned+accepted; pickup/out-for-delivery/**deliver** → parcel payout **EARNED ₹35** (`feeAmount:35,status:EARNED`); DELIVERY `GET /delivery/payouts` lists it + summary pending ≥35; OPERATOR `GET /delivery/payouts/all?status=EARNED` + `/summary` show it; RBAC: OPERATOR→DELIVERY route 403, DELIVERY→OPERATOR route 403 |
+| Settle | OPERATOR `POST /delivery/payouts/settle {deliveryPartnerId}` → `{settled:1, totalAmount:35}`; courier view shows row **SETTLED** with `settledAt`, summary paid ≥35 & pending 0 for that leg |
+| Money cleaned | `courier_payouts` = 0 after E2E cleanup; E2E orders (`BK-MTS934VE`, `BK-MTS93XIA`, `BK-MTS96F5C`, `BK-MTS9AHAS`) + their seller payables/assignments deleted; S29/S30 demo orders (`BK-MTS7EXB5`, `BK-MTS7EXII`) + their 1 payable / 1 slice assignment / replacement assignment left intact |
+| Seller-earn invariant | order-level seller payable path unchanged; only new courier payouts accrue on delivery |
+| `git push origin main` | Session 32 feature + docs committed and pushed (see git log) |

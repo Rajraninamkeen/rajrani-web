@@ -29,6 +29,8 @@ export interface AppConfig {
       baseUrl: string; // overridable (used to point at a local courier-protocol mock / real courier)
       apiKey: string; // secret; env-only, never committed
     };
+    // Session 32 — per-delivered-leg courier fee (₹) the platform owes the DELIVERY partner.
+    fees: { parcelFee: number; replacementFee: number };
   };
 }
 
@@ -68,6 +70,10 @@ export default (): AppConfig => ({
       carrier: process.env.COURIER_CARRIER ?? 'External Courier',
       baseUrl: process.env.COURIER_BASE_URL ?? 'http://localhost:9600',
       apiKey: process.env.COURIER_API_KEY ?? '',
+    },
+    fees: {
+      parcelFee: Number(process.env.COURIER_FEE_PARCEL ?? 35),
+      replacementFee: Number(process.env.COURIER_FEE_REPLACEMENT ?? 40),
     },
   },
 });

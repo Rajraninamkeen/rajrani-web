@@ -1372,6 +1372,7 @@ model DeliveryPartner {
 
   assignments            DeliveryAssignment[]
   replacementAssignments ReplacementAssignment[] // Session 22
+  courierPayouts         CourierPayout[]        // Session 32 — per-delivered-leg delivery fee owed to this partner
 
   @@index([status])
   @@map("delivery_partners")
@@ -1489,4 +1490,43 @@ model ProductStatusHistory {
 
   @@index([productId])
   @@map("product_status_history")
+}
+
+// ===================== Session 32: Courier delivery-fee payout (money leg) =====================
+// A per-delivered-leg delivery fee the platform owes a DELIVERY partner for each
+// successful courier delivery — one EARNED row per slice-parcel delivery and one
+// per outbound replacement delivery (the earlier "non-money" invariant for courier
+// steps is deliberately extended here to accrue this courier fee; it is a separate
+// platform→courier payable and never touches a Refund / seller payable / COD money).
+enum CourierPayoutStatus {
+  EARNED // owed, not yet paid out
+  SETTLED // paid out by back-office
+  CANCELLED
+}
+
+model CourierPayout {
+  id                  String               @id @default(cuid())
+  deliveryPartnerId   String
+  deliveryPartner     DeliveryPartner      @relation(fields: [deliveryPartnerId], references: [id])
+  kind                String // 'parcel' (slice delivery) | 'replacement' (outbound replacement)
+  orderId             String
+  // Traceability to the exact delivered courier leg. Each is unique so a leg can
+  // never earn more than one payout (double-earn guard).
+  sellerOrderId             String?
+  deliveryAssignmentId      String?  @unique
+  replacementAssignmentId   String?  @unique
+  feeAmount           Decimal              @db.Decimal(12, 2) // delivery fee owed to the partner (₹)
+  currency            String               @default("INR")
+  status              CourierPayoutStatus  @default(EARNED)
+  earnedAt            DateTime             @default(now())
+  settledAt           DateTime?
+  settledById         String? // back-office actor who paid it out
+  cancelledAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([deliveryPartnerId, status])
+  @@index([kind])
+  @@index([orderId])
+  @@map("courier_payouts")
 }

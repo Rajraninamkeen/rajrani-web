@@ -21,6 +21,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SettlementService } from './settlement.service';
 import { COURIER_PROVIDER, type CourierProvider } from './courier/courier-provider.interface';
+import { CourierPayoutService } from './courier-payout.service';
 import {
   AssignSliceDto,
   DeliveryListQuery,
@@ -55,6 +56,10 @@ export class DeliveryService {
     // Session 30: external courier-provider (tracking + POD). Optional so legacy
     // unit tests that `new DeliveryService(prisma, settlement)` keep working.
     @Optional() @Inject(COURIER_PROVIDER) private readonly courier?: CourierProvider | null,
+    // Session 32: courier delivery-fee payout (money leg). Optional test seam.
+    // Explicit @Inject token: the `| null` union erases the class from design:paramtypes,
+    // so without it Nest cannot resolve the dependency and @Optional would inject undefined.
+    @Optional() @Inject(CourierPayoutService) private readonly courierPayout?: CourierPayoutService | null,
   ) {}
 
   // =============================== Partner registry (OPERATOR/ADMIN) ===============================
@@ -447,6 +452,16 @@ export class DeliveryService {
         data: { status: DeliveryAssignmentStatus.DELIVERED, deliveredAt: new Date(), ...pod },
       });
       await this.audit(tx, a.id, 'DELIVERED', 'DELIVERY', userId, 'Slice delivered');
+
+      // Session 32 (money leg): accrue the platform's per-slice delivery fee owed to
+      // this courier, atomically with the delivery (only for the actually-delivered leg).
+      await this.courierPayout?.earnCourierDelivery(tx, {
+        deliveryPartnerId: a.deliveryPartnerId,
+        kind: 'parcel',
+        orderId: order.id,
+        sellerOrderId: a.sellerOrderId,
+        deliveryAssignmentId: a.id,
+      });
 
       // Finalize the order once every non-cancelled slice is delivered.
       const outstanding = await tx.sellerOrder.findMany({

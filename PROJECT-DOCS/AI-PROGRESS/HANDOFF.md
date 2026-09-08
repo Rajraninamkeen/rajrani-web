@@ -1,7 +1,7 @@
 # HANDOFF — BILOKAT
 
-> **NOTE (updated at Session 31 close, 2026-09-08):** The table below dates from the
-> Session 19 handoff. Sessions 20–31 have since shipped and been pushed. **`CURRENT-STATE.md`
+> **NOTE (updated at Session 32 close, 2026-09-08):** The table below dates from the
+> Session 19 handoff. Sessions 20–32 have since shipped and been pushed. **`CURRENT-STATE.md`
 > is the authoritative live snapshot** — please read that (and `SESSION-LOG.md` for session
 > details) rather than this stale header. In short: Sessions 23–29 built a connected,
 > role-aware React/Vite **catalog console** (`catalog-console/`) — SELLER authoring +
@@ -14,15 +14,19 @@
 > Session 31 added a **customer/operator courier tracking-read surface** (`GET /orders/:id/tracking`
 > calling the courier provider `track` live per leg) with a "Track delivery" timeline in the
 > customer storefront order detail.
+> Session 32 added the **courier delivery-fee payout / money leg** (CourierPayout EARNED→SETTLED
+> ledger on actually-delivered courier legs, DELIVERY self-service read + OPERATOR/ADMIN list/
+> summary/settle; parcel ₹35 / replacement ₹40 via COURIER_FEE_*; additive migration
+> 20260908210000_courier_payout).
 
 For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 31 — courier tracking-read surface (customer/operator) |
-| STATUS | COMPLETE & **PUSHED** (see git log / `origin/main`); `GET /orders/:id/tracking` aggregates an order's courier legs (slice parcels + replacement dispatches) and calls the configured `CourierProvider.track` LIVE per waybill (merged with local leg state + POD); owner CUSTOMER or OPERATOR/ADMIN may read (cross-owner 404 / wrong role 403); read-only NON-money; 23 suites / 222 tests; typecheck + build clean; 14/14 live HTTP-provider E2E; connected storefront "Track delivery" UI |
-| NEXT SESSION | Session 32 (owner-chosen). Sessions 23–31 done & pushed |
-| NEXT WORKFLOW | Per-slice courier payout (the money leg — deferred from S30/31); surfacing live courier status/tracking in the OPERATOR Operations + DELIVERY consoles; or another owner-chosen priority |
+| CURRENT SESSION | Session 32 — courier delivery-fee payout / money leg |
+| STATUS | COMPLETE & **PUSHED** (see git log / `origin/main`); Session 32 courier delivery-fee payout / money leg: CourierPayout table (EARNED/SETTLED/CANCELLED) records the fee owed to a DELIVERY partner per actually-delivered courier leg (parcel ₹35, replacement ₹40), accrued atomically in the deliver transaction (delivery.service deliver + replacement-courier completion) and idempotent per assignment; DELIVERY self-service `GET /delivery/payouts` (+summary) and OPERATOR/ADMIN `GET /delivery/payouts/all`, `/summary`, `POST /delivery/payouts/settle {deliveryPartnerId}` (EARNED→SETTLED in one tx); roles enforced; DI fix (`@Optional() @Inject(CourierPayoutService)`); 24 suites / 233 tests; typecheck + build clean; 18/18 live money E2E, cleaned; additive migration 20260908210000_courier_payout |
+| NEXT SESSION | Session 33 (owner-chosen). Sessions 23–32 done & pushed |
+| NEXT WORKFLOW | Surfacing live courier status/tracking in the OPERATOR Operations + DELIVERY consoles (already surfaced for CUSTOMER in S31); courier payout settlement UI / payout schedule views; or another owner-chosen priority |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It

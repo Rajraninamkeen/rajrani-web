@@ -17,6 +17,7 @@ import {
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { COURIER_PROVIDER, type CourierProvider } from './courier/courier-provider.interface';
+import { CourierPayoutService } from './courier-payout.service';
 import type { ReplacementAssignmentPublic } from './commerce.types';
 
 type Tx = Prisma.TransactionClient;
@@ -51,6 +52,8 @@ export class ReplacementCourierService {
     // Session 30: external courier-provider (tracking + POD). Optional so legacy
     // unit tests keep their `new ReplacementCourierService(prisma)` shape.
     @Optional() @Inject(COURIER_PROVIDER) private readonly courier?: CourierProvider | null,
+    // Session 32: courier delivery-fee payout (money leg). Optional test seam.
+    @Optional() @Inject(CourierPayoutService) private readonly courierPayout?: CourierPayoutService | null,
   ) {}
 
   // =============================== OPERATOR / ADMIN ===============================
@@ -292,6 +295,16 @@ export class ReplacementCourierService {
       await this.event(tx, a.replacement.returnRequestId, ReturnEventType.REPLACEMENT_COMPLETED,
         ReturnActorType.DELIVERY, userId,
         `Replacement delivered to customer by courier (${a.assignmentNumber})`);
+
+      // Session 32 (money leg): accrue the platform's replacement-delivery fee owed to
+      // this courier, atomically with the delivery (non-money Refund/payable invariants
+      // are untouched — this is a separate platform→courier payable for the delivered leg).
+      await this.courierPayout?.earnCourierDelivery(tx, {
+        deliveryPartnerId: a.deliveryPartnerId,
+        kind: 'replacement',
+        orderId: a.orderId,
+        replacementAssignmentId: a.id,
+      });
     });
     return this.toPublic(await this.load(a.id));
   }

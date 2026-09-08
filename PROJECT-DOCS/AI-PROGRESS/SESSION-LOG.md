@@ -1472,3 +1472,48 @@ Increment landed this session (code + migration pushed):
   against that API surfaced the parcel leg + live status through the proxy. Canonical `:4600` (sandbox)
   restarted onto the new build so the endpoint is served there too.
 - Session 31 complete & pushed.
+
+---
+
+## Session 32 — courier delivery-fee payout (money leg)
+- **Date:** 2026-09-08
+- **Objective:** Implement the courier side of the ledger — the per-delivered-leg delivery fee the platform
+  owes a DELIVERY partner — so a courier who actually delivers a slice parcel or a replacement replacement
+  **earns** a payout that a back-office OPERATOR can then pay out. This was the deferred money item; seller
+  earnings stay order-level and unchanged.
+- New data layer (additive, no reset): `CourierPayoutStatus` enum (`EARNED | SETTLED | CANCELLED`) + `model
+  CourierPayout` table (`kind parcel|replacement`, `feeAmount Decimal INR`, `currency`, `status`,
+  `deliveryPartnerId`, `orderId`, `sellerOrderId`, optional unique `deliveryAssignmentId` /
+  `replacementAssignmentId`, `earnedAt`, `settledAt`, `settledById`) with a `courierPayouts` relation on
+  `DeliveryPartner`. Migration `prisma/migrations/20260908210000_courier_payout` applied + recorded.
+  `configuration.ts` adds `courier.fees` (`COURIER_FEE_PARCEL` default **35** INR, `COURIER_FEE_REPLACEMENT`
+  default **40** INR) — a zero/missing fee yields no payout.
+- New `src/commerce/courier-payout.service.ts` (`CourierPayoutService`) + `src/commerce/courier-payout.controller.ts`:
+  - **Earning** `earnCourierDelivery(tx, …)` — called inside the caller's DB transaction at the moment a
+    courier actually delivers: parcel accrual in `delivery.service.deliver`; replacement accrual in
+    `replacement-courier.service` completion. Idempotent via the unique assignment column (no double earn),
+    skips when partner null or fee ≤ 0.
+  - **DELIVERY self-service** `GET /delivery/payouts` (partner's own payouts + `summary`
+    pending/paid/cancelled/totalEarned INR + counts).
+  - **Back-office (OPERATOR/ADMIN)** `GET /delivery/payouts/all`, `GET /delivery/payouts/summary` (all
+    partners + per-partner pending), `POST /delivery/payouts/settle {deliveryPartnerId}` → pays a partner's
+    `EARNED` payouts to `SETTLED` in one tx (`{settled, totalAmount}`). Roles enforced (DELIVERY cannot use
+    staff routes; OPERATOR/ADMIN cannot use the partner self-service).
+- Registered/exported in `commerce.module.ts`; both `delivery.service.ts` and `replacement-courier.service.ts`
+  take `CourierPayoutService` as an **`@Optional()` seam** so historical unit tests that construct them
+  directly keep working.
+- **Bug found & fixed during live E2E:** the two payout-earning services declared
+  `@Optional() courierPayout?: CourierPayoutService | null`. Because `design:paramtypes` emits `Object` for a
+  parameter whose type is a `| null` union, Nest could not resolve the dependency token and `@Optional`
+  silently injected `undefined` — deliveries succeeded but never accrued a payout. Fix: add an explicit
+  `@Inject(CourierPayoutService)` token (the `courier` param already carried `@Inject(COURIER_PROVIDER)` for
+  the same reason). After the fix the live E2E accrued correctly.
+- Tests: `src/commerce/courier-payout.service.spec.ts` (**11**) → **24 suites / 233 tests**; typecheck +
+  `nest build` clean.
+- Live money E2E `/tmp/s32_payout_e2e.mjs` (**18/18**) on sandbox API `:4600`: fresh PREPAID order → ship →
+  slice courier assign/accept → pickup/out-for-delivery → **deliver** → parcel payout **EARNED ₹35** appears
+  in the courier's `GET /delivery/payouts` (+ summary pending) and OPERATOR list/summary; OPERATOR
+  `POST /delivery/payouts/settle {deliveryPartnerId}` → `{settled:1,totalAmount:35}` and the row moves to
+  `SETTLED` with `settledAt`; RBAC 403s both directions. Money fully cleaned afterwards (`courier_payouts=0`;
+  E2E orders + their seller payables deleted; S29/S30 demo orders untouched).
+- Session 32 complete & pushed.

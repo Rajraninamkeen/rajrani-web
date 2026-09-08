@@ -66,3 +66,9 @@ export class SetPartnerStatusDto {
   @IsEnum(DeliveryPartnerStatus)
   status: DeliveryPartnerStatus;
 }
+
+// Session 32 — courier payout settle request (back-office).
+export class CourierSettleDto {
+  @IsString()
+  deliveryPartnerId: string;
+}
