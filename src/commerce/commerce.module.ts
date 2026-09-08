@@ -22,6 +22,8 @@ import { ReturnsService } from './returns.service';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
 import { PAYMENT_GATEWAY_PROVIDER } from './gateway/gateway.provider';
+import { ReplacementCourierAdminController, ReplacementCourierPartnerController } from './replacement-courier.controller';
+import { ReplacementCourierService } from './replacement-courier.service';
 
 @Module({
   imports: [AuthModule], // for JwtModule (guards sign/verify) + exported guards
@@ -40,6 +42,8 @@ import { PAYMENT_GATEWAY_PROVIDER } from './gateway/gateway.provider';
     SellerSettlementController,
     DeliveryAdminController,
     DeliveryPartnerController,
+    ReplacementCourierAdminController,
+    ReplacementCourierPartnerController,
   ],
   providers: [
     CartService,
@@ -51,6 +55,7 @@ import { PAYMENT_GATEWAY_PROVIDER } from './gateway/gateway.provider';
     SellerOpsService,
     SettlementService,
     DeliveryService,
+    ReplacementCourierService,
     PAYMENT_GATEWAY_PROVIDER,
   ],
   exports: [PaymentService, CodService, OrderService, DeliveryService, PAYMENT_GATEWAY_PROVIDER],

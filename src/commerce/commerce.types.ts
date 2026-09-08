@@ -164,6 +164,36 @@ export interface ReplacementPublic {
   completedAt?: string | null;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
+  // Session 22: courier last-mile assignments (most recent first) that will deliver
+  // this dispatched replacement. Only surfaced when a courier has been assigned.
+  assignments?: ReplacementAssignmentPublic[];
+}
+
+export interface ReplacementAssignmentPublic {
+  id: string;
+  assignmentNumber: string;
+  replacementId: string;
+  replacementReference?: string | null;
+  returnRequestId: string;
+  orderId: string;
+  status: string; // DeliveryAssignmentStatus
+  quantityTotal?: number | null;
+  deliveryPartner: { id: string; partnerCode: string; name: string } | null;
+  assignedAt: string;
+  acceptedAt: string | null;
+  pickedUpAt: string | null;
+  outForDeliveryAt: string | null;
+  deliveredAt: string | null;
+  rejectedAt: string | null;
+  failureReason: string | null;
+  cancelledAt: string | null;
+  // Operational delivery detail (DELIVERY partner / operator task view). From the
+  // original order's address snapshot. Not exposed on the customer-facing return.
+  customer?: {
+    name?: string | null;
+    phone?: string | null;
+    address: unknown;
+  } | null;
 }
 
 export interface ReturnRequestPublic {

@@ -8,6 +8,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import {
+  DeliveryAssignmentStatus,
   InspectionResult,
   OrderStatus,
   PaymentMethod,
@@ -51,13 +52,33 @@ const CENTS = (n: number) => Math.round(n * 100) / 100;
 const RND = () =>
   `${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
+// Session 22: assignment statuses that are still in flight for a replacement
+// courier. When one exists the courier (DELIVERY) must complete the replacement;
+// the OPERATOR manual `/complete` is then disallowed so a dispatched replacement is
+// not double-finalised outside the courier flow.
+const ACTIVE_REPLACEMENT_ASSIGNMENT: DeliveryAssignmentStatus[] = [
+  DeliveryAssignmentStatus.ASSIGNED,
+  DeliveryAssignmentStatus.ACCEPTED,
+  DeliveryAssignmentStatus.PICKED_UP,
+  DeliveryAssignmentStatus.OUT_FOR_DELIVERY,
+];
+
 const RETURN_INCLUDE = {
   items: {
     include: { orderItem: true, inspection: true },
   },
   refund: true,
   evidence: { orderBy: { uploadedAt: 'asc' as const } },
-  replacement: true,
+  replacement: {
+    include: {
+      assignments: {
+        orderBy: { createdAt: 'desc' as const },
+        include: {
+          deliveryPartner: { include: { user: { select: { id: true, fullName: true } } } },
+        },
+      },
+    },
+  },
   order: { include: { items: true } },
 } as const;
 
@@ -440,8 +461,19 @@ export class ReturnsService {
     );
   }
 
-  /** DISPATCHED -> COMPLETED (delivered/settled with the customer). */
+  /** DISPATCHED -> COMPLETED (delivered/settled with the customer).
+   *  Session 22: if a courier has been assigned to this dispatched replacement, the
+   *  OPERATOR may NOT manual-complete it here — the courier's `deliver` step is what
+   *  completes it. Manual completion is kept only for the no-courier path. */
   async completeReplacement(operatorId: string, returnRequestId: string): Promise<ReturnRequestPublic> {
+    const r = await this.loadIssuedReplacement(returnRequestId, ReplacementStatus.DISPATCHED);
+    const active = (r.replacement.assignments ?? []).some((x: any) =>
+      ACTIVE_REPLACEMENT_ASSIGNMENT.includes(x.status));
+    if (active) {
+      throw new ConflictException(
+        'A courier is assigned to this dispatched replacement; the courier must deliver it to complete it',
+      );
+    }
     return this.replacementTransition(
       operatorId,
       returnRequestId,
@@ -927,6 +959,30 @@ export class ReturnsService {
           completedAt: r.replacement.completedAt ? r.replacement.completedAt.toISOString() : null,
           cancelledAt: r.replacement.cancelledAt ? r.replacement.cancelledAt.toISOString() : null,
           cancellationReason: r.replacement.cancellationReason ?? null,
+          // Session 22: courier last-mile assignments (most recent first).
+          assignments: (r.replacement.assignments ?? []).map((ass: any) => ({
+            id: ass.id,
+            assignmentNumber: ass.assignmentNumber,
+            replacementId: ass.replacementId,
+            returnRequestId: r.id,
+            orderId: ass.orderId,
+            status: ass.status,
+            deliveryPartner: ass.deliveryPartner
+              ? {
+                  id: ass.deliveryPartner.id,
+                  partnerCode: ass.deliveryPartner.partnerCode,
+                  name: ass.deliveryPartner.user?.fullName ?? ass.deliveryPartner.partnerCode,
+                }
+              : null,
+            assignedAt: ass.assignedAt?.toISOString?.() ?? null,
+            acceptedAt: ass.acceptedAt?.toISOString?.() ?? null,
+            pickedUpAt: ass.pickedUpAt?.toISOString?.() ?? null,
+            outForDeliveryAt: ass.outForDeliveryAt?.toISOString?.() ?? null,
+            deliveredAt: ass.deliveredAt?.toISOString?.() ?? null,
+            rejectedAt: ass.rejectedAt?.toISOString?.() ?? null,
+            failureReason: ass.failureReason ?? null,
+            cancelledAt: ass.cancelledAt?.toISOString?.() ?? null,
+          })),
         }
       : null;
     return {
