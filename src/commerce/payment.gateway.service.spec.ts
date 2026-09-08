@@ -4,6 +4,7 @@ import type { PaymentGateway, GatewayPaymentEvent } from './gateway/payment-gate
 
 function makeEvent(overrides: Partial<GatewayPaymentEvent> = {}): GatewayPaymentEvent {
   return {
+    category: 'payment',
     provider: 'razorpay',
     providerEventId: 'pay_1.payment.captured',
     eventType: 'payment.captured',

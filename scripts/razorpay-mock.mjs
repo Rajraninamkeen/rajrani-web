@@ -7,8 +7,15 @@
 // order and issue the corresponding payment.captured webhook itself.
 import http from 'node:http';
 
+// REFUND_ASYNC=1 makes refunds return status 'pending' (in-flight) so the app
+// leaves the Refund in PROCESSING; a test driver then sends a `refund.processed`
+// webhook to exercise Session-19 async reconciliation. Default (unset) returns
+// 'processed' synchronously (Session 18 behaviour).
+const ASYNC = process.env.REFUND_ASYNC === '1' || process.env.REFUND_ASYNC === 'true';
+
 const orderSeq = { n: 0 };
 const orders = new Map();
+const refunds = new Map();
 
 const json = (res, code, body) => {
   res.writeHead(code, { 'Content-Type': 'application/json' });
@@ -47,12 +54,15 @@ const server = http.createServer((req, res) => {
       let b = {};
       try { b = JSON.parse(raw); } catch { /* ignore */ }
       const id = `rfnd_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const status = ASYNC ? 'pending' : 'processed';
       const refund = {
         id, entity: 'refund', amount: Number(b.amount) ?? 0, currency: b.currency || 'INR',
         payment_id: paymentId, notes: b.notes || {}, receipt: b.receipt || null,
-        status: 'processed', speed_processed: b.speed || 'normal', speed_requested: b.speed || 'normal',
+        status, speed_processed: status === 'processed' ? (b.speed || 'normal') : null,
+        speed_requested: b.speed || 'normal',
         created_at: Math.floor(Date.now() / 1000),
       };
+      refunds.set(id, refund);
       json(res, 200, refund);
     });
     return;
@@ -60,6 +70,11 @@ const server = http.createServer((req, res) => {
 
   if (method === 'GET' && u.pathname === '/__orders') {
     json(res, 200, { orders: [...orders.values()] });
+    return;
+  }
+
+  if (method === 'GET' && u.pathname === '/__refunds') {
+    json(res, 200, { refunds: [...refunds.values()] });
     return;
   }
 

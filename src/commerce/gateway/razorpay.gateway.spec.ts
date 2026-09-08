@@ -59,12 +59,15 @@ describe('RazorpayGateway', () => {
     const raw = Buffer.from(JSON.stringify(payload));
     const sig = createHmac('sha256', 'whsec_test').update(raw).digest('hex');
     const ev = await gw.parseWebhook({ rawBody: raw, signature: sig });
+    expect(ev.category).toBe('payment');
     expect(ev.provider).toBe('razorpay');
     expect(ev.eventType).toBe('payment.captured');
     expect(ev.amount).toBe(500);
-    expect(ev.gatewayPaymentId).toBe('pay_LIVE');
-    expect(ev.gatewayOrderId).toBe('order_ABC');
     expect(ev.providerEventId).toContain('pay_LIVE');
+    if (ev.category === 'payment') {
+      expect(ev.gatewayPaymentId).toBe('pay_LIVE');
+      expect(ev.gatewayOrderId).toBe('order_ABC');
+    }
   });
 
   it('rejects a webhook with an invalid signature', async () => {
@@ -85,6 +88,41 @@ describe('RazorpayGateway', () => {
     expect(url).toBe('https://api.razorpay.test/v1/payments/pay_LIVE/refund');
     const body = JSON.parse(init.body);
     expect(body.amount).toBe(20000);
+  });
+
+  it('normalises a refund.processed webhook into a refund event (Session 19)', async () => {
+    const payload = {
+      event: 'refund.processed',
+      payload: { refund: { entity: { id: 'rfnd_ASYNC', entity: 'refund', amount: 20000, currency: 'INR', payment_id: 'pay_LIVE', status: 'processed' } } },
+    };
+    const raw = Buffer.from(JSON.stringify(payload));
+    const sig = createHmac('sha256', 'whsec_test').update(raw).digest('hex');
+    const ev = await gw.parseWebhook({ rawBody: raw, signature: sig });
+    expect(ev.category).toBe('refund');
+    if (ev.category === 'refund') {
+      expect(ev.eventType).toBe('refund.processed');
+      expect(ev.gatewayRefundId).toBe('rfnd_ASYNC');
+      expect(ev.gatewayPaymentId).toBe('pay_LIVE');
+      expect(ev.terminalStatus).toBe('COMPLETED');
+      expect(ev.amount).toBe(200);
+      expect(ev.providerEventId).toContain('rfnd_ASYNC');
+    }
+  });
+
+  it('normalises a refund.failed webhook with the failure reason (Session 19)', async () => {
+    const payload = {
+      event: 'refund.failed',
+      payload: { refund: { entity: { id: 'rfnd_FAIL', entity: 'refund', amount: 20000, currency: 'INR', payment_id: 'pay_LIVE', status: 'failed', error_description: 'Insufficient funds' } } },
+    };
+    const raw = Buffer.from(JSON.stringify(payload));
+    const sig = createHmac('sha256', 'whsec_test').update(raw).digest('hex');
+    const ev = await gw.parseWebhook({ rawBody: raw, signature: sig });
+    expect(ev.category).toBe('refund');
+    if (ev.category === 'refund') {
+      expect(ev.eventType).toBe('refund.failed');
+      expect(ev.terminalStatus).toBe('FAILED');
+      expect(ev.failureReason).toBe('Insufficient funds');
+    }
   });
 });
 

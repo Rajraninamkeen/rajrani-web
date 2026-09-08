@@ -594,3 +594,93 @@ describe('ReturnsService live gateway refund (Session 18)', () => {
 
 
 });
+
+describe('ReturnsService async gateway refund reconciliation (Session 19)', () => {
+  let prisma: any;
+  let tx: any;
+  let settlement: any;
+  let service: ReturnsService;
+
+  beforeEach(() => {
+    tx = {
+      order: { update: jest.fn(), updateMany: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+      returnRequest: {
+        update: jest.fn(),
+        findUniqueOrThrow: jest.fn(async () => rr({ status: 'COMPLETED', items: [line()] })),
+      },
+      refund: {
+        update: jest.fn(),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { amount: dec(200) } }),
+      },
+      refundTransaction: { create: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      returnEvent: { create: jest.fn() },
+    };
+    prisma = {
+      returnRequest: { findUnique: jest.fn() },
+      payment: { findUnique: jest.fn() },
+      refund: { findFirst: jest.fn(), aggregate: jest.fn() },
+      $transaction: jest.fn((fn: any) => fn(tx)),
+    };
+    settlement = { debitReturnedGoodsForRefund: jest.fn().mockResolvedValue({ applied: 0, debits: [] }) };
+    service = new ReturnsService(prisma, settlement);
+  });
+
+  const processingRefund = (status = 'PROCESSING') => ({
+    id: 'ref1',
+    status,
+    gatewayProvider: 'razorpay',
+    gatewayRef: 'rfnd_PROC1',
+    amount: dec(200),
+    currency: 'INR',
+    orderId: 'o1',
+    refundReference: 'RFD-x',
+    returnRequestId: 'rr1',
+    returnRequest: rr({
+      status: 'APPROVED_FOR_REFUND',
+      order: order(),
+      items: [line({ refundAmount: dec(200), orderItem: { id: 'oiA', sellerOrderId: 'soX', unitPrice: dec(200), quantity: 1 } })],
+    }),
+  });
+
+  it('refund.processed finalises a PROCESSING refund to COMPLETED + nets the seller payable + marks order REFUNDED', async () => {
+    prisma.refund.findFirst.mockResolvedValue(processingRefund());
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(rr({ status: 'COMPLETED', completedAt: new Date(), items: [line()] }));
+    const res = await service.reconcileRefundFromEvent({ provider: 'razorpay', eventType: 'refund.processed', gatewayRefundId: 'rfnd_PROC1', terminalStatus: 'COMPLETED' });
+    expect(res).toMatchObject({ idempotent: false, status: 'COMPLETED', gatewayRef: 'rfnd_PROC1' });
+    expect(tx.refund.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETED' }) }));
+    // in-flight transaction row PENDING -> SUCCESS
+    expect(tx.refundTransaction.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'SUCCESS' }) }));
+    expect(tx.returnRequest.update).toHaveBeenCalled(); // request COMPLETED
+    expect(settlement.debitReturnedGoodsForRefund).toHaveBeenCalledWith(tx, expect.arrayContaining([expect.objectContaining({ sellerOrderId: 'soX', returnedGoodsValue: 200 })]), expect.objectContaining({ returnRequestId: 'rr1' }));
+    expect(tx.refund.aggregate).toHaveBeenCalled(); // order aggregate REFUNDED path
+    expect(tx.order.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'REFUNDED' }) }));
+    expect(tx.returnEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ eventType: 'REFUND_COMPLETED', actorType: ReturnActorType.SYSTEM }) }));
+  });
+
+  it('is idempotent when the refund is already COMPLETED (replay no-op)', async () => {
+    prisma.refund.findFirst.mockResolvedValue(processingRefund('COMPLETED'));
+    const res = await service.reconcileRefundFromEvent({ provider: 'razorpay', eventType: 'refund.processed', gatewayRefundId: 'rfnd_PROC1', terminalStatus: 'COMPLETED' });
+    expect(res).toMatchObject({ idempotent: true, status: 'COMPLETED' });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(settlement.debitReturnedGoodsForRefund).not.toHaveBeenCalled();
+  });
+
+  it('refund.failed marks the PROCESSING refund FAILED + FAILED txn + audit, leaves request open, no settle', async () => {
+    prisma.refund.findFirst.mockResolvedValue(processingRefund());
+    const res = await service.reconcileRefundFromEvent({ provider: 'razorpay', eventType: 'refund.failed', gatewayRefundId: 'rfnd_PROC1', terminalStatus: 'FAILED', failureReason: 'insufficient funds' });
+    expect(res).toMatchObject({ status: 'FAILED', gatewayRef: 'rfnd_PROC1' });
+    expect(tx.refund.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'FAILED', failedReason: 'insufficient funds' }) }));
+    expect(tx.refundTransaction.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'FAILED' }) }));
+    expect(tx.returnEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ eventType: 'REFUND_FAILED', actorType: ReturnActorType.SYSTEM }) }));
+    expect(tx.returnRequest.update).not.toHaveBeenCalled(); // stays APPROVED_FOR_REFUND
+    expect(settlement.debitReturnedGoodsForRefund).not.toHaveBeenCalled();
+  });
+
+  it('returns unmatched when the gateway refund id is unknown locally', async () => {
+    prisma.refund.findFirst.mockResolvedValue(null);
+    const res = await service.reconcileRefundFromEvent({ provider: 'razorpay', eventType: 'refund.processed', gatewayRefundId: 'rfnd_GHOST', terminalStatus: 'COMPLETED' });
+    expect(res).toMatchObject({ matched: false, reason: 'refund_not_found' });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});

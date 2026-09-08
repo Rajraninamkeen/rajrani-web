@@ -31,6 +31,7 @@ export interface GatewayIntentOutput {
 
 /** Normalised event emitted by the gateway to the confirm seam. */
 export interface GatewayPaymentEvent {
+  category: 'payment';
   provider: string;
   providerEventId: string; // unique per gateway (used for idempotent claim)
   eventType: 'payment.captured' | 'payment.failed';
@@ -43,6 +44,31 @@ export interface GatewayPaymentEvent {
   gatewayOrderId?: string | null;
   raw: unknown;
 }
+
+/**
+ * A terminal refund event emitted by the gateway (Session 19 — async refund
+ * reconciliation). A GATEWAY refund that the gateway left in-flight is later
+ * reported terminal via `refund.processed` / `refund.failed`; the seam hands it
+ * back so the local PROCESSING Refund can be finalised (or marked FAILED).
+ */
+export interface GatewayRefundEvent {
+  category: 'refund';
+  provider: string;
+  providerEventId: string; // deterministic (e.g. `{rfnd}.{event}`)
+  eventType: 'refund.processed' | 'refund.failed';
+  /** the gateway refund id this refers to (local Refund.gatewayRef) */
+  gatewayRefundId: string;
+  /** the captured gateway payment the refund is against (Refund.payment gateway ref) */
+  gatewayPaymentId?: string | null;
+  /** terminal gateway status: COMPLETED (processed) or FAILED */
+  terminalStatus: 'COMPLETED' | 'FAILED';
+  amount?: number; // rupees major units, if the gateway reports it
+  failureReason?: string | null;
+  raw: unknown;
+}
+
+/** Union of every normalised webhook event the gateway can produce. */
+export type GatewayWebhookEvent = GatewayPaymentEvent | GatewayRefundEvent;
 
 /** A webhook request presented to the confirm endpoint. */
 export interface GatewayWebhookRequest {
@@ -83,12 +109,13 @@ export interface PaymentGateway {
   createGatewayIntent(input: GatewayIntentInput): Promise<GatewayIntentOutput>;
 
   /**
-   * Verify an inbound webhook and normalise it into a GatewayPaymentEvent.
+   * Verify an inbound webhook and normalise it into a GatewayWebhookEvent.
    * Implementations verify authenticity over the raw body bytes, then throw /
-   * reject if invalid. A signed event yields providerEventId + amount used by
-   * the idempotent confirm seam.
+   * reject if invalid. A signed payment event yields providerEventId + amount
+   * used by the idempotent confirm seam; a signed refund event yields a
+   * GatewayRefundEvent used by the async refund-reconciliation seam.
    */
-  parseWebhook(req: GatewayWebhookRequest): Promise<GatewayPaymentEvent>;
+  parseWebhook(req: GatewayWebhookRequest): Promise<GatewayWebhookEvent>;
 
   /**
    * Actually execute a refund against the gateway. Replaces the historical

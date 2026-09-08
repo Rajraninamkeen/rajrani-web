@@ -14,6 +14,7 @@ import { SandboxWebhookDto } from './dto/payment.dto';
 import {
   PAYMENT_GATEWAY,
   type GatewayPaymentEvent,
+  type GatewayWebhookEvent,
   type PaymentGateway,
 } from './gateway/payment-gateway.interface';
 import { SandboxGateway } from './gateway/sandbox.gateway';
@@ -410,8 +411,14 @@ export class PaymentService {
   }
 
   /** Verify a raw gateway body + normalise into a typed event (Razorpay). */
-  parseGatewayWebhook(req: { rawBody: Buffer; signature?: string | null; headers?: Record<string, string | string[] | undefined> }): Promise<GatewayPaymentEvent> {
+  parseGatewayWebhook(req: { rawBody: Buffer; signature?: string | null; headers?: Record<string, string | string[] | undefined> }): Promise<GatewayWebhookEvent> {
     return this.gateway.parseWebhook(req);
+  }
+
+  /** True when the parsed gateway event is a payment capture/failure (not a
+   *  refund event). The refund reconciler (ReturnsService) handles the rest. */
+  isPaymentEvent(e: GatewayWebhookEvent): e is GatewayPaymentEvent {
+    return e.category === 'payment';
   }
 
   private hashOf(value: unknown): string {

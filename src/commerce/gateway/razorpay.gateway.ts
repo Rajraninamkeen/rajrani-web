@@ -12,6 +12,7 @@ import {
   type GatewayPaymentEvent,
   type GatewayRefundInput,
   type GatewayRefundResult,
+  type GatewayWebhookEvent,
   type GatewayWebhookRequest,
   type PaymentGateway,
 } from './payment-gateway.interface';
@@ -123,7 +124,7 @@ export class RazorpayGateway implements PaymentGateway {
    * or a pre-parsed body object whose authenticity is judged by signature
    * headers only in test contexts; production always sends raw bytes.
    */
-  async parseWebhook(req: GatewayWebhookRequest): Promise<GatewayPaymentEvent> {
+  async parseWebhook(req: GatewayWebhookRequest): Promise<GatewayWebhookEvent> {
     const signature = (req.signature ?? this.header(req.headers, 'x-razorpay-signature')) ?? '';
     if (!req.rawBody || req.rawBody.length === 0) {
       throw new ForbiddenException('Razorpay webhook requires the raw request body to verify HMAC');
@@ -141,6 +142,30 @@ export class RazorpayGateway implements PaymentGateway {
     }
 
     const event = payload?.event as string;
+
+    // --- Refund terminal events (Session 19 async refund reconciliation) ---
+    if (event === 'refund.processed' || event === 'refund.failed') {
+      const rent = payload?.payload?.refund?.entity;
+      if (!rent?.id) {
+        throw new BadRequestException(`Razorpay refund event "${event}" carries no refund id`);
+      }
+      const amountPaise = Number(rent?.amount ?? 0);
+      const failureReason = (rent?.error_description as string)
+        ?? payload?.payload?.refund?.failureReason ?? null;
+      return {
+        category: 'refund',
+        provider: this.provider,
+        providerEventId: this.deriveEventId(event, rent.id, payload),
+        eventType: event,
+        gatewayRefundId: rent.id as string,
+        gatewayPaymentId: rent.payment_id ?? null,
+        terminalStatus: event === 'refund.processed' ? 'COMPLETED' : 'FAILED',
+        amount: TO_RUPEE(amountPaise),
+        failureReason: event === 'refund.failed' ? (failureReason ?? 'razorpay reported refund failed') : null,
+        raw: payload,
+      };
+    }
+
     const entity = payload?.payload?.payment?.entity
       ?? payload?.payload?.order?.entity;
     const amountPaise = Number(entity?.amount ?? payload?.payload?.payment?.entity?.amount);
@@ -158,6 +183,7 @@ export class RazorpayGateway implements PaymentGateway {
       ?? null;
 
     return {
+      category: 'payment',
       provider: this.provider,
       providerEventId: this.deriveEventId(event, gatewayPaymentId, payload),
       eventType,

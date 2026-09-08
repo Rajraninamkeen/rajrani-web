@@ -621,50 +621,175 @@ export class ReturnsService {
         const pending = await tx.returnRequest.findUniqueOrThrow({ where: { id: returnRequestId }, include: RETURN_INCLUDE });
         return this.toPublic(pending);
       }
-      await tx.returnRequest.update({
-        where: { id: returnRequestId },
-        data: { status: ReturnStatus.COMPLETED, completedAt: new Date() },
-      });
-      await this.eventTx(tx, returnRequestId, ReturnEventType.REFUND_COMPLETED, ReturnActorType.OPERATOR, operatorId, `Refund ₹${refund.amount.toNumber().toFixed(2)} completed via ${gatewayProvider} (${gatewayRef})`);
-
-      // Session 13: auto-debit the delivered sellers' earned payables for the goods
-      // that were returned & refunded (net-zero rule; only EARNED payables). Group the
-      // refunded return lines (those that actually got a refund) by their seller slice.
-      const refundedBySlice = new Map<string, number>();
-      for (const item of r.items ?? []) {
-        const refundable = item.refundAmount && item.refundAmount.toNumber() > 0;
-        if (!refundable || !item.orderItem) continue;
-        const sellerOrderId = item.orderItem.sellerOrderId as string | undefined;
-        if (!sellerOrderId) continue;
-        const goods = item.orderItem.unitPrice.toNumber() * item.quantity;
-        refundedBySlice.set(sellerOrderId, (refundedBySlice.get(sellerOrderId) ?? 0) + goods);
-      }
-      if (refundedBySlice.size > 0) {
-        await this.settlement.debitReturnedGoodsForRefund(
-          tx,
-          [...refundedBySlice.entries()].map(([sellerOrderId, returnedGoodsValue]) => ({
-            sellerOrderId,
-            returnedGoodsValue,
-          })),
-          { refundReference: refund.refundReference, returnRequestId },
-        );
-      }
-
-      // Aggregate: if the order is now fully refunded mark it terminal.
-      const agg = await tx.refund.aggregate({
-        where: { orderId: r.order.id, status: RefundState.COMPLETED },
-        _sum: { amount: true },
-      });
-      const completed = agg._sum.amount ? agg._sum.amount.toNumber() : 0;
-      if (completed >= r.order.grandTotal.toNumber() - 0.001) {
-        await tx.order.update({
-          where: { id: r.order.id },
-          data: { status: OrderStatus.REFUNDED, paymentStatus: PaymentStatus.REFUNDED },
-        });
-      }
+      await this.applyRefundTerminalEffects(tx, r, refund, gatewayProvider, gatewayRef, ReturnActorType.OPERATOR, operatorId, returnRequestId);
       const updated = await tx.returnRequest.findUniqueOrThrow({ where: { id: returnRequestId }, include: RETURN_INCLUDE });
       return this.toPublic(updated);
     });
+  }
+
+  // ================= async gateway refund reconciliation (Session 19) =================
+
+  /**
+   * Finalise a GATEWAY refund that the gateway left in-flight (PROCESSING) once
+   * it reports terminal via the `refund.processed` / `refund.failed` webhook.
+   *
+   * Money semantics mirror completeRefund's terminal path: on `refund.processed`
+   * the PROCESSING Refund + its PENDING refund_transactions row are completed
+   * (Refund COMPLETED, txn SUCCESS + completedAt), the return request COMPLETED
+   * with a REFUND_COMPLETED event, seller payables are netted (Session 13), and
+   * the order is marked REFUNDED once fully refunded. On `refund.failed` the
+   * Refund + txn are FAILED (with reason) and the request is left APPROVED_FOR_REFUND
+   * so the operator can retry. Idempotent by Refund status: only a PROCESSING
+   * refund is acted on; an already-COMPLETED refund is a no-op replay.
+   *
+   * Public (no role) — invoked by the gateway signature-authenticated webhook
+   * after PaymentService has verified the raw-body HMAC.
+   */
+  async reconcileRefundFromEvent(event: {
+    provider: string;
+    eventType: 'refund.processed' | 'refund.failed';
+    gatewayRefundId: string;
+    terminalStatus: 'COMPLETED' | 'FAILED';
+    failureReason?: string | null;
+  }) {
+    const refund = await this.prisma.refund.findFirst({
+      where: { gatewayRef: event.gatewayRefundId },
+      include: { returnRequest: { include: RETURN_INCLUDE } },
+    });
+    if (!refund) {
+      // We never created/executed this gateway refund locally.
+      return { idempotent: false, matched: false, reason: 'refund_not_found' };
+    }
+    // Only a refund we actually left in-flight is acted on. Already terminal =
+    // a replay of an event we already applied -> idempotent no-op.
+    if (refund.status === RefundState.COMPLETED) return { idempotent: true, status: 'COMPLETED' };
+    if (refund.status === RefundState.FAILED) return { idempotent: true, status: 'FAILED' };
+    if (refund.status !== RefundState.PROCESSING) {
+      return { idempotent: true, status: refund.status, reason: 'not_in_flight' };
+    }
+    if ((refund.gatewayProvider ?? 'sandbox') !== event.provider) {
+      return { idempotent: false, matched: false, reason: 'provider_mismatch' };
+    }
+    if (event.terminalStatus === 'FAILED') {
+      const failedReason = event.failureReason ?? 'gateway reported refund failed';
+      await this.prisma.$transaction(async (tx) => {
+        await tx.refund.update({
+          where: { id: refund.id },
+          data: { status: RefundState.FAILED, failedReason },
+        });
+        await tx.refundTransaction.updateMany({
+          where: { refundId: refund.id, status: 'PENDING' },
+          data: { status: 'FAILED', failureReason: failedReason },
+        });
+        // No return-request terminal change: stays APPROVED_FOR_REFUND for retry.
+        await this.eventTx(
+          tx,
+          refund.returnRequestId as string,
+          ReturnEventType.REFUND_FAILED,
+          ReturnActorType.SYSTEM,
+          'gateway',
+          `Gateway refund ${event.gatewayRefundId} failed: ${failedReason}`,
+        );
+      });
+      return { idempotent: false, status: 'FAILED', gatewayRef: refund.gatewayRef };
+    }
+
+    // Terminal success: PROCESSING -> COMPLETED.
+    const returnRequestId = refund.returnRequestId as string;
+    return this.prisma.$transaction(async (tx) => {
+      await tx.refund.update({
+        where: { id: refund.id },
+        data: { status: RefundState.COMPLETED, completedAt: new Date(), failedReason: null },
+      });
+      // Complete the in-flight refund_transactions row recorded at submission.
+      const up = await tx.refundTransaction.updateMany({
+        where: { refundId: refund.id, status: 'PENDING' },
+        data: { status: 'SUCCESS', completedAt: new Date() },
+      });
+      if (up.count === 0) {
+        // Safety net: record the terminal row if none was left pending.
+        await tx.refundTransaction.create({
+          data: {
+            refundId: refund.id,
+            provider: refund.gatewayProvider ?? event.provider,
+            providerReference: refund.gatewayRef,
+            amount: refund.amount,
+            status: 'SUCCESS',
+            completedAt: new Date(),
+          },
+        });
+      }
+      const full = refund.returnRequest;
+      await this.applyRefundTerminalEffects(
+        tx,
+        full,
+        refund,
+        refund.gatewayProvider ?? event.provider,
+        refund.gatewayRef,
+        ReturnActorType.SYSTEM,
+        'gateway',
+        returnRequestId,
+      );
+      const updated = await tx.returnRequest.findUniqueOrThrow({ where: { id: returnRequestId }, include: RETURN_INCLUDE });
+      return { idempotent: false, status: 'COMPLETED', gatewayRef: refund.gatewayRef, request: this.toPublic(updated) };
+    });
+  }
+
+  /** Shared terminal side effects of a completed refund (Session 13 auto-debit +
+   *  return-request COMPLETED + REFUND_COMPLETED audit + aggregate order REFUNDED).
+   *  Used by the operator completeRefund path and the async gateway reconciler. */
+  private async applyRefundTerminalEffects(
+    tx: Prisma.TransactionClient,
+    r: any,
+    refund: any,
+    gatewayProvider: string,
+    gatewayRef: string | null,
+    actorType: ReturnActorType,
+    actorId: string,
+    returnRequestId: string,
+  ) {
+    await tx.returnRequest.update({
+      where: { id: returnRequestId },
+      data: { status: ReturnStatus.COMPLETED, completedAt: new Date() },
+    });
+    await this.eventTx(tx, returnRequestId, ReturnEventType.REFUND_COMPLETED, actorType, actorId, `Refund ₹${refund.amount.toNumber().toFixed(2)} completed via ${gatewayProvider} (${gatewayRef})`);
+
+    // Session 13: auto-debit the delivered sellers' earned payables for the goods
+    // that were returned & refunded (net-zero rule; only EARNED payables). Group the
+    // refunded return lines (those that actually got a refund) by their seller slice.
+    const refundedBySlice = new Map<string, number>();
+    for (const item of r?.items ?? []) {
+      const refundable = item.refundAmount && item.refundAmount.toNumber() > 0;
+      if (!refundable || !item.orderItem) continue;
+      const sellerOrderId = item.orderItem.sellerOrderId as string | undefined;
+      if (!sellerOrderId) continue;
+      const goods = item.orderItem.unitPrice.toNumber() * item.quantity;
+      refundedBySlice.set(sellerOrderId, (refundedBySlice.get(sellerOrderId) ?? 0) + goods);
+    }
+    if (refundedBySlice.size > 0) {
+      await this.settlement.debitReturnedGoodsForRefund(
+        tx,
+        [...refundedBySlice.entries()].map(([sellerOrderId, returnedGoodsValue]) => ({
+          sellerOrderId,
+          returnedGoodsValue,
+        })),
+        { refundReference: refund.refundReference, returnRequestId },
+      );
+    }
+
+    // Aggregate: if the order is now fully refunded mark it terminal.
+    const agg = await tx.refund.aggregate({
+      where: { orderId: refund.orderId, status: RefundState.COMPLETED },
+      _sum: { amount: true },
+    });
+    const completed = agg._sum.amount ? agg._sum.amount.toNumber() : 0;
+    const order = r?.order ?? (await tx.order.findUniqueOrThrow({ where: { id: refund.orderId } }));
+    if (completed >= order.grandTotal.toNumber() - 0.001) {
+      await tx.order.update({
+        where: { id: refund.orderId },
+        data: { status: OrderStatus.REFUNDED, paymentStatus: PaymentStatus.REFUNDED },
+      });
+    }
   }
 
   // ================= helpers =================
