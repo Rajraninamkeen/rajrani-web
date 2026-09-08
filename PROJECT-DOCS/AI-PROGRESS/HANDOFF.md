@@ -1,5 +1,13 @@
 # HANDOFF — BILOKAT
 
+> **NOTE (updated at Session 24 close, 2026-09-08):** The table below dates from the
+> Session 19 handoff. Sessions 20–24 have since shipped and been pushed. **`CURRENT-STATE.md`
+> is the authoritative live snapshot** — please read that (and `SESSION-LOG.md` for
+> Sessions 20–24 details) rather than this stale header. In short: Session 20 product
+> listing/publishing backend, Session 21 verified-buyer reviews/ratings backend, Session 22
+> courier last-mile delivery of a dispatched replacement, Session 23 **catalog console** UI
+> (`catalog-console/`), Session 24 **customer storefront** UI (`customer-storefront/`).
+
 For the next AI session.
 
 | Key | Value |

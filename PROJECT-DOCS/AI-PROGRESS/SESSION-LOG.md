@@ -1197,3 +1197,43 @@ replacement leg by routing the physical last mile through the Session 15 DELIVER
   /complete 409, CUSTOMER/courier/OPERATOR RBAC 403s); courier accept→pickup→out-for-delivery→**deliver**
   → replacement COMPLETED + assignment DELIVERED; return shows COMPLETED + DELIVERED assignment + `refund:null`;
   original order unchanged (DELIVERED/PAID). E2E order/return/replacement/assignment/payable rows cleaned up.
+
+## Session 23 — Catalog Console (connected React/Vite UI for SELLER + staff catalog publishing)
+
+Added `catalog-console/`, a React 18 + Vite 5 app that drives the Session 20 publishing backend from the
+browser through Vite's relative `/api` proxy (`server.allowedHosts` enabled for the live-preview host).
+No backend changes — it consumes the existing `/seller/catalog`, `/catalog/categories` and
+`/catalog-publishing/products` routes.
+
+- SELLER flow: list/filter own products by status (DRAFT/PENDING_REVIEW/APPROVED/REJECTED/ARCHIVED), create a
+  DRAFT, edit only while DRAFT/REJECTED, submit for review, archive non-published items, see rejection reason.
+- OPERATOR/ADMIN flow: review queue (PENDING_REVIEW + view APPROVED/REJECTED), product detail with timestamps +
+  actor history, approve (optional note) or reject (mandatory reason that the seller sees) → publishes on approval.
+- Role-aware: the app shows the seller or staff tab by signed-in role; a non-seller/non-staff user gets a
+  no-access card. Login via `/auth/login`, token under `bilokat_token`.
+- Verified live through the proxy: a real seller create → submit (PENDING_REVIEW) → appears in the staff queue →
+  approve → APPROVED in the seller list; staff detail returned history + publishedAt/createdAt/updatedAt. Also
+  surfaced the backend rule that a seller can only archive a NON-published product (CONFLICT on APPROVED).
+  All test products created during E2E were removed from the DB to keep the seeded catalog clean.
+- Committed `deb9bd9`.
+
+## Session 24 — Customer Storefront (connected React/Vite UI: live catalog + published reviews)
+
+Added `customer-storefront/`, a React 18 + Vite 5 app (port 5180) that browses the live public catalog and
+reads PUBLISHED reviews, with optional CUSTOMER sign-in for a verified-buyer review-write surface. Read-only
+commerce this session (no cart/checkout). All calls go through the Vite `/api` proxy (`allowedHosts` on).
+
+- Shop/home: live product grid from `/catalog/products` (category chips, search `q`, sort, pagination);
+  data lives in the DB — nothing hardcoded.
+- Product detail (`/catalog/products/:slug`): media (remote image with inline-SVG fallback for the offline
+  preview), price/discount/origin/spice/stock/ingredients/nutrition/pairing, star aggregate + review count.
+- Reviews: only PUBLISHED reviews (`/catalog/products/:slug/reviews`); empty state explains moderation.
+- CUSTOMER sign-in (`/auth/login`, token under `bilokat_customer_token`) reveals a star/title/comment
+  "write a review" form that POSTs `/reviews` (verified-buyer gated) and an Account page listing the user's
+  reviews by status with edit/delete + rejection-reason display.
+- Verified live through the proxy: browsed products/detail/reviews (8 live products), logged in as
+  `s12@example.com` (CUSTOMER with DELIVERED orders), submitted a review → PENDING and correctly NOT public,
+  then deleted it to keep data clean. Note: product detail shows the seeded marketing aggregate (e.g.
+  Ratlami Sev 4.9/3820) with 0 written reviews until one is approved — matching Session 21 semantics
+  (a PUBLISHED review would take over the aggregate and collapse those rich seeded numbers, so none were
+  approved for the demo).
