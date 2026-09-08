@@ -1640,3 +1640,41 @@ Increment landed this session (code + migration pushed):
   partners) + ledger shapes. The script **self-cleans** the throwaway partner + DELIVERY user + customer and
   asserts the partner roster is back to the 1 seeded row.
 - Session 35 complete & pushed.
+
+## Session 36 — Courier tracking in the staff consoles (OPERATOR + DELIVERY)
+
+- **Date:** 2026-09-08
+- **Objective (owner-chosen via ask_user):** surface live courier tracking in **both** staff consoles —
+  the OPERATOR Operations console and the DELIVERY "My Deliveries" console — over the Session 31 tracking
+  data (the customer storefront already showed it in S31). Read-only, non-money.
+- **Backend (additive, no schema change):** `CourierTrackingService.trackTaskForDelivery(userId,
+  assignmentId, kind)` — a **DELIVERY-role** per-task live-tracking read that resolves the caller's own
+  partner profile, loads a single assignment from the parcel (`DeliveryAssignment`) or replacement
+  (`ReplacementAssignment`) table, verifies the assignment belongs to that partner (else 404/403), and
+  returns the same `CourierTrackingLeg` (local state + live provider events/POD) as the order-level read.
+  Wired into both partner task controllers: `GET /delivery/tasks/:assignmentId/tracking` (parcel,
+  `DeliveryPartnerController`) and `GET /delivery/replacement-tasks/:assignmentId/tracking` (replacement,
+  `ReplacementCourierPartnerController`), both `@Roles(DELIVERY)`. OPERATOR tracking needs no change — they
+  already may read `GET /orders/:id/tracking` (S31). Added 4 unit tests to `courier-tracking.service.spec.ts`
+  (no-partner forbidden, foreign-assignment 404, own parcel + own replacement with live provider events).
+  Full suite **26 suites / 243 tests** (+4); typecheck/build clean.
+- **Frontend (`catalog-console/`):**
+  - `src/views/TrackPanel.jsx` (NEW, shared) — renders tracking legs: per-leg carrier/waybill badges,
+    local + live provider status, live courier timeline (provider events) or local assignment milestones, and
+    POD when present.
+  - `src/views/CourierTasks.jsx` (DELIVERY console) — each expanded parcel/replacement task gains a
+    **"Live tracking"** control (disabled-hint when no waybill yet) that calls the courier's own task-tracking
+    route and renders `TrackPanel` with live events.
+  - `src/views/OperatorDashboard.jsx` (OPERATOR console) — each expanded order gains a **"Track delivery"**
+    control that calls `/orders/:id/tracking` and renders `TrackPanel` (one tab per leg: parcel +
+    replacement).
+  - `src/api.js` — `opsApi.orderTracking`, `deliveryApi.taskTracking`, `deliveryApi.replacementTaskTracking`.
+  `npm run build` clean; served via HMR (`:5174`).
+- **Live verification (`scripts/e2e-staff-tracking.mjs`, 14/14, sandbox API `:4600`, read-only):** RBAC
+  negatives (DELIVERY & SELLER on `/orders/:id/tracking` → 403; OPERATOR & SELLER on the DELIVERY-only
+  `/delivery/tasks/:id/tracking` → 403); OPERATOR order-tracking returns legs with a parcel leg that merges
+  live provider events; DELIVERY parcel task-tracking (own `DLVA-…` assignment) returns the parcel leg with
+  live provider events; DELIVERY replacement task-tracking returns the replacement leg with provider events;
+  DELIVERY on a bogus/foreign assignment → 404. Exercises the persistent S29/S30 demo rows and writes nothing
+  to the DB (partner roster asserted unchanged).
+- Session 36 complete & pushed.

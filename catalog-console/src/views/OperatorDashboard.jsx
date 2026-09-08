@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { opsApi } from '../api.js';
+import TrackPanel from './TrackPanel.jsx';
 
 // Display maps + colours (kept in sync with backend enums).
 const OS = {
@@ -50,6 +51,16 @@ export default function OperatorDashboard({ notify }) {
   const [rejecting, setRejecting] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [advancing, setAdvancing] = useState(null);
+  const [track, setTrack] = useState(null);          // {orderId, loading, data} live tracking
+
+  const loadTrack = async (o) => {
+    if (track && track.orderId === o.id) { setTrack(null); return; }
+    setTrack({ orderId: o.id, loading: true, data: null, err: '' });
+    try {
+      const data = await opsApi.orderTracking(o.id);
+      setTrack({ orderId: o.id, loading: false, data, err: '' });
+    } catch (e) { setTrack({ orderId: o.id, loading: false, data: null, err: e.message || 'Tracking failed' }); }
+  };
 
   const loadOrders = (status) => opsApi.orders(status).then((o) => setOrders(o?.orders ?? o?.items ?? []));
   const loadReturns = (status) => opsApi.returns(status).then((r) => setReturns(r?.returns ?? r?.items ?? []));
@@ -172,7 +183,7 @@ export default function OperatorDashboard({ notify }) {
             <div className="cards">
               {orders.map((o) => (
                 <div className="card product" key={o.id}>
-                  <div className="product-head" onClick={() => setOpenOrder(openOrder === o.id ? null : o.id)}>
+                  <div className="product-head" onClick={() => { setTrack(track && track.orderId === o.id ? track : null); setOpenOrder(openOrder === o.id ? null : o.id); }}>
                     <div>
                       <div className="pname">{o.orderNumber} <span className="muted small">· {PAY[o.paymentMethod]} · {PS[o.paymentStatus]}</span></div>
                       <div className="muted small">{o.items?.length} item{o.items?.length === 1 ? '' : 's'} · placed {dt(o.placedAt)} · total {inr(o.price?.grandTotal)}</div>
@@ -197,6 +208,16 @@ export default function OperatorDashboard({ notify }) {
                       {(o.sellerOrders || []).map((so) => (
                         <div key={so.id} className="muted small">Slice {so.sellerOrderNumber} · {so.sellerName} · <span className={`badge st-${so.status}`}>{so.status}</span></div>
                       ))}
+                      <div className="product-actions">
+                        <button className="btn ghost sm" onClick={() => loadTrack(o)}>
+                          {track && track.orderId === o.id ? (track.loading ? '…' : 'Hide tracking') : 'Track delivery'}
+                        </button>
+                        <span className="muted small">live courier tracking for this order</span>
+                      </div>
+                      {track && track.orderId === o.id && !track.loading && track.data && (
+                        <TrackPanel legs={track.data.legs} />
+                      )}
+                      {track && track.orderId === o.id && !track.loading && track.err && <div className="alert">{track.err}</div>}
                       {NEXT[o.status] && (
                         <div className="product-actions">
                           {NEXT[o.status].map((to) => (

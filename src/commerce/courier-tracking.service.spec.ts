@@ -11,8 +11,9 @@ describe('CourierTrackingService (Session 31)', () => {
     prisma = {
       user: { findUnique: jest.fn() },
       order: { findUnique: jest.fn() },
-      deliveryAssignment: { findMany: jest.fn() },
-      replacementAssignment: { findMany: jest.fn() },
+      deliveryPartner: { findUnique: jest.fn() },
+      deliveryAssignment: { findMany: jest.fn(), findUnique: jest.fn() },
+      replacementAssignment: { findMany: jest.fn(), findUnique: jest.fn() },
     };
     courier = {
       name: 'Mock Courier',
@@ -146,5 +147,40 @@ describe('CourierTrackingService (Session 31)', () => {
     prisma.user.findUnique.mockResolvedValue({ id: 'op', role: 'ADMIN' });
     prisma.order.findUnique.mockResolvedValue(null);
     await expect(service.trackOrder('op', 'missing')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  // ---- Session 36 — DELIVERY-role per-task tracking ----
+
+  it('forbids a DELIVERY user with no partner profile from task tracking', async () => {
+    prisma.deliveryPartner.findUnique.mockResolvedValue(null);
+    await expect(service.trackTaskForDelivery('u-no-partner', 'da1', 'parcel')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('returns 404 when the task does not belong to this partner (parcel)', async () => {
+    prisma.deliveryPartner.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.deliveryAssignment.findUnique.mockResolvedValue(sliceAssignment({ deliveryPartnerId: 'p-OTHER' }));
+    await expect(service.trackTaskForDelivery('u1', 'da1', 'parcel')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('DELIVERY partner reads live tracking for their own parcel task', async () => {
+    prisma.deliveryPartner.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.deliveryAssignment.findUnique.mockResolvedValue(sliceAssignment());
+    const out: any = await service.trackTaskForDelivery('u1', 'da1', 'parcel');
+    expect(out.assignmentNumber).toBe('DLVA-1');
+    expect(out.legType).toBe('parcel');
+    expect(out.reference).toBe('SO-1');
+    expect(out.provider.status).toBe('IN_TRANSIT');
+    expect(out.provider.events).toHaveLength(2);
+    expect(courier.track).toHaveBeenCalledWith('MCK-111');
+  });
+
+  it('DELIVERY partner reads tracking for their own replacement task', async () => {
+    prisma.deliveryPartner.findUnique.mockResolvedValue({ id: 'p1' });
+    prisma.replacementAssignment.findUnique.mockResolvedValue(replacementAssignment({ deliveryPartnerId: 'p1' }));
+    const out: any = await service.trackTaskForDelivery('u1', 'ra1', 'replacement');
+    expect(out.legType).toBe('replacement');
+    expect(out.reference).toBe('RPL-1');
+    expect(out.podRef).toBe('POD-MCK-222');
+    expect(out.provider.status).toBe('IN_TRANSIT');
   });
 });

@@ -13,6 +13,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUserId } from '../auth/decorators/current-user.decorator';
 import { DeliveryService } from './delivery.service';
+import { CourierTrackingService } from './courier-tracking.service';
 import {
   AssignSliceDto,
   DeliveryListQuery,
@@ -91,7 +92,10 @@ export class DeliveryAdminController {
 @Controller('delivery/tasks')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class DeliveryPartnerController {
-  constructor(private readonly delivery: DeliveryService) {}
+  constructor(
+    private readonly delivery: DeliveryService,
+    private readonly tracking: CourierTrackingService,
+  ) {}
 
   @Get()
   @Roles('DELIVERY')
@@ -103,6 +107,13 @@ export class DeliveryPartnerController {
   @Roles('DELIVERY')
   task(@CurrentUserId() userId: string, @Param('assignmentId') id: string) {
     return this.delivery.partnerTask(userId, id);
+  }
+
+  // Session 36 — live courier tracking for a parcel task assigned to this DELIVERY partner.
+  @Get(':assignmentId/tracking')
+  @Roles('DELIVERY')
+  taskTracking(@CurrentUserId() userId: string, @Param('assignmentId') id: string) {
+    return this.tracking.trackTaskForDelivery(userId, id, 'parcel');
   }
 
   @Post(':assignmentId/accept')

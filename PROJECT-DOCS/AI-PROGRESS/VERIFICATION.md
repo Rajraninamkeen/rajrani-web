@@ -608,3 +608,16 @@ Run from repo root after `npm run build`.
 | `catalog-console` `npm run build` | clean |
 | Live E2E `scripts/e2e-deliveryops.mjs` (sandbox API `:4600`, **22/22 ok**) | RBAC negatives (CUSTOMER/SELLER/DELIVERY → 403 on `/delivery/partners`, `/delivery/partner-candidates`, `/delivery/assignments`); throwaway DELIVERY-role user appears in candidates; `POST /delivery/partners` → **ACTIVE** auto `DLV-…` + vehicleType, then drops out of candidates; duplicate → **409**; **SUSPENDED → ACTIVE** toggle; appears in `/delivery/partners`; assignments list shape + per-partner filter isolation (fresh partner 0 / seeded resolves) + a detail row (number/status/sellerOrder/events); payout summary (INR + partners) + ledger shapes; script **self-cleans** the throwaway partner + DELIVERY user + customer and asserts the roster is back to the 1 seeded partner |
 | `git push origin main` | Session 35 feature + docs committed and pushed (see git log) |
+
+### Session 36 — courier tracking in the staff consoles (OPERATOR + DELIVERY)
+
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| `npm run typecheck` / `npm run build` | clean |
+| `npx jest` | **26 suites / 243 tests passed** (added 4 `trackTaskForDelivery` cases to `courier-tracking.service.spec.ts`, +4) |
+| `catalog-console` `npm run build` | clean |
+| Live E2E `scripts/e2e-staff-tracking.mjs` (sandbox API `:4600`, **14/14 ok**, read-only) | RBAC 403s both ways (DELIVERY/SELLER on `/orders/:id/tracking`; OPERATOR/SELLER on the DELIVERY-only task-tracking routes); OPERATOR order-tracking returns legs with a parcel leg merging live provider events; DELIVERY parcel task-tracking (own `DLVA-…`) + replacement task-tracking (own `RDLA-…`) each return their leg with live provider events; DELIVERY on a bogus/foreign assignment → 404; partner roster asserted unchanged (no DB writes) |
+| Console proxy `:5174` | HMR serving updated `CourierTasks.jsx` / `OperatorDashboard.jsx` / `TrackPanel.jsx` / `api.js` |
+| `git push origin main` | Session 36 feature + docs committed and pushed (see git log) |

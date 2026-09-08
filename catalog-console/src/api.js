@@ -76,6 +76,8 @@ export const sellerOpsApi = {
 export const opsApi = {
   orders: (status) => api('GET', '/ops/orders' + (status ? `?status=${status}` : '')),
   order: (id) => api('GET', `/ops/orders/${id}`),
+  // Session 36 — live courier tracking for an order (OPERATOR/ADMIN read).
+  orderTracking: (id) => api('GET', `/orders/${id}/tracking`),
   returns: (status) => api('GET', '/ops/returns' + (status ? `?status=${status}` : '')),
   returnDetail: (id) => api('GET', `/ops/returns/${id}`),
   // fulfilment
@@ -122,6 +124,8 @@ function qs(params = {}) {
 export const deliveryApi = {
   tasks: () => api('GET', '/delivery/tasks'),
   task: (id) => api('GET', `/delivery/tasks/${id}`),
+  // Session 36 — live courier tracking for a parcel task assigned to this DELIVERY partner.
+  taskTracking: (id) => api('GET', `/delivery/tasks/${id}/tracking`),
   // slice-task actions
   taskAccept: (id) => api('POST', `/delivery/tasks/${id}/accept`, { body: {} }),
   taskReject: (id, reason) => api('POST', `/delivery/tasks/${id}/reject`, { body: { reason } }),
@@ -132,6 +136,8 @@ export const deliveryApi = {
   // replacement-task surface
   replacementTasks: () => api('GET', '/delivery/replacement-tasks'),
   replacementTask: (id) => api('GET', `/delivery/replacement-tasks/${id}`),
+  // Session 36 — live courier tracking for a replacement task assigned to this DELIVERY partner.
+  replacementTaskTracking: (id) => api('GET', `/delivery/replacement-tasks/${id}/tracking`),
   replacementAccept: (id) => api('POST', `/delivery/replacement-tasks/${id}/accept`, { body: {} }),
   replacementReject: (id, reason) => api('POST', `/delivery/replacement-tasks/${id}/reject`, { body: { reason } }),
   replacementPickup: (id) => api('POST', `/delivery/replacement-tasks/${id}/pickup`, { body: {} }),

@@ -4,6 +4,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUserId } from '../auth/decorators/current-user.decorator';
 import { ReplacementCourierService } from './replacement-courier.service';
+import { CourierTrackingService } from './courier-tracking.service';
 import {
   AssignReplacementCourierDto,
   FailReplacementDto,
@@ -50,7 +51,10 @@ export class ReplacementCourierAdminController {
 @Controller('delivery/replacement-tasks')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ReplacementCourierPartnerController {
-  constructor(private readonly courier: ReplacementCourierService) {}
+  constructor(
+    private readonly courier: ReplacementCourierService,
+    private readonly tracking: CourierTrackingService,
+  ) {}
 
   @Get()
   @Roles('DELIVERY')
@@ -62,6 +66,13 @@ export class ReplacementCourierPartnerController {
   @Roles('DELIVERY')
   task(@CurrentUserId() userId: string, @Param('assignmentId') id: string) {
     return this.courier.partnerTask(userId, id);
+  }
+
+  // Session 36 — live courier tracking for a replacement task assigned to this DELIVERY partner.
+  @Get(':assignmentId/tracking')
+  @Roles('DELIVERY')
+  taskTracking(@CurrentUserId() userId: string, @Param('assignmentId') id: string) {
+    return this.tracking.trackTaskForDelivery(userId, id, 'replacement');
   }
 
   @Post(':assignmentId/accept')

@@ -139,6 +139,42 @@ export class CourierTrackingService {
 
   // ---- slice (parcel) legs ----
 
+  // ---- DELIVERY-role per-task tracking (Session 36) ----
+
+  /**
+   * Live courier tracking for ONE task owned by a DELIVERY partner — the courier
+   * reads tracking for an assignment currently assigned to their own profile.
+   * `kind` selects the table: 'parcel' (DeliveryAssignment) or 'replacement'
+   * (ReplacementAssignment). Reuses the same leg builders + live provider lookup
+   * as the order-level read; entitlement is the owning partner, not the order.
+   */
+  async trackTaskForDelivery(
+    deliveryUserId: string,
+    assignmentId: string,
+    kind: 'parcel' | 'replacement',
+  ): Promise<CourierTrackingLeg> {
+    const partner = await this.prisma.deliveryPartner.findUnique({
+      where: { userId: deliveryUserId },
+      select: { id: true },
+    });
+    if (!partner) throw new ForbiddenException('No delivery-partner profile for this user');
+
+    if (kind === 'parcel') {
+      const a = await this.prisma.deliveryAssignment.findUnique({
+        where: { id: assignmentId },
+        include: { sellerOrder: { select: { sellerOrderNumber: true, seller: { select: { displayName: true } } } } },
+      });
+      if (!a || a.deliveryPartnerId !== partner.id) throw new NotFoundException('Assignment not found');
+      return this.toSliceLeg(a);
+    }
+    const a = await this.prisma.replacementAssignment.findUnique({
+      where: { id: assignmentId },
+      include: { replacement: { select: { replacementReference: true } } },
+    });
+    if (!a || a.deliveryPartnerId !== partner.id) throw new NotFoundException('Assignment not found');
+    return this.toReplacementLeg(a);
+  }
+
   private async toSliceLeg(a: any): Promise<CourierTrackingLeg> {
     const provider = await this.liveTrack(a.trackingNumber, a.carrier);
     return {

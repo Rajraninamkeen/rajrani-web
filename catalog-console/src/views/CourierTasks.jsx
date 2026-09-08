@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { deliveryApi } from '../api.js';
+import TrackPanel from './TrackPanel.jsx';
 
 // DeliveryAssignmentStatus display.
 const AS = {
@@ -33,6 +34,16 @@ export default function CourierTasks({ notify }) {
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [prompt, setPrompt] = useState(null);        // {kind:'reject'|'fail', id, source, task}
+  const [track, setTrack] = useState(null);          // {id, source, loading, leg} live tracking for the expanded task
+
+  const loadTrack = async (t, source) => {
+    if (track && track.id === t.id) { setTrack(null); return; }
+    setTrack({ id: t.id, source, loading: true, leg: null });
+    try {
+      const leg = source === 'parcels' ? await deliveryApi.taskTracking(t.id) : await deliveryApi.replacementTaskTracking(t.id);
+      setTrack({ id: t.id, source, loading: false, leg });
+    } catch (e) { setTrack({ id: t.id, source, loading: false, leg: null, err: e.message || 'Tracking failed' }); }
+  };
 
   const load = async () => {
     setBusy(true); setErr('');
@@ -46,7 +57,7 @@ export default function CourierTasks({ notify }) {
 
   const openTask = async (t, source) => {
     setOpenId(openId === t.id ? null : t.id);
-    setPrompt(null); setDetail(null);
+    setPrompt(null); setDetail(null); setTrack(null);
     if (openId === t.id) return;
     try {
       const d = source === 'parcels' ? await deliveryApi.task(t.id) : await deliveryApi.replacementTask(t.id);
@@ -151,6 +162,17 @@ export default function CourierTasks({ notify }) {
                     <div className="muted small" style={{ marginTop: 6 }}>Timeline: {detail.events.map((e) => e.eventType).join(' → ')}</div>
                   )}
 
+                  <div className="product-actions">
+                    <button className="btn ghost sm" onClick={() => loadTrack(t, source)}>
+                      {track && track.id === t.id ? (track.loading ? '…' : 'Hide tracking') : 'Live tracking'}
+                    </button>
+                    {t.trackingNumber || detail.trackingNumber
+                      ? <span className="muted small">waybill {t.trackingNumber || detail.trackingNumber}</span>
+                      : <span className="muted small">no waybill yet — track once the task is picked up</span>}
+                  </div>
+                  {track && track.id === t.id && !track.loading && track.leg && <TrackPanel legs={[track.leg]} />}
+                  {track && track.id === t.id && !track.loading && track.err && <div className="alert">{track.err}</div>}
+
                   {actions.length > 0 && (
                     <div className="product-actions">
                       {actions.includes('accept') && <button className="btn primary sm" disabled={busyId === t.id + ':accept'} onClick={() => ask(source, t, 'accept')}>{busyId === t.id + ':accept' ? '…' : 'Accept'}</button>}
@@ -197,7 +219,7 @@ export default function CourierTasks({ notify }) {
 
       <div className="sub-nav">
         {[['parcels', `Parcels (${parcels.length})`], ['replacements', `Replacements (${replacements.length})`]].map(([id, label]) => (
-          <button key={id} className={`seg ${section === id ? 'active' : ''}`} onClick={() => { setSection(id); setOpenId(null); setDetail(null); setPrompt(null); }}>{label}</button>
+          <button key={id} className={`seg ${section === id ? 'active' : ''}`} onClick={() => { setSection(id); setOpenId(null); setDetail(null); setPrompt(null); setTrack(null); }}>{label}</button>
         ))}
       </div>
 
