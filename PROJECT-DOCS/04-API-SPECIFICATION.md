@@ -3221,3 +3221,40 @@ Note: a REVIEWER has onboarding scope only and receives 403 on `/finance/**`, `/
 ASSIGNED → ACCEPTED → PICKED_UP → OUT_FOR_DELIVERY → DELIVERED
               \--REJECTED   \--FAILED   (operator reassigns/cancels)
 ```
+
+# Session 16 addendum — Return replacement vs refund + evidence upload (reference)
+
+Extends the Session 08 item-level returns API (`orders/:orderId/returns`, `return-requests/:id`).
+The refund/auto-debit money logic is unchanged for REFUND-resolution requests.
+
+## Resolution & evidence request
+- `POST /api/v1/orders/:orderId/returns` body now also accepts (both optional):
+  - `resolution`: `REFUND` (default) | `REPLACEMENT` — the customer-chosen remedy.
+  - `evidence[]`: `[{ storageObjectId, fileName?, mimeType?, sizeBytes?, kind? }]`
+    (storage-intent object references; backend stores no raw binary).
+  - When `resolution: REPLACEMENT`, the request is created with `evidenceRequired: true` and
+    each return item with `replacementRequested: true`. Response includes `resolution`,
+    `evidenceRequired`, `evidence[]`, `replacement?`.
+
+## Evidence upload
+- CUSTOMER `POST /api/v1/orders/:orderId/returns/:returnRequestId/evidence`
+  (ownership enforced; 404 cross-owner) and OPERATOR/ADMIN
+  `POST /api/v1/return-requests/:returnRequestId/evidence` (RBAC-guarded). Body `EvidenceUploadDto`.
+  Both persist a `return_evidence` row and append an audited `EVIDENCE_UPLOADED` event.
+  409 if the request is already terminal (REPLACEMENT_ISSUED / COMPLETED / CANCELLED).
+
+## Replacement resolution flow
+- `REPLACEMENT` request: ... → operator decision → pickup → picked-up → inspection.
+- `POST /api/v1/return-requests/:returnRequestId/inspection` with all items PASS/PARTIAL_PASS:
+  the request goes **terminal `REPLACEMENT_ISSUED`** and a `replacement` row is created
+  (`RPL-…`, `PENDING_DISPATCH`, quantity = non-FAIL units). **No Refund and no seller-payable
+  auto-debit.** A refund endpoint call on a `REPLACEMENT_ISSUED` request returns 409.
+  (Outbound dispatch `PENDING_DISPATCH → DISPATCHED → …` is modelled but not yet API-driven.)
+- `REFUND` resolution (default) continues exactly as before → `APPROVED_FOR_REFUND` →
+  `initiateRefund`/`completeRefund` (server-amounted refund + auto return-debit + terminal
+  aggregate update).
+
+```
+REFUND     resolution:  …→ APPROVED_FOR_REFUND → (refund) → COMPLETED
+REPLACEMENT resolution: …→ REPLACEMENT_ISSUED (terminal) + replacement (PENDING_DISPATCH)
+```

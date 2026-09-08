@@ -4,10 +4,10 @@ For the next AI session.
 
 | Key | Value |
 |---|---|
-| CURRENT SESSION | Session 15 — Per-slice delivery / courier handoff (DELIVERY role) |
-| STATUS | COMPLETE (16 suites / 136 tests; migration applied; commits `2c9f8d6` S14 docs, `5168b36` S15) |
-| NEXT SESSION | Return replacement vs refund (+ evidence upload), reviews, or real payment-gateway provider |
-| NEXT WORKFLOW | Replacement/exchange vs refund on the existing item-level returns flow; product reviews (ratingAvg refresh); a real gateway provider (razorpay/stripe) with live refunds; real courier-provider integration + per-slice payout (earn currently stays order-level) |
+| CURRENT SESSION | Session 16 — Return replacement (exchange) vs refund + evidence upload |
+| STATUS | COMPLETE locally (16 suites / 145 tests; 18 migrations applied + recorded; commit **staged — PUSH REQUIRED**, needs a fresh one-shot GitHub token) |
+| NEXT SESSION | Reviews, real payment-gateway provider, or outbound replacement dispatch / courier integration |
+| NEXT WORKFLOW | Product reviews (ratingAvg refresh); a real gateway provider (razorpay/stripe) with live refunds; real courier-provider integration + per-slice payout (earn currently stays order-level); drive outbound replacement dispatch (`ReplacementStatus PENDING_DISPATCH → …`) once a dispatch/fulfilment concern exists |
 
 ## IMPORTANT PRODUCT DECISION (owner)
 **`landing-page/` is a PROTOTYPE / UX reference, NOT an exact pixel spec.** It

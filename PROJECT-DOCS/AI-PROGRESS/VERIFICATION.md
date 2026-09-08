@@ -350,4 +350,22 @@
 | RBAC | DELIVERY → **403** on `/delivery/partners`, `/delivery/assignments`, `/finance/settlements`; OPERATOR → **403** on `/delivery/tasks`; REVIEWER → **403** on `/delivery/partners`; DELIVERY `GET /delivery/tasks` **200** (empty) |
 | operator surfaces | `GET /delivery/assignments` 200 (total 0); `POST /delivery/slices/:id/assign` on a bogus slice → **404** (route reachable) |
 | courier slice flow (accept→pickup→out-for-delivery→deliver/fail, own-assignment authz, step ordering, final-slice earn) | covered by `delivery.service.spec` (12 tests); final-slice `deliver` asserts `settlement.earnDeliveredSlices(tx, orderId)` only on the last slice — not re-run live this pass (no courier-stage order existed in the live DB) |
-| `git push origin main` | pending (this session) |
+| `git push origin main` | pushed (`5168b36` code+migration, `d745d3b` docs) |
+
+## Session 16 — Return replacement vs refund + evidence upload (2026-09-08, `/home/user/rajrani-web`)
+
+Server `bilokat-api-session-16-…` on `:4000` (fresh `dist/main.js` build). Fixtures: reset
+`s12@example.com` password (throwaway test customer, owns DELIVERED `BK-MTRWEGUT`); operator
+`pfop@example.com`.
+
+| Check | Result |
+|---|---|
+| migrations | 18 applied, `prisma migrate status` up to date; `prisma generate` OK; typecheck + `npm run build` clean |
+| unit tests | `returns.service.spec.ts` +9 → **16 suites / 145 tests** green |
+| replacement request | CUSTOMER `POST /orders/:orderId/returns` `{resolution:REPLACEMENT, evidence:[photo]}` on item qty2 → **201** `REQUESTED`, `resolution REPLACEMENT`, `evidenceRequired true`, 1 evidence row, items `replacementRequested true` |
+| replacement lifecycle | OPERATOR decision APPROVE → pickup → picked-up → inspection PASS → **`REPLACEMENT_ISSUED`** (terminal) with `replacement` `RPL-MTRZGF1A-GBLH` `PENDING_DISPATCH` `quantityTotal 2` |
+| no money on replacement | DB: **no `refunds` row** created for the replacement return; `POST …/refund` → **409**; `return_requests` row `REPLACEMENT_ISSUED`/`REPLACEMENT`/evidenceRequired true |
+| evidence-on-terminal | CUSTOMER `POST …/returns/:id/evidence` on the terminal request → **409** |
+| refund path intact | REFUND-resolution return on the order's other line → inspection `APPROVED_FOR_REFUND` (`approvedForRefundAt` + per-line `refundAmount`) → refund initiate `PENDING` → complete `COMPLETED` / return `COMPLETED` (money + auto-debit logic unchanged) |
+| RBAC | CUSTOMER → **403** on OPERATOR-only `POST /return-requests/:id/evidence`; customer evidence route enforces order ownership (404 cross-owner) |
+| `git push origin main` | pending (this session; needs a fresh one-shot token) |

@@ -847,3 +847,54 @@ Live E2E run — see VERIFICATION Session 05 table.
   200 (0); `assign` on a bogus slice → 404. Full slice→DELIVERED+earn courier delivery was
   **unit-tested**, not re-run live (no courier-stage order existed in the live DB). See
   VERIFICATION Session 15.
+
+## Session 16 — Return replacement (exchange) vs refund + evidence upload
+
+- **Date:** 2026-09-08
+- **Owner decision (feature picker):** "Add an exchange/replacement path and customer
+  photo/evidence upload to the existing item-level returns flow (Session 08), keeping the
+  refund/auto-debit money logic intact." Scope locked: a return request declares a
+  `REFUND` (default) or `REPLACEMENT` resolution; evidence upload is supported; a
+  REPLACEMENT-resolved return goes terminal `REPLACEMENT_ISSUED` with **no Refund and no
+  seller-payable auto-debit**; REFUND-resolved requests keep the exact existing money path.
+- **Schema (additive; migration `20260908160000_return_replacement_evidence` + follow-up
+  `20260908161000_return_evidence_enum` — 18 migrations total):**
+  - `ReturnRequest.resolution ReturnResolution?` + auto `evidenceRequired` (true when a
+    request is REPLACEMENT). Existing `ReturnItem.replacementRequested` (previously unused)
+    is now set true on REPLACEMENT-resolution items — the natural Session 16 hook.
+  - `enum ReturnResolution { REFUND | REPLACEMENT }`; `ReturnStatus` += `REPLACEMENT_ISSUED`;
+    `ReturnEventType` += `REPLACEMENT_ISSUED`, `EVIDENCE_UPLOADED`.
+  - New `ReturnEvidence` (`return_evidence`) — storage-intent object reference
+    (`storageObjectId`, fileName/mime/size/kind IMAGE|VIDEO, uploadedBy/At), never raw binary.
+  - New `Replacement` (`replacements`) + `enum ReplacementStatus`
+    (PENDING_DISPATCH/DISPATCHED/COMPLETED/CANCELLED): one replacement per return
+    (`returnRequestId @unique`), captures order/sellerOrder/qty, `replacementReference RPL-…`.
+  - Applied via `psql -f` + manual `_prisma_migrations` insert (`WHERE NOT EXISTS`, short
+    varchar(36) ids), then `prisma generate`; `migrate status` up to date.
+- **Service/DTO/controller (`src/commerce/returns.service.ts`, `dto/returns.dto.ts`,
+  `returns.controller.ts`, `return-ops.controller.ts`, `commerce.types.ts`):**
+  - `CreateReturnDto` += optional `resolution` and nested `evidence[]`; new `EvidenceUploadDto`.
+  - `ReturnsService.request` stores the resolution + evidence and stamps per-item
+    `replacementRequested`.
+  - Evidence methods: customer `POST /orders/:orderId/returns/:returnRequestId/evidence`
+    (ownership-enforced) and OPERATOR `POST /return-requests/:returnRequestId/evidence`;
+    both append a `return_evidence` row + an audited `EVIDENCE_UPLOADED` event; blocked on a
+    terminal request (REPLACEMENT_ISSUED/COMPLETED/CANCELLED).
+  - `inspect`: when inspection completes and `resolution == REPLACEMENT`, the request goes
+    **terminal `REPLACEMENT_ISSUED`**, creates a `replacement` (qty = non-FAIL units,
+    PENDING_DISPATCH) and a `REPLACEMENT_ISSUED` event — **no refundAmount allocation, no
+    Refund, no `debitReturnedGoodsForRefund`**. If no unit passed (all FAIL) → 400. For
+    `REFUND`/null resolution the existing APPROVED_FOR_REFUND + refund path is unchanged.
+  - A `REPLACEMENT_ISSUED` request cannot be refunded (initiateRefund requires
+    APPROVED_FOR_REFUND → 409), so the money path can never be triggered on a replacement.
+  - Public shapes += `resolution`, `evidenceRequired`, `evidence[]`, `replacement`; REFUND
+    default.
+- **Tests:** `returns.service.spec.ts` +9 (REPLACEMENT resolution storage + evidenceRequired
+  + items `replacementRequested`, REFUND default, terminal replacement issuance w/o refund/
+  auto-debit, all-FAIL guard, refund blocked on REPLACEMENT_ISSUED, customer & operator
+  evidence uploads with correct actor events, evidence blocked on terminal, cross-owner 404).
+  Full suite **16 suites / 145 tests** (was 136); typecheck + build clean.
+- **Live E2E (`:4000`) on delivered order `BK-MTRWEGUT` (s12@example.com):** see
+  VERIFICATION Session 16. Replacement path (→ `REPLACEMENT_ISSUED` + `RPL-…`, refund 409)
+  and REFUND path (→ APPROVED_FOR_REFUND → refund → COMPLETED, money intact) both confirmed;
+  CUSTOMER → 403 on OPERATOR evidence route.

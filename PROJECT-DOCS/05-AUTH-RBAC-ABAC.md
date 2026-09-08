@@ -3468,3 +3468,21 @@ order SHIPPED or OUT_FOR_DELIVERY. Delivering the last outstanding slice finaliz
 DELIVERED (order `deliveredAt`, COD_PAID for COD, `order_status_history`) and auto-earns the
 accepted slices' seller payables — the Session 12/13 money trigger is unchanged (order-level,
 per owner decision). `delivery_events` audit every step.
+
+# Session 16 addendum — Return replacement vs refund + evidence upload (access)
+
+No new roles. Role gates that changed this session:
+
+- Customer evidence upload `POST /api/v1/orders/:orderId/returns/:returnRequestId/evidence`
+  is **CUSTOMER, own-order/own-request only** (service enforces the caller owns the order →
+  cross-owner 404). No cross-tenant upload.
+- Operator evidence upload `POST /api/v1/return-requests/:returnRequestId/evidence` is
+  **OPERATOR/ADMIN only** (RolesGuard) — CUSTOMER (and DELIVERY/REVIEWER) are 403.
+- The REPLACEMENT issuance decision rides the existing operator inspection endpoint
+  `POST /api/v1/return-requests/:returnRequestId/inspection` which stays **OPERATOR/ADMIN
+  only**; DELIVERY and REVIEWER remain denied the operator returns surface (`/return-requests/**`).
+- Refund endpoints (`/return-requests/:id/refund`, `/refund/complete`) remain
+  OPERATOR/ADMIN; a `REPLACEMENT_ISSUED` request cannot enter them (409) so no money path
+  is reachable from a replacement.
+- No DELIVERY/REVIEWER surface was opened for evidence or replacement; Session 15/14 RBAC
+  negatives remain valid.
