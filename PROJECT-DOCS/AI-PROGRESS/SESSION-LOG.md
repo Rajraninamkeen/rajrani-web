@@ -1763,3 +1763,33 @@ Increment landed this session (code + migration pushed):
   outbox reads and `POST dispatch` (→ 7 SKIPPED, no gateway); script **self-cleans** the money rows AND the
   new notification/outbox rows and asserts `cp=sp=st=notifications=0` for the run.
 - Session 38 complete & pushed.
+
+## Session 39 — Real SMS/email gateway behind the notification outbox
+
+- **Date:** 2026-09-08
+- **Objective (owner-chosen via ask_user):** wire an actual outbound gateway into the Session-38
+  `NotificationOutbox` dispatcher so PENDING rows are delivered (→ **SENT**) instead of resolved to
+  SKIPPED, with a retry-aware sweep and an optional in-process delivery worker. Backend + tests only.
+- **Config (`configuration.ts`):** new `notify` block — per-channel (`email`/`sms`) `transport`
+  (`console` default | `http`), `httpUrl`, `httpKey`, `from`/`sender`, plus `dispatchIntervalMs`
+  (0 = disabled) and `dispatchBatch`. Env keys `NOTIFY_EMAIL_*` / `NOTIFY_SMS_*` / `NOTIFY_DISPATCH_*`.
+- **`notification.gateway.ts` (NEW):** `NotificationGateway` + `NOTIFICATION_GATEWAY_TOKEN`. Each
+  channel resolves to a transport: `console` **dev-sink** (default — renders + logs the outbound
+  message and returns ok, so rows move to SENT with no external dependency) or `http` (POSTs JSON to
+  the configured provider endpoint with a bearer key + 8s timeout; non-2xx/network error → retryable
+  failure). Registered in `commerce.module.ts` and injected into `NotificationService`.
+- **`notification.service.ts`:** dispatcher now sweeps `PENDING` **and** `FAILED` rows below a
+  5-attempt ceiling through the gateway, marks **SENT** (`sentAt`) on success / **FAILED**
+  (`attempt`, `lastError`) retryable on error; includes the notification title/message so the outbound
+  payload is real content. Added `onModuleInit` interval worker (only when `NOTIFY_DISPATCH_INTERVAL_MS
+  > 0`) + `onModuleDestroy` cleanup. Money seams unchanged.
+- **Tests (+7, 29 across the 3 suites green):** `notification.service.spec.ts` dispatch cases rewritten
+  (SENT via gateway, FAILED retryable on error, sweep scope PENDING+FAILED) + new
+  `notification.gateway.spec.ts` (4: console default, http POST w/ bearer + subject, non-2xx fail,
+  http-without-url fail). Typecheck/build clean.
+- **Live E2E (`scripts/e2e-notify-gateway.mjs`, sandbox API `:4600`, **7/7 ok**, self-clean):**
+  inserts a notification + PENDING EMAIL outbox row for the demo courier; RBAC (DELIVERY dispatch →
+  403); OPERATOR `POST /finance/notifications/dispatch` → `{processed:1, sent:1, failed:0}`; the row is
+  **SENT** with `sentAt` + attempt 1 (not SKIPPED); a second dispatch is a no-op (`processed:0`); rows
+  deleted and re-query confirms clean.
+- Session 39 complete & pushed.

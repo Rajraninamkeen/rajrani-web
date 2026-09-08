@@ -649,3 +649,16 @@ Run from repo root after `npm run build`.
 | Live E2E `scripts/e2e-notifications.mjs` (sandbox API `:4600`, **40/40 ok**, self-clean) | RBAC 403s (CUSTOMER/OPERATOR on `/delivery/notifications`, DELIVERY on `/seller/notifications`, CUSTOMER+SELLER on `/finance/notifications/*`); fresh courier-delivered parcel → **COURIER_FEE_EARNED** + **PAYABLE_EARNED** on the DELIVERY/SELLER reads (message + refId); courier **settle** → **COURIER_FEE_SETTLED**; settlement create + advance → two **SETTLEMENT_ADVANCED** notices; unread-count → mark-one → read-all → unread 0; cross-user mark-read 403; OPERATOR ledger/outbox reads; `POST /finance/notifications/dispatch` → 7 SKIPPED (no gateway); script self-cleans money rows + notification/outbox rows and asserts `cp=sp=st=notifications=0` |
 | Console | `NotificationsBell` (unread badge + dropdown + mark-one/mark-all) in the DELIVERY + SELLER consoles; served via HMR (`:5174`) |
 | `git push origin main` | Session 38 feature + docs committed and pushed (see git log) |
+
+### Session 39 — real SMS/email gateway behind the notification outbox
+
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| `npm run typecheck` / `npm run build` | clean |
+| `npx jest` (affected suites) | `notification.service.spec.ts` + `notification.gateway.spec.ts` + `courier-payout.service.spec.ts` **29/29 passed** (rewritten dispatch cases; new gateway spec +4) |
+| `settlement.service.spec.ts` | **25/25 passed** (money suites unaffected) |
+| Live E2E `scripts/e2e-notify-gateway.mjs` (sandbox API `:4600`, **7/7 ok**, self-clean) | DELIVERY (non-OPERATOR) `POST /finance/notifications/dispatch` → 403; OPERATOR dispatch on a PENDING EMAIL row → `{processed:1, sent:1, skipped:0, failed:0}`; outbox row is **SENT** with `sentAt` + attempt 1 (NOT SKIPPED); a second dispatch returns `processed:0`; rows self-cleaned and re-query confirms gone |
+| Config | `notify` block: email/sms `transport` (console default | http), `httpUrl`, `httpKey`, `from`/`sender`, `dispatchIntervalMs` (worker, off by default), `dispatchBatch` |
+| `git push origin main` | Session 39 feature + docs committed and pushed (see git log) |

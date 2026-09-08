@@ -96,15 +96,44 @@ describe('NotificationService (Session 38 — finance/payout notification ledger
     expect(w.readAt).toBeNull();
   });
 
-  it('dispatch resolves PENDING rows to SKIPPED when no gateway is configured', async () => {
+  it('dispatch marks a PENDING row SENT via the gateway (Session 39)', async () => {
+    const gateway = { send: jest.fn().mockResolvedValue({ ok: true, transport: 'console' }) };
+    const svc = new NotificationService(prisma as any, undefined, gateway as any);
     prisma.notificationOutbox.findMany.mockResolvedValue([
-      { id: 'o1', attempt: 0, channel: 'EMAIL', destination: 'a@b.co', createdAt: new Date() },
+      { id: 'o1', attempt: 0, channel: 'EMAIL', destination: 'a@b.co', createdAt: new Date(), notification: { title: 'Payout received', message: '₹35.00 paid out.' } },
     ]);
     prisma.notificationOutbox.update.mockResolvedValue({});
-    const r = await service.dispatch();
-    expect(r).toEqual({ processed: 1, sent: 0, skipped: 1, failed: 0 });
+    const r = await svc.dispatch();
+    expect(r).toEqual({ processed: 1, sent: 1, skipped: 0, failed: 0 });
+    expect(gateway.send).toHaveBeenCalledWith(expect.objectContaining({ channel: 'EMAIL', to: 'a@b.co' }));
     const upd = prisma.notificationOutbox.update.mock.calls[0][0];
-    expect(upd.data.status).toBe(OutboxStatus.SKIPPED);
+    expect(upd.data.status).toBe(OutboxStatus.SENT);
+    expect(upd.data.sentAt).toBeInstanceOf(Date);
+  });
+
+  it('dispatch marks a row FAILED (retryable) when the gateway errors (Session 39)', async () => {
+    const gateway = { send: jest.fn().mockResolvedValue({ ok: false, transport: 'http', error: 'provider http 500' }) };
+    const svc = new NotificationService(prisma as any, undefined, gateway as any);
+    prisma.notificationOutbox.findMany.mockResolvedValue([
+      { id: 'o2', attempt: 0, channel: 'SMS', destination: '9900000099', createdAt: new Date(), notification: { title: 'x', message: 'y' } },
+    ]);
+    prisma.notificationOutbox.update.mockResolvedValue({});
+    const r = await svc.dispatch();
+    expect(r.failed).toBe(1);
+    expect(r.sent).toBe(0);
+    const upd = prisma.notificationOutbox.update.mock.calls[0][0];
+    expect(upd.data.status).toBe(OutboxStatus.FAILED);
+    expect(upd.data.attempt).toBe(1);
+    expect(upd.data.lastError).toBe('provider http 500');
+  });
+
+  it('dispatch sweeps PENDING and FAILED rows below the retry ceiling', async () => {
+    const gateway = { send: jest.fn().mockResolvedValue({ ok: true, transport: 'console' }) };
+    const svc = new NotificationService(prisma as any, undefined, gateway as any);
+    await svc.dispatch();
+    const where = prisma.notificationOutbox.findMany.mock.calls[0][0].where;
+    expect(where.status.in).toEqual(['PENDING', 'FAILED']);
+    expect(where.attempt.lt).toBeDefined();
   });
 
   it('staffList surfaces rows with recipient user context', async () => {

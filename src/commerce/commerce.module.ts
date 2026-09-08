@@ -31,6 +31,7 @@ import { OrderCourierTrackingController } from './courier-tracking.controller';
 import { CourierPayoutService } from './courier-payout.service';
 import { CourierPartnerPayoutController, CourierPayoutAdminController } from './courier-payout.controller';
 import { NotificationService } from './notification.service';
+import { NotificationGateway, NOTIFICATION_GATEWAY_TOKEN } from './notification.gateway';
 import {
   DeliveryNotificationsController,
   SellerNotificationsController,
@@ -78,6 +79,7 @@ import {
     CourierTrackingService,
     CourierPayoutService,
     NotificationService,
+    { provide: NOTIFICATION_GATEWAY_TOKEN, useClass: NotificationGateway },
     PAYMENT_GATEWAY_PROVIDER,
     COURIER_PROVIDER_TOKEN,
   ],

@@ -191,7 +191,7 @@ async function run() {
   const ob = await req('GET', '/finance/notifications/outbox', { token: op });
   ok('OPERATOR outbox 200 + rows', ob.status === 200 && Array.isArray(ob.data?.data?.rows), ob.text.slice(0, 80));
   const disp = await req('POST', '/finance/notifications/dispatch', { token: op });
-  ok('dispatch processes outbox (skipped when no gateway)', disp.data?.data?.processed >= 0 && typeof disp.data?.data?.skipped === 'number', disp.text);
+  ok('dispatch sends outbox rows (console dev-sink -> SENT)', disp.data?.data?.sent >= 0 && typeof disp.data?.data?.failed === 'number', disp.text);
 
   console.log('\nS38_LOG orderId=' + orderId + ' sliceId=' + sliceId + ' payableId=' + payableId + ' settlementId=' + settlementId +
     ' payoutId=' + payoutId + ' buyerId=' + buyerId + ' partnerId=' + partnerId + ' product=' + PRODUCT + ' qty=' + QTY);

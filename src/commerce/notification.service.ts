@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Notification,
@@ -9,6 +9,7 @@ import {
   Prisma,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NOTIFICATION_GATEWAY_TOKEN, NotificationGateway } from './notification.gateway';
 
 type Tx = Prisma.TransactionClient;
 
@@ -55,16 +56,32 @@ export interface NotifySpec {
 }
 
 @Injectable()
-export class NotificationService {
+export class NotificationService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(NotificationService.name);
+  private worker?: NodeJS.Timeout;
+
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly config?: ConfigService,
+    @Optional() @Inject(NOTIFICATION_GATEWAY_TOKEN) private readonly gateway?: NotificationGateway,
   ) {}
 
-  /** True when a real outbound gateway is configured (email/SMS webhook tokens). */
-  private gatewayConfigured(): boolean {
-    const n = this.config?.get<{ emailWebhook?: string; smsWebhook?: string }>('notify');
-    return Boolean(n && (n.emailWebhook || n.smsWebhook));
+  /** Optional in-process dispatch worker (enabled via NOTIFY_DISPATCH_INTERVAL_MS > 0). */
+  onModuleInit(): void {
+    const interval = Number(this.config?.get<number>('notify.dispatchIntervalMs') ?? 0);
+    if (Number.isFinite(interval) && interval > 0) {
+      this.worker = setInterval(() => {
+        this.dispatch(Number(this.config?.get<number>('notify.dispatchBatch') ?? 50))
+          .then((r) => { if (r.processed > 0) this.logger.log(`notification worker dispatched ${r.processed} (sent=${r.sent}, failed=${r.failed})`); })
+          .catch((e) => this.logger.error(`notification worker dispatch failed: ${e?.message}`));
+      }, interval);
+      this.worker.unref?.();
+      this.logger.log(`notification dispatch worker enabled (every ${interval}ms)`);
+    }
+  }
+
+  onModuleDestroy(): void {
+    if (this.worker) clearInterval(this.worker);
   }
 
   private compose(s: NotifySpec): { title: string; message: string } {
@@ -164,38 +181,48 @@ export class NotificationService {
   }
 
   /**
-   * Process the outbox: for each PENDING row attempt a gateway send; without a
-   * configured provider the row resolves to SKIPPED (terminal, never retried).
-   * Returns a summary for the operator dispatch action.
+   * Process the outbox through the gateway (Session 39): sweep PENDING (and FAILED rows below the
+   * retry ceiling), attempt a real send on the configured transport (console dev-sink by default),
+   * and mark each row SENT on success / FAILED (retryable) on error. Never throws.
    */
   async dispatch(limit = 100): Promise<{ processed: number; sent: number; skipped: number; failed: number }> {
+    const MAX_ATTEMPTS = 5;
     const rows = await this.prisma.notificationOutbox.findMany({
-      where: { status: OutboxStatus.PENDING },
+      where: { status: { in: [OutboxStatus.PENDING, OutboxStatus.FAILED] }, attempt: { lt: MAX_ATTEMPTS } },
       orderBy: { createdAt: 'asc' },
       take: Math.min(500, Math.max(1, limit)),
+      include: { notification: { select: { title: true, message: true } } },
     });
     let sent = 0; let skipped = 0; let failed = 0;
     for (const row of rows) {
       const attempt = row.attempt + 1;
-      if (this.gatewayConfigured()) {
-        // A real provider is wired in deployment. For now log the intended send and
-        // resolve via the gateway seam without a network call.
-        try {
-          // eslint-disable-next-line no-console
-          console.log(`[Notification] ${row.channel} → ${row.destination} (outbox ${row.id})`);
-          await this.prisma.notificationOutbox.update({
-            where: { id: row.id },
-            data: { status: OutboxStatus.SENT, attempt, sentAt: new Date() },
+      let result: { ok: boolean; transport: 'console' | 'http'; error?: string };
+      try {
+        if (this.gateway) {
+          result = await this.gateway.send({
+            channel: row.channel,
+            to: row.destination,
+            title: row.notification?.title ?? '',
+            message: row.notification?.message ?? '',
           });
-          sent++;
-        } catch (e: any) {
-          await this.markOutbox(row, attempt, OutboxStatus.FAILED, e?.message ?? 'send error');
-          failed++;
+        } else {
+          // No gateway injected (e.g. unit test / degraded) — dev-sink equivalent.
+          // eslint-disable-next-line no-console
+          console.log(`[bilokat-notify:dev] ${row.channel} → ${row.destination} :: ${row.notification?.title ?? ''}`);
+          result = { ok: true, transport: 'console' };
         }
+      } catch (e: any) {
+        result = { ok: false, transport: 'console', error: e?.message ?? 'dispatch error' };
+      }
+      if (result.ok) {
+        await this.prisma.notificationOutbox.update({
+          where: { id: row.id },
+          data: { status: OutboxStatus.SENT, attempt, sentAt: new Date(), lastError: null },
+        });
+        sent++;
       } else {
-        // No provider configured — record as skipped (terminal) so the queue stays clean.
-        await this.markOutbox(row, attempt, OutboxStatus.SKIPPED, 'no gateway configured');
-        skipped++;
+        await this.markOutbox(row, attempt, OutboxStatus.FAILED, result.error ?? 'send failed');
+        failed++;
       }
     }
     return { processed: rows.length, sent, skipped, failed };

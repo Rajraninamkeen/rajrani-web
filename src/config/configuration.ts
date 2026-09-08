@@ -32,6 +32,16 @@ export interface AppConfig {
     // Session 32 — per-delivered-leg courier fee (₹) the platform owes the DELIVERY partner.
     fees: { parcelFee: number; replacementFee: number };
   };
+  // Session 39 — outbound notification gateway behind the Session-38 NotificationOutbox.
+  // Each channel resolves to a 'console' dev sink (logs the send, marks SENT) by default, or a
+  // real HTTP transport when a provider url/key is configured. dispatchIntervalMs enables an
+  // in-process worker that sweeps PENDING/FAILED outbox rows on a timer (0 = disabled).
+  notify: {
+    dispatchIntervalMs: number;
+    dispatchBatch: number;
+    email: { transport: string; httpUrl: string; httpKey: string; from: string };
+    sms: { transport: string; httpUrl: string; httpKey: string; sender: string };
+  };
 }
 
 export default (): AppConfig => ({
@@ -74,6 +84,23 @@ export default (): AppConfig => ({
     fees: {
       parcelFee: Number(process.env.COURIER_FEE_PARCEL ?? 35),
       replacementFee: Number(process.env.COURIER_FEE_REPLACEMENT ?? 40),
+    },
+  },
+  // Session 39 — outbound notification gateway (console dev-sink by default; HTTP when configured).
+  notify: {
+    dispatchIntervalMs: Number(process.env.NOTIFY_DISPATCH_INTERVAL_MS ?? 0),
+    dispatchBatch: Number(process.env.NOTIFY_DISPATCH_BATCH ?? 50),
+    email: {
+      transport: process.env.NOTIFY_EMAIL_TRANSPORT ?? 'console', // console | http
+      httpUrl: process.env.NOTIFY_EMAIL_HTTP_URL ?? '',
+      httpKey: process.env.NOTIFY_EMAIL_HTTP_KEY ?? '',
+      from: process.env.NOTIFY_EMAIL_FROM ?? 'Bilokat <no-reply@bilokat.in>',
+    },
+    sms: {
+      transport: process.env.NOTIFY_SMS_TRANSPORT ?? 'console', // console | http
+      httpUrl: process.env.NOTIFY_SMS_HTTP_URL ?? '',
+      httpKey: process.env.NOTIFY_SMS_HTTP_KEY ?? '',
+      sender: process.env.NOTIFY_SMS_SENDER ?? 'BILOKAT',
     },
   },
 });
