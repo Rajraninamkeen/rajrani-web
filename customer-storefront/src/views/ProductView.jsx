@@ -11,7 +11,7 @@ function SpiceLevel({ level }) {
   ) : null;
 }
 
-export default function ProductView({ identifier, user, notify, goHome, addToCart, goCart }) {
+export default function ProductView({ identifier, user, notify, goHome, addToCart, goCart, wishIds = [], onWish }) {
   const [product, setProduct] = useState(null);
   const [revs, setRevs] = useState([]);
   const [revMeta, setRevMeta] = useState(null);
@@ -84,6 +84,12 @@ export default function ProductView({ identifier, user, notify, goHome, addToCar
               }}>
               {product.inStock ? (adding ? 'Adding…' : 'Add to cart') : 'Out of stock'}
             </button>
+            {onWish && (
+              <button className={'btn wish-btn' + (wishIds.includes(product.id) ? ' primary' : ' ghost')}
+                onClick={() => onWish(product.id)}>
+                {wishIds.includes(product.id) ? '♥ Saved' : '♡ Wishlist'}
+              </button>
+            )}
           </div>
           <div className="ingredients">
             <h4>What's inside</h4>

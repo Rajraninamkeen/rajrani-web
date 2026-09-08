@@ -153,6 +153,7 @@ model User {
   deletedAt       DateTime?
 
   addresses        Address[]
+  wishlist         WishlistItem[]
   reviews          ProductReview[]
   sessions         UserSession[]
   carts            Cart[]
@@ -201,6 +202,24 @@ model Address {
 
   @@index([userId])
   @@map("addresses")
+}
+
+// ============ WISHLIST (customer) ============
+// A signed-in CUSTOMER's saved products (Session 47). One row per (user, product);
+// a toggle add/remove keeps it idempotent. Guest wishlist is intentionally not
+// supported — wishlist is tied to the account (unlike guest cart which merges).
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+  @@map("wishlist_items")
 }
 
 // ============ CATALOG ============
@@ -270,6 +289,7 @@ model Product {
   media         ProductMedia[]
   reviews       ProductReview[]
   cartItems     CartItem[]
+  wishlistItems WishlistItem[]
   statusHistory ProductStatusHistory[]
 
   @@index([categoryId])

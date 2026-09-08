@@ -15,7 +15,7 @@ import { Stars, money, categoryGlyph, stockLabel } from '../format.jsx';
 
 const CAT_FACE = { bestseller: '🏆', spicy: '🌶️', mixtures: '🥣', healthy: '🥜', gifts: '🎁' };
 
-export default function HomeView({ onOpen, addToCart }) {
+export default function HomeView({ onOpen, addToCart, wishIds = [], onWish }) {
   // catalog browsing state (kept at Home so hero/rails/category tiles can drive it)
   const [filters, setFilters] = useState({ category: '', q: '', sort: 'popular' });
   const [special, setSpecial] = useState(''); // '' | 'bestseller' | 'new'
@@ -131,9 +131,11 @@ export default function HomeView({ onOpen, addToCart }) {
       {!filters.q && !filters.category && !special && (
         <div className="rails lp-rails">
           <Rail title="🍿 Best-sellers" kicker="Loved by the most buyers"
-            seeAll={() => pickCraving('bestseller')} products={best} onOpen={onOpen} onAdd={addOne} />
+            seeAll={() => pickCraving('bestseller')} products={best} onOpen={onOpen} onAdd={addOne}
+            wishIds={wishIds} onWish={onWish} />
           <Rail title="✨ New arrivals" kicker="Just out of the regional kitchens"
-            seeAll={() => pickCraving('new')} products={newArr} onOpen={onOpen} onAdd={addOne} />
+            seeAll={() => pickCraving('new')} products={newArr} onOpen={onOpen} onAdd={addOne}
+            wishIds={wishIds} onWish={onWish} />
         </div>
       )}
 
@@ -145,9 +147,8 @@ export default function HomeView({ onOpen, addToCart }) {
             <p className="lp-sec-sub">Fry-to-order freshness, shipped within 24&nbsp;hours.</p>
           </div>
           <div className="lp-tools">
-            <input className="search" placeholder="Search the kitchen… (try 'sev', 'makhana')"
-              value={filters.q}
-              onChange={(e) => { setSpecial(''); setFilters((f) => ({ ...f, q: e.target.value })); }} />
+            <SearchBox q={filters.q}
+              onQ={(q) => { setSpecial(''); setFilters((f) => ({ ...f, q })); }} />
             <select className="selsort" value={filters.sort}
               onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
               <option value="popular">Most popular</option>
@@ -184,7 +185,8 @@ export default function HomeView({ onOpen, addToCart }) {
             </p>
             <div className="grid">
               {data.products.map((p) => (
-                <ProductCard key={p.id} p={p} onOpen={onOpen} onAdd={addOne} />
+                <ProductCard key={p.id} p={p} onOpen={onOpen} onAdd={addOne}
+                  wishSaved={wishIds.includes(p.id)} onWish={onWish} />
               ))}
             </div>
             {data.products.length === 0 && <p className="muted">Nothing matches that craving — try something else.</p>}
@@ -299,7 +301,7 @@ function ActiveLine({ cats, q, category, special, onClear }) {
   );
 }
 
-function Rail({ title, kicker, seeAll, products, onOpen, onAdd }) {
+function Rail({ title, kicker, seeAll, products, onOpen, onAdd, wishIds = [], onWish }) {
   const loading = products === null;
   return (
     <div className="rail">
@@ -314,7 +316,8 @@ function Rail({ title, kicker, seeAll, products, onOpen, onAdd }) {
         : products.length === 0 ? null : (
           <div className="rail-scroll">
             {products.map((p) => (
-              <div key={p.id} className="rail-item"><ProductCard p={p} onOpen={onOpen} onAdd={onAdd} /></div>
+              <div key={p.id} className="rail-item"><ProductCard p={p} onOpen={onOpen} onAdd={onAdd}
+                wishSaved={wishIds.includes(p.id)} onWish={onWish} /></div>
             ))}
           </div>
         )}
@@ -354,6 +357,64 @@ function CTABand({ onShopBest }) {
       </div>
       <button className="btn-primary lg" onClick={onShopBest}>Order the best-sellers →</button>
     </section>
+  );
+}
+
+// Backend-driven search autocomplete + recent searches (localStorage).
+function SearchBox({ q, onQ }) {
+  const [sugg, setSugg] = useState([]);
+  const [open, setOpen] = useState(false);
+  const recentKey = 'bilokat_recent_searches';
+  const getRecent = () => { try { return JSON.parse(localStorage.getItem(recentKey) || '[]'); } catch { return []; } };
+
+  useEffect(() => {
+    const term = (q || '').trim();
+    if (!term) { setSugg([]); return; }
+    setOpen(true);
+    const t = setTimeout(() => {
+      publicApi.suggest(term).then((d) => setSugg(Array.isArray(d) ? d : [])).catch(() => {});
+    }, 180);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  function commit(term) {
+    const v = (term || '').trim();
+    if (!v) return;
+    try {
+      const list = getRecent().filter((x) => x.toLowerCase() !== v.toLowerCase());
+      localStorage.setItem(recentKey, JSON.stringify([v, ...list].slice(0, 6)));
+    } catch { /* ignore */ }
+    onQ(v);
+    setOpen(false);
+  }
+
+  const recent = (q || '').trim() ? [] : getRecent();
+  const show = open && (sugg.length > 0 || recent.length > 0);
+  const emptyTerm = !(q || '').trim();
+
+  return (
+    <div className="searchwrap">
+      <input className="search" value={q} placeholder="Search the kitchen… (try 'sev', 'makhana')"
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => onQ(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') { commit(q); e.currentTarget.blur(); } }} />
+      {show && (
+        <div className="search-drop">
+          {emptyTerm && <div className="search-drop-h">Recent searches</div>}
+          {(emptyTerm ? recent.map((r) => ({ label: r, sub: '' }))
+            : sugg.map((s) => ({ label: s.name, sub: (s.category || '').toUpperCase() }))).slice(0, 6)
+            .map((it, i) => (
+              <button key={it.label + i} className="search-it"
+                onMouseDown={(e) => { e.preventDefault(); commit(it.label); }}
+                onClick={() => commit(it.label)}>
+                <span className="search-it-name">{emptyTerm ? '🕓 ' + it.label : it.label}</span>
+                {it.sub && <span className="search-it-sub">{it.sub}</span>}
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
   );
 }
 

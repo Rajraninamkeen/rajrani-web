@@ -73,8 +73,25 @@ export const publicApi = {
   categories: () => api('GET', '/catalog/categories'),
   products: (params) => api('GET', '/catalog/products' + qs(params)),
   product: (identifier) => api('GET', `/catalog/products/${encodeURIComponent(identifier)}`),
+  suggest: (q, limit = 6) => api('GET', '/catalog/suggest' + qs({ q, limit })),
   reviews: (identifier, page = 1, limit = 10) =>
     api('GET', `/catalog/products/${encodeURIComponent(identifier)}/reviews` + qs({ page, limit })),
+};
+
+// Wishlist — signed-in CUSTOMER saved products (Session 47).
+export const wishlistApi = {
+  list: () => api('GET', '/wishlist'),
+  ids: () => api('GET', '/wishlist/ids'),
+  add: (productId) => api('POST', `/wishlist/${encodeURIComponent(productId)}`),
+  remove: (productId) => api('DELETE', `/wishlist/${encodeURIComponent(productId)}`),
+};
+
+// Address book — signed-in CUSTOMER (Session 47). Backed by the Address table.
+export const addressesApi = {
+  list: () => api('GET', '/addresses'),
+  create: (payload) => api('POST', '/addresses', { body: payload }),
+  update: (id, payload) => api('PATCH', `/addresses/${id}`, { body: payload }),
+  remove: (id) => api('DELETE', `/addresses/${id}`),
 };
 
 // Auth + CUSTOMER-only review authoring.

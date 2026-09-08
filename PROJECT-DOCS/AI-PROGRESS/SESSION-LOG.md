@@ -2074,3 +2074,38 @@ Increment landed this session (code + migration pushed):
 - **Verify (headless Chromium 152):** routes `#/`, `#/cart`, `#/account`, `#/product/<slug>` all render with the
   new shell, zero page-errors; header/footer present (brand tile + footer columns verified); `vite build` clean.
 - Session 46 complete; commit + push pending.
+
+## Session 47 — Backend-driven wishlist + address book + search system
+
+- **Date:** 2026-09-08
+- **Objective (owner):** add what's missing from the `landing-page/` feature expectations using the real
+  backend — implement a proper search system and continue with **wishlist + address book**, all backend-driven.
+- **Backend — Wishlist (new):**
+  - `prisma/schema.prisma` adds `WishlistItem` model (userId+productId unique, CASCADE) + relations on User/Product.
+  - Applied via `prisma db push` (repo convention; shadow DB unavailable) and recorded as migration
+    `prisma/migrations/20260908235000_customer_wishlist/`; client regenerated (`src/generated` is gitignored).
+  - `src/wishlist/` module: `WishlistController` (GET /wishlist, GET /wishlist/ids, POST /wishlist/:productId,
+    DELETE /wishlist/:productId) — CUSTOMER-only, ownership via @CurrentUserId. Reuses `CatalogService`.
+- **Backend — Addresses (new API on the existing Address table):** `src/addresses/` module exposes GET/POST
+  /addresses and PATCH/DELETE /addresses/:id (CUSTOMER-only) with default-address handling (first auto-default,
+  unset others on set-default) + pincode validation.
+- **Backend — search suggestions:** `CatalogService.suggest(q)` + `GET /catalog/suggest` returns live
+  name/tagline/category matches for the storefront search box. `CatalogModule` now exports CatalogService.
+- **Storefront:**
+  - `api.js`: `publicApi.suggest`, `wishlistApi`, `addressesApi`.
+  - New `WishlistView` (#/wishlist): lists saved products (full catalog projection), remove, add-to-cart,
+    empty + signed-out states. New `AddressesView` (#/addresses): full CRUD address book with add/edit form,
+    set-default, delete-confirm, default badge, responsive.
+  - Wishlist hearts: `ProductCard` gets optional `wishSaved`/`onWish` heart button; App holds a wishlist-id
+    set (fetched on login) + `toggleWish`; hearts appear on Home grid/rails and Product page only for signed-in
+    users; App nav adds a ♡ Wishlist link; Account gains Wishlist / Address book / Orders quick links.
+  - Search system: `SearchBox` in Home — backend autocomplete dropdown (debounced `/catalog/suggest`) +
+    recent-searches chips (localStorage) + Enter-to-commit; live grid search retained.
+- **API process:** the compiled backend (`node dist/main`, arena-managed) was taken over and restarted under
+  start_process so new modules serve on :4000.
+- **Verify:** `tsc --noEmit` clean; **30 suites / 289 unit tests PASS**; `nest build` clean; live curl: register+
+  login → wishlist add/ids/list ✓, address create×2 + default ✓, `/catalog/suggest?q=sev` ✓. Storefront headless
+  E2E (Chromium): login → #/wishlist shows the saved snack (filled heart), #/addresses shows both addresses with
+  ✓ Default, home shows 16 hearts with 2 filled matching saved state; search typing "sev" returns live suggestion
+  rows; zero page-errors. Storefront `vite build` clean.
+- Session 47 complete; commit + push pending.

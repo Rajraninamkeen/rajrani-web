@@ -1,7 +1,7 @@
 import ProductImage from './ProductImage.jsx';
 import { Stars, money, stockLabel, categoryGlyph } from '../format.jsx';
 
-export default function ProductCard({ p, onOpen, onAdd }) {
+export default function ProductCard({ p, onOpen, onAdd, wishSaved, onWish }) {
   const isNew = p.isNew;
   return (
     <article className="pcard" onClick={() => onOpen(p.slug)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(p.slug); }}>
@@ -13,6 +13,12 @@ export default function ProductCard({ p, onOpen, onAdd }) {
             {p.isNew && <span className="pill pill-new">New</span>}
             {p.discountPercent > 0 && <span className="pill pill-off">{p.discountPercent}% off</span>}
           </div>
+        )}
+        {onWish && (
+          <button className={'wish-heart' + (wishSaved ? ' filled' : '')}
+            title={wishSaved ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-label="Save to wishlist"
+            onClick={(e) => { e.stopPropagation(); onWish(p.id); }}>♡</button>
         )}
       </div>
       <div className="pcard-body">

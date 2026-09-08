@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { getToken, setToken, clearToken, authApi, cartApi, ensureGuestId } from './api.js';
+import { getToken, setToken, clearToken, authApi, cartApi, ensureGuestId, wishlistApi } from './api.js';
 import HomeView from './views/HomeView.jsx';
 import ProductView from './views/ProductView.jsx';
 import AccountView from './views/AccountView.jsx';
@@ -7,6 +7,8 @@ import CartView from './views/CartView.jsx';
 import CheckoutView from './views/CheckoutView.jsx';
 import OrdersView from './views/OrdersView.jsx';
 import OrderView from './views/OrderView.jsx';
+import WishlistView from './views/WishlistView.jsx';
+import AddressesView from './views/AddressesView.jsx';
 import NotificationsBell from './components/NotificationsBell.jsx';
 
 function parseHash() {
@@ -22,6 +24,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [flash, setFlash] = useState('');
   const [cartCount, setCartCount] = useState(0);
+  const [wishIds, setWishIds] = useState([]);
 
   const notify = useCallback((msg) => {
     setFlash(msg);
@@ -55,6 +58,8 @@ export default function App() {
 
   // refresh the cart badge when the route changes (and after login settles)
   useEffect(() => { if (ready) refreshCart(); }, [ready, route.view]);
+  // load wishlist ids once a signed-in user is known
+  useEffect(() => { if (ready && getToken()) refreshWish(); }, [ready]);
 
   const addToCart = async (productId, quantity = 1) => {
     ensureGuestId();
@@ -63,20 +68,38 @@ export default function App() {
     notify('Added to cart');
   };
 
-  const handleLogin = async (token, u) => { setToken(token); setUser(u); await refreshCart(); go('/'); };
-  const handleLogout = () => { clearToken(); setUser(null); setCartCount(0); go('/'); };
+  const refreshWish = useCallback(async () => {
+    if (!getToken()) { setWishIds([]); return; }
+    try { const ids = await wishlistApi.ids(); setWishIds(Array.isArray(ids) ? ids : []); }
+    catch { /* signed out / expired */ }
+  }, []);
+
+  const toggleWish = async (productId) => {
+    if (!getToken()) { notify('Sign in to save to your wishlist'); go('/account'); return; }
+    try {
+      if (wishIds.includes(productId)) { await wishlistApi.remove(productId); setWishIds((s) => s.filter((x) => x !== productId)); notify('Removed from wishlist'); }
+      else { await wishlistApi.add(productId); setWishIds((s) => [...s, productId]); notify('Saved to wishlist ❤️'); }
+    } catch (e) { notify(e.message || 'Could not update wishlist'); }
+  };
+
+  const handleLogin = async (token, u) => { setToken(token); setUser(u); await refreshCart(); await refreshWish(); go('/'); };
+  const handleLogout = () => { clearToken(); setUser(null); setCartCount(0); setWishIds([]); go('/'); };
 
   const openProduct = (slug) => go('/product/' + encodeURIComponent(slug));
 
   const openCartFrom = (item) => { if (item && item.productId) openProduct(item.productId); };
 
+  const signedIn = !!user;
+  const wishProps = signedIn ? { wishIds, onWish: toggleWish } : {};
   const view =
-    route.view === 'home' ? <HomeView onOpen={openProduct} addToCart={addToCart} />
-    : route.view === 'product' ? <ProductView identifier={route.parts[1]} user={user} notify={notify} goHome={() => go('/')} addToCart={addToCart} goCart={() => go('/cart')} />
+    route.view === 'home' ? <HomeView onOpen={openProduct} addToCart={addToCart} {...wishProps} />
+    : route.view === 'product' ? <ProductView identifier={route.parts[1]} user={user} notify={notify} goHome={() => go('/')} addToCart={addToCart} goCart={() => go('/cart')} {...wishProps} />
     : route.view === 'cart' ? <CartView user={user} onQty={setCartCount} onRemove={setCartCount} onClear={() => setCartCount(0)} onCheckout={() => go('/checkout')} onGoProduct={openCartFrom} />
     : route.view === 'checkout' ? <CheckoutView user={user} notify={notify} onPlaced={(id) => go('/order/' + id)} />
     : route.view === 'orders' ? <OrdersView user={user} />
     : route.view === 'order' ? <OrderView id={route.parts[1]} notify={notify} />
+    : route.view === 'wishlist' ? <WishlistView user={user} onOpen={openProduct} notify={notify} onCartChange={setCartCount} />
+    : route.view === 'addresses' ? <AddressesView user={user} notify={notify} />
     : route.view === 'account' ? <AccountView user={user} onLogin={handleLogin} onLogout={handleLogout} />
     : <HomeView onOpen={openProduct} />;
 
@@ -94,9 +117,10 @@ export default function App() {
 
           <nav className="sitehead-nav" aria-label="Primary">
             <a className={route.view === 'home' || route.view === 'product' ? 'on' : ''} href="#/">Shop</a>
+            <a className={route.view === 'wishlist' ? 'on' : ''} href="#/wishlist">♡ Wishlist</a>
             <a className={route.view === 'cart' ? 'on' : ''} href="#/cart">Cart</a>
             <a className={route.view === 'orders' ? 'on' : ''} href="#/orders">Orders</a>
-            <a className={route.view === 'account' ? 'on' : ''} href="#/account">
+            <a className={route.view === 'account' || route.view === 'addresses' ? 'on' : ''} href="#/account">
               {user ? (user.fullName || user.email) : 'Sign in'}
             </a>
           </nav>

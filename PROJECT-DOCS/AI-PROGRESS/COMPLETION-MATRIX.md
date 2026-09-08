@@ -244,3 +244,22 @@ two-app scope.
 | Backend/schema | NONE | UI-only; wishlist/address/profile-edit lack endpoints (deferred) |
 | Build + live verify | COMPLETE | `vite build` clean; 4 routes headless-render, zero page-errors |
 | Pushed | NOT YET | working tree present; commit + push pending |
+
+---
+
+## Session 47 status — backend-driven wishlist + address book + search (2026-09-08)
+
+| Item | Backend | Storefront | Notes |
+|---|---|---|---|
+| Wishlist model + table | COMPLETE | — | `WishlistItem` (user×product unique), db push + migration record |
+| Wishlist API | COMPLETE | — | list / ids / add / remove, CUSTOMER-only |
+| Wishlist page | — | COMPLETE | #/wishlist: list, remove, add-to-cart, empty/signed-out |
+| Wishlist hearts on cards/product | — | COMPLETE | Signed-in only; App-held id set; toggle |
+| Address book API | COMPLETE | — | CRUD + default on existing Address table |
+| Address book page | — | COMPLETE | #/addresses add/edit/default/delete, responsive |
+| Search suggestions | COMPLETE | — | `GET /catalog/suggest` (live name/tagline/category) |
+| Search UI (autocomplete + recent) | — | COMPLETE | SearchBox dropdown + recent, backend-driven |
+| Nav/account wiring | — | COMPLETE | ♡ Wishlist link + account quick links |
+| Typecheck / unit tests / build | PASS | build PASS | 30 suites / 289 tests; backend+frontend builds clean |
+| Live verify | PASS | E2E PASS | curl API + headless login→wishlist/addresses/search, 0 errors |
+| Pushed | NOT YET | | working tree present; commit + push pending |

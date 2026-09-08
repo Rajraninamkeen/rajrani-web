@@ -13,6 +13,11 @@ export class CatalogController {
     return this.catalog.listCategories();
   }
 
+  @Get('suggest')
+  suggest(@Query('q') q: string, @Query('limit') limit?: string) {
+    return this.catalog.suggest(q, limit ? Number(limit) : undefined);
+  }
+
   @Get('products')
   products(@Query() query: ListProductsQuery) {
     return this.catalog.listProducts(query);

@@ -560,3 +560,68 @@ main h1, .page-head h1, .page-head h2, .catalog-h, .lp-sec-h, .order-hero h1, .d
   border-radius: 999px; color: #fff; box-shadow: 0 8px 18px rgba(179,65,42,.28); border: none; }
 .btn-primary:hover { filter: brightness(1.05); }
 .btn-ghost { border-radius: 999px; border: 1.5px solid #ecd9b8; }
+
+/* ==================== Session 47 — Wishlist + Address book + nav ==================== */
+.page { padding-top: 6px; }
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 14px 0 8px; }
+.page-head h1 { margin: 0; font-size: 26px; }
+.page-head .muted { margin: 2px 0 0; }
+
+/* heart on card */
+.wish-heart { position: absolute; top: 8px; right: 8px; width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(255,255,255,.9); border: 1px solid #f0dcc0; color: #b3412a; font-size: 18px; line-height: 1;
+  cursor: pointer; display: grid; place-items: center; box-shadow: 0 3px 10px rgba(0,0,0,.12); transition: transform .1s; }
+.wish-heart:hover { transform: scale(1.12); }
+.wish-heart.filled { background: linear-gradient(135deg,#f6c75f,#e86a3a); color: #fff; border-color: transparent; }
+
+/* wishlist grid */
+.wish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 18px; margin-top: 8px; }
+.wish-card .wish-heart.filled { position: absolute; top: 8px; right: 8px; }
+.wish-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* product page wish toggle */
+.addrow { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.wish-btn { }
+.wish-btn.primary { background: linear-gradient(135deg,#c0476a,#a42d4a); }
+
+/* address book */
+.addr-head .btn.primary { flex-shrink: 0; }
+.addr-form { padding: 18px; margin: 10px 0; }
+.addr-form h3 { margin: 0 0 12px; }
+.addr-form label { display: block; font-weight: 700; font-size: 13px; margin: 10px 0 4px; color: var(--ink-2); }
+.addr-form .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.addr-form .three { display: grid; grid-template-columns: 1fr 1fr 0.8fr; gap: 12px; }
+.checkline { display: flex !important; align-items: center; gap: 8px; font-weight: 600 !important; }
+.addr-form-actions { display: flex; gap: 10px; margin-top: 16px; }
+.addr-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 8px; }
+.addr-card { position: relative; padding: 16px; margin: 0; }
+.addr-card.isdefault { border-color: var(--brand-amber); box-shadow: 0 8px 20px rgba(232,161,58,.18); }
+.addr-badge { position: absolute; top: 12px; right: 12px; font-size: 10px; font-weight: 800;
+  background: #e9f7ee; color: #14623a; padding: 3px 9px; border-radius: 999px; }
+.addr-card.isdefault .addr-badge { background: linear-gradient(135deg,var(--brand-amber),var(--brand)); color:#fff; }
+.addr-label { margin: 2px 0 6px; font-size: 16px; }
+.addr-card p { margin: 2px 0; color: #5c4533; font-size: 13.5px; }
+.addr-country { color: var(--muted) !important; }
+.addr-actions { display: flex; gap: 14px; margin-top: 12px; border-top: 1px dashed #f0e0c0; padding-top: 10px; flex-wrap: wrap; }
+
+@media (max-width: 720px) {
+  .addr-form .two, .addr-form .three { grid-template-columns: 1fr; gap: 4px; }
+  .wish-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+}
+
+/* account quick links */
+.acct-quick { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 2px; }
+.acct-quick a.btn { text-decoration: none; }
+
+/* ---- search autocomplete ---- */
+.searchwrap { position: relative; }
+.searchwrap .search { width: 100%; min-width: 220px; }
+.search-drop { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: #fff;
+  border: 1px solid #f0e0c0; border-radius: 14px; box-shadow: 0 14px 34px rgba(90,60,20,.18);
+  padding: 6px; z-index: 40; }
+.search-drop-h { font-size: 11px; font-weight: 800; letter-spacing: .4px; color: var(--muted); padding: 4px 8px; }
+.search-it { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%;
+  text-align: left; background: none; border: none; border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.search-it:hover { background: #fbf0dd; }
+.search-it-name { font-size: 13.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-it-sub { font-size: 10px; font-weight: 800; color: var(--accent); letter-spacing: .6px; }

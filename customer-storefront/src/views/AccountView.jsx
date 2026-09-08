@@ -86,6 +86,13 @@ function MyReviews({ user, onLogout }) {
         <button className="btn ghost" onClick={onLogout}>Sign out</button>
       </div>
 
+      <div className="acct-quick">
+        <a className="btn ghost small" href="#/wishlist">❤️ Wishlist</a>
+        <a className="btn ghost small" href="#/addresses">📍 Address book</a>
+        <a className="btn ghost small" href="#/orders">📦 My orders</a>
+        <a className="btn ghost small" href="#/">🛒 Shop</a>
+      </div>
+
       <div className="tabs">
         {['', 'PENDING', 'PUBLISHED', 'REJECTED', 'HIDDEN'].map((s) => (
           <button key={s || 'all'} className={`chip ${status === s ? 'on' : ''}`} onClick={() => setStatus(s)}>

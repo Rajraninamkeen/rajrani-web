@@ -11,6 +11,8 @@ import { PublishingModule } from './publishing/publishing.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { ControlModule } from './control/control.module';
+import { WishlistModule } from './wishlist/wishlist.module';
+import { AddressesModule } from './addresses/addresses.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -30,6 +32,8 @@ import { AppController } from './app.controller';
     ReviewsModule,
     AnalyticsModule,
     ControlModule,
+    WishlistModule,
+    AddressesModule,
   ],
   controllers: [AppController],
 })

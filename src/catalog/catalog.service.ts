@@ -72,6 +72,38 @@ export class CatalogService {
     return cats.map((c) => ({ id: c.id, name: c.name, slug: c.slug, description: c.description }));
   }
 
+  /** Resolve a set of product ids to full public products (order not guaranteed). Used by wishlist. */
+  async publicProductsByIds(ids: string[]): Promise<PublicProduct[]> {
+    if (!ids || ids.length === 0) return [];
+    const rows = await this.prisma.product.findMany({
+      where: { ...publicWhere(), id: { in: ids } },
+      include: { category: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
+    });
+    return rows.map((r) =>
+      mapProduct(r as Product & { media?: { url: string }[]; category?: { slug: string } }),
+    );
+  }
+
+  /** Lightweight live search suggestions (product names + taglines) for the storefront search box. */
+  async suggest(prefix: string, limit = 6): Promise<{ q: string; name: string; slug: string; category: string; image: string | null; price: number }[]> {
+    const q = (prefix || '').trim();
+    if (!q) return [];
+    const rows = await this.prisma.product.findMany({
+      where: { ...publicWhere(), OR: [
+        { name: { contains: q, mode: 'insensitive' } },
+        { tagline: { contains: q, mode: 'insensitive' } },
+        { category: { name: { contains: q, mode: 'insensitive' } } },
+      ]},
+      include: { category: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
+      orderBy: [{ isBestseller: 'desc' }, { reviewCount: 'desc' }],
+      take: Math.min(limit, 10),
+    });
+    return rows.map((r) => {
+      const p = mapProduct(r as Product & { media?: { url: string }[]; category?: { slug: string } });
+      return { q, name: p.name, slug: p.slug, category: p.category, image: p.image, price: p.price ?? 0 };
+    });
+  }
+
   async listProducts(query: ListProductsQuery): Promise<ProductListResult> {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 12, 60);
