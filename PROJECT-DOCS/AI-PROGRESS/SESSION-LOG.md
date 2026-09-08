@@ -2032,3 +2032,16 @@ Increment landed this session (code + migration pushed):
 - **Live verify (storefront dev `:5180` → API `:4000`):** HomeView + styles modules transform 200, storefront
   root 200, HMR applied both without error; `vite build` clean (44 modules).
 - Session 45 complete; commit + push pending.
+
+## Session 45b — bugfix: white-screen on customer storefront (HomeView ReferenceError)
+
+- **Symptom:** customer panel showed a blank white page. Root-caused with a headless Chromium check
+  (`onAdd is not defined` PAGEERROR in `<HomeView>` → React unmounts → white screen).
+- **Cause:** the Session 45 HomeView rewrite referenced a bare `onAdd` identifier while building the
+  per-card add-to-cart callback, but HomeView's props are `{ onOpen, addToCart }` (no `onAdd`). Build/HMR
+  could not catch it (runtime-only ReferenceError during first render).
+- **Fix:** `customer-storefront/src/views/HomeView.jsx` — the `addOne` callback now derives only from the
+  `addToCart` prop (`onAdd` reference removed). Child ProductCard/Rail still receive an `onAdd` prop.
+- **Verify (headless Chromium 152):** page now renders fully — no pageerrors; scrollHeight 4188px;
+  16 product cards, 8 rail items, 6 category tiles, hero + `#catalog-grid` present; catalog count "8 snacks".
+  `vite build` clean.

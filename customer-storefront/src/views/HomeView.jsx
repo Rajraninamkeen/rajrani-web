@@ -96,7 +96,7 @@ export default function HomeView({ onOpen, addToCart }) {
     : filters.category ? (cats.find((c) => c.slug === filters.category)?.name || 'Category')
     : 'The full kitchen';
 
-  const addOne = onAdd && addToCart ? (pr) => { addToCart(pr.id, 1).catch(() => {}); } : undefined;
+  const addOne = addToCart ? (pr) => { addToCart(pr.id, 1).catch(() => {}); } : undefined;
 
   return (
     <div className="home">
