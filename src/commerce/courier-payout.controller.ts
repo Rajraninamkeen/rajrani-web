@@ -43,6 +43,8 @@ export class CourierPayoutAdminController {
       status: query?.status,
       deliveryPartnerId: query?.deliveryPartnerId,
       kind: query?.kind,
+      from: query?.from,
+      to: query?.to,
       page: query?.page,
       limit: query?.limit,
     });
@@ -50,8 +52,8 @@ export class CourierPayoutAdminController {
 
   @Get('summary')
   @Roles('OPERATOR', 'ADMIN')
-  summary() {
-    return this.payouts.staffSummary();
+  summary(@Query() query: any) {
+    return this.payouts.staffSummary({ from: query?.from, to: query?.to });
   }
 
   @Post('settle')

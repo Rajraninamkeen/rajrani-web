@@ -124,6 +124,27 @@ export class SettlementService {
   }
 
   /**
+   * Session 37 — optional inclusive [from, to] date filter for a DateTime column.
+   * A date-only `to` (YYYY-MM-DD) is expanded to end-of-day so it is inclusive;
+   * a full ISO timestamp is used as-is.
+   */
+  private dateFilter(from?: string, to?: string): { gte?: Date; lte?: Date } | null {
+    if (!from && !to) return null;
+    const f: { gte?: Date; lte?: Date } = {};
+    if (from) {
+      const d = new Date(from);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`Invalid "from" date "${from}"`);
+      f.gte = d;
+    }
+    if (to) {
+      const d = new Date(to);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`Invalid "to" date "${to}"`);
+      f.lte = String(to).length <= 10 ? new Date(d.getTime() + 86399999) : d;
+    }
+    return f;
+  }
+
+  /**
    * Auto-earn a seller payable for every ACCEPTED slice of an order that has just
    * reached DELIVERED. Called inside the fulfilment transaction so delivery and
    * earning are atomic. Cancelled/REJECTED/unresolved slices never earn.
@@ -165,7 +186,7 @@ export class SettlementService {
 
   // ---------------- Query (OPERATOR/ADMIN) ----------------
 
-  async listPayables(query: { status?: string; sellerId?: string; page?: number; limit?: number }) {
+  async listPayables(query: { status?: string; sellerId?: string; from?: string; to?: string; page?: number; limit?: number }) {
     const page = Math.max(1, Math.floor(query.page ?? 1));
     const limit = Math.min(100, Math.max(1, Math.floor(query.limit ?? 20)));
     const where: Prisma.SellerPayableWhereInput = {};
@@ -175,6 +196,9 @@ export class SettlementService {
       if (!st) throw new BadRequestException(`Unknown payable status "${query.status}"`);
       where.status = st;
     }
+    // Session 37 — optional period filter on earnedAt ([from, to]).
+    const earned = this.dateFilter(query.from, query.to);
+    if (earned) where.earnedAt = earned;
     const [rows, total] = await Promise.all([
       this.prisma.sellerPayable.findMany({
         where,
@@ -318,7 +342,7 @@ export class SettlementService {
     return this.getSettlement(settlement.id);
   }
 
-  async listSettlements(query: { status?: string; sellerId?: string; page?: number; limit?: number }) {
+  async listSettlements(query: { status?: string; sellerId?: string; from?: string; to?: string; page?: number; limit?: number }) {
     const page = Math.max(1, Math.floor(query.page ?? 1));
     const limit = Math.min(100, Math.max(1, Math.floor(query.limit ?? 20)));
     const where: Prisma.SettlementWhereInput = {};
@@ -328,6 +352,9 @@ export class SettlementService {
       if (!st) throw new BadRequestException(`Unknown settlement status "${query.status}"`);
       where.status = st;
     }
+    // Session 37 — optional period filter on createdAt ([from, to]).
+    const created = this.dateFilter(query.from, query.to);
+    if (created) where.createdAt = created;
     const [rows, total] = await Promise.all([
       this.prisma.settlement.findMany({
         where,

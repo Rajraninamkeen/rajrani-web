@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -107,6 +108,26 @@ export class CourierPayoutService {
     return partner;
   }
 
+  /**
+   * Session 37 — optional inclusive [from, to] date filter on a DateTime column.
+   * A date-only `to` (YYYY-MM-DD) expands to end-of-day; a full ISO timestamp is used as-is.
+   */
+  private dateFilter(from?: string, to?: string): { gte?: Date; lte?: Date } | null {
+    if (!from && !to) return null;
+    const f: { gte?: Date; lte?: Date } = {};
+    if (from) {
+      const d = new Date(from);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`Invalid "from" date "${from}"`);
+      f.gte = d;
+    }
+    if (to) {
+      const d = new Date(to);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`Invalid "to" date "${to}"`);
+      f.lte = String(to).length <= 10 ? new Date(d.getTime() + 86399999) : d;
+    }
+    return f;
+  }
+
   /** A DELIVERY partner's own courier payouts (their earnings history). */
   async partnerPayouts(userId: string, query: { status?: string; page?: number; limit?: number } = {}) {
     const partner = await this.requirePartner(userId);
@@ -172,13 +193,16 @@ export class CourierPayoutService {
   // =============================== Back-office (OPERATOR/ADMIN) ===============================
 
   /** Staff list of courier payouts (optional filters). */
-  async staffList(query: { status?: string; deliveryPartnerId?: string; kind?: string; page?: number; limit?: number } = {}) {
+  async staffList(query: { status?: string; deliveryPartnerId?: string; kind?: string; from?: string; to?: string; page?: number; limit?: number } = {}) {
     const page = Math.max(1, Math.floor(query.page ?? 1));
     const limit = Math.min(100, Math.max(1, Math.floor(query.limit ?? 20)));
     const where: Prisma.CourierPayoutWhereInput = {};
     if (query.status) where.status = query.status as CourierPayoutStatus;
     if (query.deliveryPartnerId) where.deliveryPartnerId = query.deliveryPartnerId;
     if (query.kind) where.kind = query.kind;
+    // Session 37 — optional inclusive period filter on earnedAt.
+    const earned = this.dateFilter(query.from, query.to);
+    if (earned) where.earnedAt = earned;
     const [rows, total] = await Promise.all([
       this.prisma.courierPayout.findMany({
         where,
@@ -192,13 +216,19 @@ export class CourierPayoutService {
     return { payouts: rows.map((p) => this.public(p)), page, limit, total };
   }
 
-  /** Back-office summary across all partners (pending/paid totals). */
-  async staffSummary() {
+  /** Back-office summary across all partners (pending/paid totals). Optional [from, to] earnedAt window (Session 37). */
+  async staffSummary(query: { from?: string; to?: string } = {}) {
+    const earnedRange = this.dateFilter(query.from, query.to);
+    const byStatus = (status: CourierPayoutStatus) => {
+      const where: Prisma.CourierPayoutWhereInput = { status };
+      if (earnedRange) where.earnedAt = earnedRange;
+      return where;
+    };
     const [earned, settled, cancelled, byPartner] = await Promise.all([
-      this.prisma.courierPayout.aggregate({ where: { status: CourierPayoutStatus.EARNED }, _sum: { feeAmount: true } }),
-      this.prisma.courierPayout.aggregate({ where: { status: CourierPayoutStatus.SETTLED }, _sum: { feeAmount: true } }),
-      this.prisma.courierPayout.aggregate({ where: { status: CourierPayoutStatus.CANCELLED }, _sum: { feeAmount: true } }),
-      this.prisma.courierPayout.groupBy({ by: ['deliveryPartnerId'], where: { status: CourierPayoutStatus.EARNED }, _sum: { feeAmount: true }, _count: { _all: true } }),
+      this.prisma.courierPayout.aggregate({ where: byStatus(CourierPayoutStatus.EARNED), _sum: { feeAmount: true } }),
+      this.prisma.courierPayout.aggregate({ where: byStatus(CourierPayoutStatus.SETTLED), _sum: { feeAmount: true } }),
+      this.prisma.courierPayout.aggregate({ where: byStatus(CourierPayoutStatus.CANCELLED), _sum: { feeAmount: true } }),
+      this.prisma.courierPayout.groupBy({ by: ['deliveryPartnerId'], where: byStatus(CourierPayoutStatus.EARNED), _sum: { feeAmount: true }, _count: { _all: true } }),
     ]);
     const partners = await this.prisma.deliveryPartner.findMany({
       where: { id: { in: byPartner.map((b) => b.deliveryPartnerId) } },

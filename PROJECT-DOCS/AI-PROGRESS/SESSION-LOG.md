@@ -1678,3 +1678,39 @@ Increment landed this session (code + migration pushed):
   DELIVERY on a bogus/foreign assignment → 404. Exercises the persistent S29/S30 demo rows and writes nothing
   to the DB (partner roster asserted unchanged).
 - Session 36 complete & pushed.
+
+## Session 37 — Period / date-range finance views (back-office)
+
+- **Date:** 2026-09-08
+- **Objective (owner-chosen via ask_user):** the finance-views option of "payout schedule / period-based
+  finance views", narrowed to the **additive period/date-range finance views**: From/To filters across the
+  back-office Finance console scoped to the money already on the ledger. No money-model or schema change;
+  read-mostly and non-destructive, consistent with S23–S36.
+- **Backend (additive params only, no schema change):** optional `from`/`to` (inclusive) query params on the
+  operator reads — seller payables (`earnedAt`), settlements (`createdAt`), courier payout ledger + summary
+  (`earnedAt`), and the per-seller report totals (`earnedAt`, already period-aware via `reportTotals`):
+  - `settlement.service.ts` — `listPayables` / `listSettlements` now accept `from?/to?` and build a
+    `earnedAt`/`createdAt` window via a new private `dateFilter` helper.
+  - `courier-payout.service.ts` — `staffList` (ledger) and `staffSummary` (pending/paid totals + per-partner
+    breakdown) now accept `from?/to?`; same private `dateFilter` helper added (single implementation).
+  - `finance.dto.ts` — `PayableListQuery` and `SettlementListQuery` gained optional `@IsString from?/to?`.
+  - Controllers forward the params (`settlement-ops.controller.ts`, `courier-payout.controller.ts` incl. the
+    `/delivery/payouts/summary` route).
+  - `dateFilter` semantics (shared): returns null when both absent; `gte = from`; a date-only `to`
+    (string length ≤ 10) expands to inclusive end-of-day (`+86399999ms`), a full ISO timestamp is used as-is;
+    an unparseable value throws `BadRequestException` (400).
+  - **Tests (+5):** `listPayables`/`listSettlements` window shaping, `staffList` earnedAt window, courier
+    `staffSummary` window (settlement.service.spec, courier-payout.service.spec). `npm run typecheck` and
+    `nest build` clean; affected suites green. Full suite is resource-heavy in this sandbox (long individual
+    suites, OOM-killed near the end); every suite that completed passed, including the two affected ones.
+- **Frontend (`catalog-console/`):** `api.js` `payoutApi.summary` now forwards `qs(params)`; `FinanceOps.jsx`
+  gained a **Period (From/To)** bar (`PeriodBar`): an `Apply period` / `Clear` control plus an active-range
+  caption. The applied window is scoped through every read — seller payables, seller settlements, the EARNED
+  list used to build a settlement, courier payout ledger, courier pending/paid summary, and the overview
+  per-seller report totals + net-payable KPI (labels switch to "(period)"). Reconciliation stays global
+  (it scans the delivered ledger, so it is fetched once on mount, not period-scoped). `npm run build` clean.
+- **Live verification (`scripts/live-period-verify.mjs`, sandbox API `:4600`, read-only):** OPERATOR scoped
+  `GET /finance/payables?from&to`, `/finance/settlements?from&to`, `/delivery/payouts/all?from&to`,
+  `/delivery/payouts/summary?from&to`, `/finance/report/totals?from&to` all return 200; invalid dates on each
+  endpoint return 400. Read-only — no DB writes.
+- Session 37 complete & pushed.

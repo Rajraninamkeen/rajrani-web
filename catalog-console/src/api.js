@@ -100,7 +100,7 @@ export const opsApi = {
 // over the existing /delivery/payouts and /finance routes (Sessions 12/13/32).
 export const payoutApi = {
   all: (params) => api('GET', '/delivery/payouts/all' + qs(params)),
-  summary: () => api('GET', '/delivery/payouts/summary'),
+  summary: (params) => api('GET', '/delivery/payouts/summary' + qs(params || {})),
   settle: (deliveryPartnerId) => api('POST', '/delivery/payouts/settle', { body: { deliveryPartnerId } }),
 };
 export const financeApi = {

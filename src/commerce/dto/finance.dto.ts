@@ -20,6 +20,14 @@ export class PayableListQuery {
   sellerId?: string;
 
   @IsOptional()
+  @IsString()
+  from?: string; // earnedAt >= from (Session 37 period view)
+
+  @IsOptional()
+  @IsString()
+  to?: string; // earnedAt <= to (inclusive, Session 37)
+
+  @IsOptional()
   page?: number;
 
   @IsOptional()
@@ -43,6 +51,14 @@ export class SettlementListQuery {
   @IsOptional()
   @IsString()
   sellerId?: string;
+
+  @IsOptional()
+  @IsString()
+  from?: string; // createdAt >= from (Session 37 period view)
+
+  @IsOptional()
+  @IsString()
+  to?: string; // createdAt <= to (inclusive, Session 37)
 
   @IsOptional()
   page?: number;

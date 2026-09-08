@@ -145,5 +145,26 @@ describe('CourierPayoutService (Session 32 — money leg)', () => {
       expect(out.payouts[0].partnerCode).toBe('DLV-1');
       expect(out.payouts[0].partnerName).toBe('Rider');
     });
+
+    it('staffList applies an inclusive earnedAt [from, to] window (Session 37)', async () => {
+      prisma.courierPayout.findMany.mockResolvedValue([]);
+      prisma.courierPayout.count.mockResolvedValue(0);
+      await service.staffList({ status: 'EARNED', from: '2026-01-01', to: '2026-01-31' });
+      const args: any = prisma.courierPayout.findMany.mock.calls[0][0];
+      expect(args.where.status).toBe('EARNED');
+      expect(args.where.earnedAt.gte).toEqual(new Date('2026-01-01'));
+      // date-only `to` is inclusive (end-of-day)
+      expect(args.where.earnedAt.lte.getTime()).toBe(new Date('2026-01-31').getTime() + 86399999);
+    });
+
+    it('staffSummary applies the earnedAt window to the aggregate totals (Session 37)', async () => {
+      prisma.courierPayout.aggregate.mockImplementation(() => Promise.resolve({ _sum: { feeAmount: { toNumber: () => 0 } } }));
+      prisma.courierPayout.groupBy.mockResolvedValue([]);
+      prisma.deliveryPartner.findMany.mockResolvedValue([]);
+      await service.staffSummary({ from: '2026-01-01', to: '2026-01-31' });
+      const aggArgs: any = prisma.courierPayout.aggregate.mock.calls[0][0];
+      expect(aggArgs.where.earnedAt.gte).toEqual(new Date('2026-01-01'));
+      expect(aggArgs.where.earnedAt.lte).toBeDefined();
+    });
   });
 });

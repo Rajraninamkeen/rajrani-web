@@ -4,6 +4,10 @@ import { financeApi, payoutApi } from '../api.js';
 // Session 34 — back-office Finance console (OPERATOR/ADMIN).
 // Unifies courier-payout settlement (Session 32 /delivery/payouts) and the seller
 // ledger (Sessions 12/13 /finance) in one screen. Backend routes already enforce RBAC.
+// Session 37 — period (From/To) date filter scopes every list + summary KPI to the
+// earned/created window: courier payouts & courier summary by earnedAt, seller
+// payables by earnedAt, settlements by createdAt, and the overview report totals
+// by earnedAt. Additive read filter — no money-model change.
 
 const PAY_STATUS = { EARNED: 'Earned', IN_SETTLEMENT: 'In settlement', SETTLED: 'Settled' };
 const SETTLE_STATUS = {
@@ -44,43 +48,54 @@ export default function FinanceOps({ notify }) {
   const [settlements, setSettlements] = useState([]);
   const [openSt, setOpenSt] = useState(null);
   const [earned, setEarned] = useState([]); // EARNED payables for creating a settlement
+  // Session 37 — period range. `range` is the APPLIED (submitted) window; the date
+  // inputs are held separately and only take effect on "Apply", so queries stay stable
+  // while typing. {from,to} undefined means "all time".
+  const [range, setRange] = useState({});
+  const [fromInput, setFromInput] = useState('');
+  const [toInput, setToInput] = useState('');
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState('');
 
-  const load = async () => {
+  const load = async (r = range) => {
+    const w = { from: r?.from || undefined, to: r?.to || undefined };
     setBusy(true); setErr('');
     try {
-      const [r, rep, cs, pay, st, ea] = await Promise.all([
-        financeApi.reconciliation(),
-        financeApi.report(),
-        payoutApi.summary(),
-        financeApi.payables({ status: payFilter || undefined, limit: 100 }),
-        financeApi.settlements({ limit: 100 }),
-        financeApi.payables({ status: 'EARNED', limit: 100 }),
+      const [rpt, cs, pay, st, ea] = await Promise.all([
+        financeApi.report(w),
+        payoutApi.summary(w),
+        financeApi.payables({ ...w, status: payFilter || undefined, limit: 100 }),
+        financeApi.settlements({ ...w, limit: 100 }),
+        financeApi.payables({ ...w, status: 'EARNED', limit: 100 }),
       ]);
-      setRec(r); setReport(rep); setCSummary(cs);
+      setReport(rpt); setCSummary(cs);
       setPayables(pay?.payables ?? []); setSettlements(st?.settlements ?? []);
       setEarned(ea?.payables ?? []);
     } catch (e) { setErr(e.message || 'Load failed'); }
     finally { setBusy(false); }
   };
-  useEffect(() => { load(); /* eslint-disable-line */ }, []);
+  // Reconciliation is time-independent (scans the whole delivered ledger), so it is
+  // fetched once on mount rather than scoped by the period.
+  useEffect(() => {
+    financeApi.reconciliation().then(setRec).catch(() => {});
+    load(range); // eslint-disable-line
+  }, [range]);
 
-  const loadPayouts = async (status) => {
+  const loadPayouts = async (status, r = range) => {
     try {
-      const r = await payoutApi.all({ status: status || undefined, limit: 100 });
-      setPayouts(r?.payouts ?? []);
+      const res = await payoutApi.all({ status: status || undefined, from: r?.from || undefined, to: r?.to || undefined, limit: 100 });
+      setPayouts(res?.payouts ?? []);
     } catch (e) { setErr(e.message || 'Load failed'); }
   };
-  useEffect(() => { if (section === 'courier') loadPayouts(pFilter); /* eslint-disable-line */ }, [section, pFilter]);
+  useEffect(() => { if (section === 'courier') loadPayouts(pFilter, range); /* eslint-disable-line */ }, [section, pFilter, range]);
 
   const settleCourier = async (partnerId, name) => {
     if (!window.confirm(`Pay out all pending courier fees for ${name}?`)) return;
     try {
       const r = await payoutApi.settle(partnerId);
       notify(`Settled ${r.settled} courier payout(s) · ${inr(r.totalAmount)}`);
-      const s = await payoutApi.summary(); setCSummary(s);
-      loadPayouts(pFilter);
+      const s = await payoutApi.summary(range); setCSummary(s);
+      loadPayouts(pFilter, range);
     } catch (e) { notify(e.message || 'Settle failed', 'err'); }
   };
 
@@ -101,7 +116,15 @@ export default function FinanceOps({ notify }) {
     } catch (e) { notify(e.message || 'Advance failed', 'err'); }
   };
 
-  if (!report && busy) return <div className="center">Loading…</div>;
+  const applyPeriod = () => {
+    const next = { from: fromInput || undefined, to: toInput || undefined };
+    setRange(next);           // triggers the [range] effects to refetch
+    if (section === 'courier') loadPayouts(pFilter, next);
+  };
+  const clearPeriod = () => { setFromInput(''); setToInput(''); setRange({}); };
+  const ranged = !!(range.from || range.to);
+
+  if (!report && busy && !ranged) return <div className="center">Loading…</div>;
 
   return (
     <div>
@@ -117,7 +140,10 @@ export default function FinanceOps({ notify }) {
       </div>
       {err && <div className="alert">{err}</div>}
 
-      {section === 'overview' && <Overview rec={rec} report={report} />}
+      <PeriodBar from={fromInput} to={toInput} setFrom={setFromInput} setTo={setToInput}
+        apply={applyPeriod} clear={clearPeriod} active={ranged} />
+
+      {section === 'overview' && <Overview rec={rec} report={report} ranged={ranged} />}
       {section === 'courier' && (
         <CourierSection summary={cSummary} payouts={payouts} filter={pFilter} setFilter={setPFilter}
           onSettle={settleCourier} load={loadPayouts} />
@@ -134,15 +160,33 @@ export default function FinanceOps({ notify }) {
   );
 }
 
-function Overview({ rec, report }) {
+function PeriodBar({ from, to, setFrom, setTo, apply, clear, active }) {
+  return (
+    <div className="card filters" style={{ marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+      <label className="small">From (earned/created on or after)
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+      </label>
+      <label className="small">To (inclusive)
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+      </label>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn primary sm" onClick={apply}>Apply period</button>
+        {active && <button className="btn sm" onClick={clear}>Clear (all time)</button>}
+      </div>
+      {active && <span className="muted small">Scoping every list &amp; KPI to {from || 'start'} → {to || 'now'}</span>}
+    </div>
+  );
+}
+
+function Overview({ rec, report, ranged }) {
   const t = report?.totals;
   return (
     <div>
       <div className="kpis">
         <div className="kpi"><div className={`kpi-v ${rec?.ok ? 'accent' : 'warn'}`}>{rec?.ok ? 'OK' : `${rec?.discrepancyCount} disc.`}</div><div className="kpi-l">reconciliation</div></div>
         <div className="kpi"><div className="kpi-v">{rec?.checked?.deliveredOrders ?? 0}</div><div className="kpi-l">delivered orders checked</div></div>
-        <div className="kpi"><div className="kpi-v">{t?.payables ?? 0}</div><div className="kpi-l">seller payables (all time)</div></div>
-        <div className="kpi"><div className="kpi-v accent">{inr(t?.netPayable)}</div><div className="kpi-l">total net payable</div></div>
+        <div className="kpi"><div className="kpi-v">{t?.payables ?? 0}</div><div className="kpi-l">seller payables {ranged ? '(period)' : '(all time)'}</div></div>
+        <div className="kpi"><div className="kpi-v accent">{inr(t?.netPayable)}</div><div className="kpi-l">net payable {ranged ? '(period)' : '(all time)'}</div></div>
       </div>
 
       {rec?.discrepancies?.length > 0 && (

@@ -621,3 +621,17 @@ Run from repo root after `npm run build`.
 | Live E2E `scripts/e2e-staff-tracking.mjs` (sandbox API `:4600`, **14/14 ok**, read-only) | RBAC 403s both ways (DELIVERY/SELLER on `/orders/:id/tracking`; OPERATOR/SELLER on the DELIVERY-only task-tracking routes); OPERATOR order-tracking returns legs with a parcel leg merging live provider events; DELIVERY parcel task-tracking (own `DLVA-…`) + replacement task-tracking (own `RDLA-…`) each return their leg with live provider events; DELIVERY on a bogus/foreign assignment → 404; partner roster asserted unchanged (no DB writes) |
 | Console proxy `:5174` | HMR serving updated `CourierTasks.jsx` / `OperatorDashboard.jsx` / `TrackPanel.jsx` / `api.js` |
 | `git push origin main` | Session 36 feature + docs committed and pushed (see git log) |
+
+### Session 37 — period / date-range finance views (back-office)
+
+Run from repo root after `npm run build`.
+
+| Command | Result |
+|---|---|
+| `npm run typecheck` / `npm run build` | clean |
+| `npx jest` (targeted affected suites) | `settlement.service.spec.ts` + `courier-payout.service.spec.ts` **38/38 passed** (added 3 window-shaping cases to settlement + 2 to courier, +5) |
+| Full-suite note | `npx jest` in this sandbox is resource-heavy (individual suites take 40–210 s); after all suites that ran passed, the runner was OOM-killed before printing the final tally. No suite reported a failure — the two suites touched this session are green above |
+| `catalog-console` `npm run build` | clean |
+| Live verify `scripts/live-period-verify.mjs` (sandbox API `:4600`, read-only) | OPERATOR scoped `GET /finance/payables?from&to`, `/finance/settlements?from&to`, `/delivery/payouts/all?from&to`, `/delivery/payouts/summary?from&to`, `/finance/report/totals?from&to` all **200**; invalid dates on `from`/`to` across payables/settlements/courier-payouts each return **400**; date-only `to` treated inclusive end-of-day |
+| Console | `FinanceOps.jsx` Period (From/To) bar `Apply`/`Clear` scopes every list + KPI (reconciliation stays global); served via HMR (`:5174`) |
+| `git push origin main` | Session 37 feature + docs committed and pushed (see git log) |

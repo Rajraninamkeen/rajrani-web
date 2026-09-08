@@ -500,3 +500,29 @@ describe('SettlementService · reconciliation + reporting (Session 13)', () => {
     expect(out.totals.commissionAmount).toBe(0);
   });
 });
+
+describe('SettlementService · period (from/to) filters (Session 37)', () => {
+  let prisma: any;
+  let service: SettlementService;
+  beforeEach(() => {
+    prisma = {
+      sellerPayable: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      settlement: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    };
+    service = new SettlementService(prisma as any);
+  });
+
+  it('listPayables applies an inclusive earnedAt [from, to] window', async () => {
+    await service.listPayables({ from: '2026-01-01', to: '2026-01-31' });
+    const args: any = prisma.sellerPayable.findMany.mock.calls[0][0];
+    expect(args.where.earnedAt.gte).toEqual(new Date('2026-01-01'));
+    expect(args.where.earnedAt.lte.getTime()).toBe(new Date('2026-01-31').getTime() + 86399999);
+  });
+
+  it('listSettlements applies an inclusive createdAt [from, to] window', async () => {
+    await service.listSettlements({ from: '2026-02-01', to: '2026-02-28' });
+    const args: any = prisma.settlement.findMany.mock.calls[0][0];
+    expect(args.where.createdAt.gte).toEqual(new Date('2026-02-01'));
+    expect(args.where.createdAt.lte.getTime()).toBe(new Date('2026-02-28').getTime() + 86399999);
+  });
+});
