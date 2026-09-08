@@ -22,7 +22,9 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SettlementService } from './settlement.service';
 import {
+  CancelReplacementDto,
   CreateReturnDto,
+  DispatchReplacementDto,
   EvidenceUploadDto,
   InspectionDto,
   ReturnDecisionDto,
@@ -352,6 +354,115 @@ export class ReturnsService {
     return result;
   }
 
+  // ================= OPERATOR: replacement dispatch (Session 17) =================
+
+  /** Load a return request that has reached terminal REPLACEMENT_ISSUED with a
+   *  replacement row present; the outbound leg (ReplacementStatus) is driven from here. */
+  private async loadIssuedReplacement(
+    returnRequestId: string,
+    expectedReplacementStatus?: ReplacementStatus,
+  ): Promise<Full> {
+    const r = await this.prisma.returnRequest.findUnique({
+      where: { id: returnRequestId },
+      include: RETURN_INCLUDE,
+    });
+    if (!r) throw new NotFoundException('Return request not found');
+    if (r.status !== ReturnStatus.REPLACEMENT_ISSUED) {
+      throw new ConflictException(`Return is in state ${r.status}; replacement dispatch requires REPLACEMENT_ISSUED`);
+    }
+    if (!r.replacement) throw new ConflictException('No replacement was issued for this return');
+    if (expectedReplacementStatus && r.replacement.status !== expectedReplacementStatus) {
+      throw new ConflictException(
+        `Replacement is in state ${r.replacement.status}, expected ${expectedReplacementStatus}`,
+      );
+    }
+    return r;
+  }
+
+  private async replacementTransition(
+    operatorId: string,
+    returnRequestId: string,
+    expected: ReplacementStatus,
+    to: ReplacementStatus,
+    event: ReturnEventType,
+    patch: Record<string, unknown>,
+    reason: string,
+  ): Promise<ReturnRequestPublic> {
+    await this.loadIssuedReplacement(returnRequestId, expected);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.replacement.update({
+        where: { returnRequestId },
+        data: { status: to, ...patch },
+      });
+      await this.eventTx(tx, returnRequestId, event, ReturnActorType.OPERATOR, operatorId, reason);
+      const updated = await tx.returnRequest.findUniqueOrThrow({
+        where: { id: returnRequestId },
+        include: RETURN_INCLUDE,
+      });
+      return this.toPublic(updated);
+    });
+  }
+
+  /** PENDING_DISPATCH -> DISPATCHED (outbound replacement shipped). No money/ledger. */
+  async dispatchReplacement(
+    operatorId: string,
+    returnRequestId: string,
+    dto: DispatchReplacementDto,
+  ): Promise<ReturnRequestPublic> {
+    return this.replacementTransition(
+      operatorId,
+      returnRequestId,
+      ReplacementStatus.PENDING_DISPATCH,
+      ReplacementStatus.DISPATCHED,
+      ReturnEventType.REPLACEMENT_DISPATCHED,
+      {
+        dispatchedAt: new Date(),
+        dispatchBy: operatorId,
+        dispatchReference: dto.dispatchReference ?? null,
+        dispatchNote: dto.dispatchNote ?? null,
+      },
+      `Replacement dispatched (${dto.dispatchReference ?? 'no ref'})`,
+    );
+  }
+
+  /** DISPATCHED -> COMPLETED (delivered/settled with the customer). */
+  async completeReplacement(operatorId: string, returnRequestId: string): Promise<ReturnRequestPublic> {
+    return this.replacementTransition(
+      operatorId,
+      returnRequestId,
+      ReplacementStatus.DISPATCHED,
+      ReplacementStatus.COMPLETED,
+      ReturnEventType.REPLACEMENT_COMPLETED,
+      { completedAt: new Date() },
+      'Replacement delivered to customer',
+    );
+  }
+
+  /** PENDING_DISPATCH or DISPATCHED -> CANCELLED (e.g. stock unavailable). A reason
+   *  is required. */
+  async cancelReplacement(
+    operatorId: string,
+    returnRequestId: string,
+    dto: CancelReplacementDto,
+  ): Promise<ReturnRequestPublic> {
+    if (!dto.reason) throw new BadRequestException('A reason is required to cancel a replacement');
+    // Either of two source states may be cancelled.
+    const r = await this.loadIssuedReplacement(returnRequestId);
+    const s = r.replacement.status;
+    if (s !== ReplacementStatus.PENDING_DISPATCH && s !== ReplacementStatus.DISPATCHED) {
+      throw new ConflictException(`Replacement is in state ${s}; cannot cancel`);
+    }
+    return this.replacementTransition(
+      operatorId,
+      returnRequestId,
+      s,
+      ReplacementStatus.CANCELLED,
+      ReturnEventType.REPLACEMENT_CANCELLED,
+      { cancelledAt: new Date(), cancellationReason: dto.reason },
+      `Replacement cancelled: ${dto.reason}`,
+    );
+  }
+
   // ================= OPERATOR: refund =================
 
   /** Create the refund for an APPROVED_FOR_REFUND request. Amount is derived
@@ -606,7 +717,12 @@ export class ReturnsService {
           issuedBy: r.replacement.issuedBy ?? null,
           issuedAt: r.replacement.issuedAt.toISOString(),
           dispatchedAt: r.replacement.dispatchedAt ? r.replacement.dispatchedAt.toISOString() : null,
+          dispatchReference: r.replacement.dispatchReference ?? null,
+          dispatchNote: r.replacement.dispatchNote ?? null,
+          dispatchBy: r.replacement.dispatchBy ?? null,
           completedAt: r.replacement.completedAt ? r.replacement.completedAt.toISOString() : null,
+          cancelledAt: r.replacement.cancelledAt ? r.replacement.cancelledAt.toISOString() : null,
+          cancellationReason: r.replacement.cancellationReason ?? null,
         }
       : null;
     return {

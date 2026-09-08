@@ -158,7 +158,12 @@ export interface ReplacementPublic {
   issuedBy?: string | null;
   issuedAt: string;
   dispatchedAt?: string | null;
+  dispatchReference?: string | null;
+  dispatchNote?: string | null;
+  dispatchBy?: string | null;
   completedAt?: string | null;
+  cancelledAt?: string | null;
+  cancellationReason?: string | null;
 }
 
 export interface ReturnRequestPublic {

@@ -631,6 +631,9 @@ enum ReturnEventType {
   REFUND_INITIATED
   REFUND_COMPLETED
   REPLACEMENT_ISSUED // Session 16
+  REPLACEMENT_DISPATCHED // Session 17
+  REPLACEMENT_COMPLETED // Session 17
+  REPLACEMENT_CANCELLED // Session 17
   EVIDENCE_UPLOADED // Session 16
   CANCELLED
 }
@@ -794,8 +797,13 @@ model Replacement {
   dispatchedAt       DateTime?
   completedAt        DateTime?
   cancelledAt        DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  // Session 17: outbound dispatch metadata (additive)
+  dispatchReference String?
+  dispatchNote      String?
+  dispatchBy        String?
+  cancellationReason String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   @@index([orderId])
   @@index([returnRequestId])

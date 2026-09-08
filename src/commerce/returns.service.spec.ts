@@ -64,6 +64,34 @@ const line = (over: Record<string, any> = {}) => ({
   ...over,
 });
 
+const repl = (over: Record<string, any> = {}) => ({
+  id: 'rpl1',
+  returnRequestId: 'rr1',
+  orderId: 'o1',
+  sellerOrderId: null,
+  replacementReference: 'RPL-X',
+  status: 'PENDING_DISPATCH',
+  quantityTotal: 2,
+  issuedBy: 'op1',
+  issuedAt: new Date(),
+  dispatchedAt: null,
+  dispatchReference: null,
+  dispatchNote: null,
+  dispatchBy: null,
+  completedAt: null,
+  cancelledAt: null,
+  cancellationReason: null,
+  ...over,
+});
+
+const issuedRR = (replacementOver: Record<string, any> = {}) =>
+  rr({
+    status: 'REPLACEMENT_ISSUED',
+    resolution: 'REPLACEMENT',
+    order: order(),
+    replacement: repl(replacementOver),
+  });
+
 describe('ReturnsService (item-level)', () => {
   let prisma: any;
   let tx: any;
@@ -83,7 +111,7 @@ describe('ReturnsService (item-level)', () => {
       returnInspection: { upsert: jest.fn() },
       returnEvent: { create: jest.fn() },
       returnEvidence: { create: jest.fn() },
-      replacement: { create: jest.fn() },
+      replacement: { create: jest.fn(), update: jest.fn() },
       refund: { create: jest.fn(), update: jest.fn(), aggregate: jest.fn() },
       refundTransaction: { create: jest.fn() },
     };
@@ -427,5 +455,76 @@ describe('ReturnsService (item-level)', () => {
   it('404 when customer uploads evidence to another user\'s order', async () => {
     prisma.order.findUnique.mockResolvedValue(order({ userId: 'else' }));
     await expect(service.uploadEvidenceCustomer('u1', 'o1', 'rr1', { storageObjectId: 'x' })).rejects.toThrow(NotFoundException);
+  });
+
+  // ---- Session 17: outbound replacement dispatch ----
+
+  it('dispatches a PENDING_DISPATCH replacement -> DISPATCHED (audited, no money)', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(issuedRR());
+    const dispatched = issuedRR({ status: 'DISPATCHED', dispatchedAt: new Date(), dispatchReference: 'TRK-1', dispatchNote: 'courier', dispatchBy: 'op1' });
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(dispatched);
+    const res = await service.dispatchReplacement('op1', 'rr1', { dispatchReference: 'TRK-1', dispatchNote: 'courier' });
+    expect(tx.replacement.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { returnRequestId: 'rr1' },
+        data: expect.objectContaining({ status: 'DISPATCHED', dispatchReference: 'TRK-1', dispatchBy: 'op1' }),
+      }),
+    );
+    const ev = tx.returnEvent.create.mock.calls.at(-1)[0].data;
+    expect(ev.eventType).toBe('REPLACEMENT_DISPATCHED');
+    expect(ev.actorId).toBe('op1');
+    expect(res.replacement!.status).toBe('DISPATCHED');
+    // replacement is a non-money outbound leg
+    expect(tx.refund.create).not.toHaveBeenCalled();
+    expect(settlement.debitReturnedGoodsForRefund).not.toHaveBeenCalled();
+  });
+
+  it('blocks dispatch unless the replacement is PENDING_DISPATCH', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(issuedRR({ status: 'DISPATCHED' }));
+    await expect(service.dispatchReplacement('op1', 'rr1', {})).rejects.toThrow(ConflictException);
+    expect(tx.replacement.update).not.toHaveBeenCalled();
+  });
+
+  it('blocks dispatch unless the return request is REPLACEMENT_ISSUED with a replacement', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'COMPLETED', resolution: 'REFUND' }));
+    await expect(service.dispatchReplacement('op1', 'rr1', {})).rejects.toThrow(ConflictException);
+  });
+
+  it('completes a DISPATCHED replacement -> COMPLETED', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(issuedRR({ status: 'DISPATCHED' }));
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(issuedRR({ status: 'COMPLETED', completedAt: new Date() }));
+    const res = await service.completeReplacement('op1', 'rr1');
+    expect(tx.replacement.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETED' }) }));
+    const ev = tx.returnEvent.create.mock.calls.at(-1)[0].data;
+    expect(ev.eventType).toBe('REPLACEMENT_COMPLETED');
+    expect(res.replacement!.status).toBe('COMPLETED');
+  });
+
+  it('blocks completing a replacement that is not yet DISPATCHED', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(issuedRR({ status: 'PENDING_DISPATCH' }));
+    await expect(service.completeReplacement('op1', 'rr1')).rejects.toThrow(ConflictException);
+  });
+
+  it('cancels a replacement with a required reason', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(issuedRR());
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(issuedRR({ status: 'CANCELLED', cancelledAt: new Date(), cancellationReason: 'out of stock' }));
+    const res = await service.cancelReplacement('op1', 'rr1', { reason: 'out of stock' });
+    expect(tx.replacement.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED', cancellationReason: 'out of stock' }) }),
+    );
+    const ev = tx.returnEvent.create.mock.calls.at(-1)[0].data;
+    expect(ev.eventType).toBe('REPLACEMENT_CANCELLED');
+    expect(res.replacement!.status).toBe('CANCELLED');
+  });
+
+  it('requires a reason to cancel a replacement', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(issuedRR());
+    await expect(service.cancelReplacement('op1', 'rr1', {} as any)).rejects.toThrow(BadRequestException);
+    expect(tx.replacement.update).not.toHaveBeenCalled();
+  });
+
+  it('blocks cancelling an already-completed replacement', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(issuedRR({ status: 'COMPLETED' }));
+    await expect(service.cancelReplacement('op1', 'rr1', { reason: 'why' })).rejects.toThrow(ConflictException);
   });
 });

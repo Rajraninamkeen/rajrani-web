@@ -93,3 +93,23 @@ export class InspectionDto {
   @Type(() => InspectionItemDto)
   items!: InspectionItemDto[];
 }
+
+/** Session 17: dispatch a PENDING_DISPATCH replacement (PENDING -> DISPATCHED). */
+export class DispatchReplacementDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  dispatchReference?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  dispatchNote?: string;
+}
+
+/** Session 17: cancel a PENDING_DISPATCH/DISPATCHED replacement. */
+export class CancelReplacementDto {
+  @IsString()
+  @MaxLength(300)
+  reason!: string;
+}

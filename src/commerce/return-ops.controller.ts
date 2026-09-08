@@ -1,6 +1,12 @@
 import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
 import { ReturnsService } from './returns.service';
-import { EvidenceUploadDto, InspectionDto, ReturnDecisionDto } from './dto/returns.dto';
+import {
+  CancelReplacementDto,
+  DispatchReplacementDto,
+  EvidenceUploadDto,
+  InspectionDto,
+  ReturnDecisionDto,
+} from './dto/returns.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -72,5 +78,36 @@ export class ReturnOpsController {
   @Roles('OPERATOR', 'ADMIN')
   complete(@CurrentUserId() operatorId: string, @Param('returnRequestId') id: string) {
     return this.returns.completeRefund(operatorId, id);
+  }
+
+  // ---- Session 17: outbound replacement dispatch (OPERTOR/ADMIN) ----
+
+  /** PENDING_DISPATCH -> DISPATCHED (outbound replacement shipped). */
+  @Post('return-requests/:returnRequestId/replacement/dispatch')
+  @Roles('OPERATOR', 'ADMIN')
+  dispatch(
+    @CurrentUserId() operatorId: string,
+    @Param('returnRequestId') id: string,
+    @Body() dto: DispatchReplacementDto,
+  ) {
+    return this.returns.dispatchReplacement(operatorId, id, dto);
+  }
+
+  /** DISPATCHED -> COMPLETED (replacement delivered to customer). */
+  @Post('return-requests/:returnRequestId/replacement/complete')
+  @Roles('OPERATOR', 'ADMIN')
+  completeReplacement(@CurrentUserId() operatorId: string, @Param('returnRequestId') id: string) {
+    return this.returns.completeReplacement(operatorId, id);
+  }
+
+  /** PENDING_DISPATCH|DISPATCHED -> CANCELLED (e.g. stock unavailable). */
+  @Post('return-requests/:returnRequestId/replacement/cancel')
+  @Roles('OPERATOR', 'ADMIN')
+  cancelReplacement(
+    @CurrentUserId() operatorId: string,
+    @Param('returnRequestId') id: string,
+    @Body() dto: CancelReplacementDto,
+  ) {
+    return this.returns.cancelReplacement(operatorId, id, dto);
   }
 }
