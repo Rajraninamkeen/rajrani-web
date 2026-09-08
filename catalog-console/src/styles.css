@@ -107,3 +107,25 @@ textarea { resize: vertical; }
 .revstars { color: #e8a13a; letter-spacing: 1px; font-size: 14px; }
 .review-card .pname { display: flex; align-items: center; gap: 8px; }
 .badge.ok { background: #e6f6ec; color: #1e7d46; }
+
+/* Session 27 — seller dashboard */
+.seller-dash h4 { margin: 22px 0 10px; }
+.sub-nav { display: flex; gap: 8px; margin: 14px 0 12px; flex-wrap: wrap; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.kpi { background: #fff; border: 1px solid var(--line, #e4ddd2); border-radius: 12px; padding: 14px 16px; }
+.kpi-v { font-size: 22px; font-weight: 800; }
+.kpi-v.accent { color: #b3412a; }
+.kpi-v.warn { color: #a8670a; }
+.kpi-l { color: #7a6a5a; font-size: 12px; }
+.table-wrap { overflow-x: auto; background: #fff; border: 1px solid #e4ddd2; border-radius: 12px; }
+.ptable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ptable th, .ptable td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #f0e9dd; white-space: nowrap; }
+.ptable th { background: #faf6ee; color: #7a6a5a; font-weight: 600; }
+.ptable tr:last-child td { border-bottom: none; }
+.badge.st-PLACED { background: #fff4e0; color: #a8670a; }
+.badge.st-ACCEPTED { background: #e6f6ec; color: #1e7d46; }
+.badge.st-REJECTED { background: #fdeaea; color: #c0392b; }
+.badge.st-CANCELLED, .badge.st-FAILED { background: #eee; color: #555; }
+.badge.st-EARNED { background: #e6f6ec; color: #1e7d46; }
+.badge.st-IN_SETTLEMENT { background: #fff4e0; color: #a8670a; }
+.badge.st-SETTLED, .badge.st-PAID, .badge.st-RECONCILED { background: #e6f6ec; color: #1e7d46; }

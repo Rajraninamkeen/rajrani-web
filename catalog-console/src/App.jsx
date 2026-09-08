@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, authApi, getToken, setToken } from './api.js';
 import Login from './views/Login.jsx';
 import SellerCatalog from './views/SellerCatalog.jsx';
+import SellerDashboard from './views/SellerDashboard.jsx';
 import StaffReview from './views/StaffReview.jsx';
 import StaffReviews from './views/StaffReviews.jsx';
 
@@ -58,7 +59,7 @@ export default function App() {
   // Pick a sensible default tab for the signed-in role.
   const effectiveTab = !allowed.seller && allowed.staff ? 'review' : tab;
   const tabs = [
-    ...(allowed.seller ? [{ id: 'catalog', label: 'My Catalog' }] : []),
+    ...(allowed.seller ? [{ id: 'catalog', label: 'My Catalog' }, { id: 'dashboard', label: 'Sales & Payouts' }] : []),
     ...(allowed.staff ? [{ id: 'review', label: 'Publishing Review' }, { id: 'reviews', label: 'Review Moderation' }] : []),
   ];
 
@@ -82,6 +83,7 @@ export default function App() {
       </nav>
       <main className="content">
         {allowed.seller && effectiveTab === 'catalog' && <SellerCatalog notify={notify} />}
+        {allowed.seller && effectiveTab === 'dashboard' && <SellerDashboard notify={notify} />}
         {allowed.staff && effectiveTab === 'review' && <StaffReview notify={notify} />}
         {allowed.staff && effectiveTab === 'reviews' && <StaffReviews notify={notify} />}
         {(!allowed.seller && !allowed.staff) && (

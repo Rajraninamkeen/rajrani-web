@@ -59,3 +59,15 @@ export const reviewModerationApi = {
   hide: (id, note) => api('POST', `/product-reviews/${id}/hide`, { body: note ? { note } : {} }),
   unhide: (id, note) => api('POST', `/product-reviews/${id}/unhide`, { body: note ? { note } : {} }),
 };
+
+// Session 27 — seller operations/dashboard (SELLER role): own slices + money.
+export const sellerOpsApi = {
+  me: () => api('GET', '/seller/me'),
+  orders: (status) => api('GET', '/seller/orders' + (status ? `?status=${status}` : '')),
+  order: (id) => api('GET', `/seller/orders/${id}`),
+  accept: (id) => api('POST', `/seller/orders/${id}/accept`, { body: {} }),
+  reject: (id, reason) => api('POST', `/seller/orders/${id}/reject`, { body: { reason } }),
+  payables: (status) => api('GET', '/seller/payables' + (status ? `?status=${status}` : '')),
+  settlements: (status) => api('GET', '/seller/settlements' + (status ? `?status=${status}` : '')),
+  settlement: (id) => api('GET', `/seller/settlements/${id}`),
+};

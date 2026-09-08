@@ -1287,3 +1287,24 @@ OPERATOR): submit 2 reviews → PENDING → moderation PENDING list shows both �
 reason; its product aggregate untouched) → approve the other (PUBLISHED) → hide → unhide (PUBLISHED);
 CUSTOMER on `/product-reviews` → 403. Test reviews deleted and both products' aggregates reset to seed
 (ratlami-sev 4.9/3820, shahi-kaju-mixture 4.9/2450).
+
+## Session 27 — SELLER sales & payouts dashboard (catalog console)
+
+Added a SELLER "Sales & Payouts" tab to `catalog-console/` so a seller can run their side of fulfilment and
+money over the existing live routes (frontend only; no backend change). `/seller/me`, `/seller/orders`,
+`/seller/payables`, `/seller/settlements` are the data sources.
+
+- KPI cards: seller code/name, payable count, net earned (sum of EARNED netPayable), slices awaiting
+  confirmation (PLACED).
+- Slices section: filter by status (PLACED/ACCEPTED/REJECTED/CANCELLED), expandable rows show the items +
+  per-slice sellerAmount, and for a PLACED slice give **Accept** or **Reject (reason required)** — hitting
+  POST /seller/orders/:id/accept and /seller/orders/:id/reject.
+- Payables: status filter (EARNED/IN_SETTLEMENT/SETTLED) with a table (goods, commission, refund, net,
+  status). Settlements: list + expandable detail (gross/commission/refund/net + events).
+
+Verified live through the console proxy (`seller1@example.com`, SELL-BILOKAT): /seller/me (SELL-BILOKAT,
+ACTIVE), /seller/orders (8 slices: 1 PLACED + 7 ACCEPTED), /seller/payables (6 EARNED), /seller/settlements
+(0). An OPERATOR on /seller/orders → 403 (SELLER-only RBAC). seller1's single real PLACED slice was NOT
+accepted/rejected during the test (irreversible on live data); the mutation paths are covered by backend
+tests (`seller-ops.service.spec.ts` + `settlement.service.spec.ts`, 32/32 pass). Vite build clean; module
+hot-reloaded on the dev server.
