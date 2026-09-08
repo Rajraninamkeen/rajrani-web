@@ -3549,3 +3549,19 @@ Product listing/publishing rides the existing roles — no new role was introduc
 - Staff actor identity is recorded on the immutable `product_status_history` audit (`actorRole`
   OPERATOR/ADMIN + `actorId`); seller authoring records `actorRole SELLER`.
 - Sessions 14–19 RBAC negatives remain valid.
+
+## SESSION 21 ADDENDUM — RBAC for product reviews/ratings (no new role)
+
+- **CUSTOMER** (authenticated) can author reviews **only for products they actually received** (a
+  DELIVERED order item) — this is the verified-buyer guard and the anti-spam control. Reviews start
+  **PENDING**; a customer can see/edit/delete only their own, and cannot publish anything. Editing a
+  REJECTED/HIDDEN own review reopens it to PENDING. A PUBLISHED review is not customer-editable/removable.
+- **OPERATOR / ADMIN** moderate product reviews under `/product-reviews` (approve/reject/hide/unhide),
+  mirroring the other staff org-approval surfaces (catalog publishing Session 20, seller-onboarding).
+  `moderatorId`/`moderatedAt` are recorded on the review for audit.
+- **REVIEWER is NOT granted review moderation** — it stays onboarding/KYC-only (Session 14); product
+  review/content moderation is OPERATOR/ADMIN.
+- **SELLER / DELIVERY** cannot author or moderate reviews (CUSTOMER-role guard on `/reviews`; staff guard
+  on `/product-reviews`).
+- Public reads are auth-free but **PUBLISHED-only** — a never-approved review is never publicly visible.
+- Sessions 14–20 RBAC negatives remain valid.

@@ -3372,3 +3372,32 @@ Guards: approve/reject on a non-PENDING_REVIEW product → 409; REVIEWER/CUSTOME
 staff surface (SELLER hits only `/seller/catalog`); CUSTOMER hits neither. No un-approved product is ever
 reachable through the public catalog (`GET /catalog/products/:identifier` → 404 for DRAFT/PENDING_REVIEW/
 REJECTED/ARCHIVED).
+
+## SESSION 21 ADDENDUM — Product reviews / ratings API
+
+All under `/api/v1`, standard envelope, Bearer JWT except the public read.
+
+### Customer review authoring — `/reviews` (`@Roles(CUSTOMER)`)
+- `POST /reviews` — body `{productId, rating(1..5), title?, comment?}`. The product must be APPROVED+LIVE
+  and the caller must have received it (a **DELIVERED** order item). Creates a **PENDING** review with
+  `verifiedBuyer:true`. Duplicate (same product+user) → 409; non-buyer → 403.
+- `GET /reviews/me?status=…` — caller's reviews (with product). `GET /reviews/:reviewId` — own detail.
+- `PATCH /reviews/:reviewId` — `{rating?, title?, comment?}`. Edit own PENDING, or a REJECTED/HIDDEN own
+  review (which reopens to **PENDING** for re-moderation). PUBLISHED → 409.
+- `DELETE /reviews/:reviewId` — delete own **non-PUBLISHED** review (PUBLISHED must be removed by
+  moderation).
+
+### Staff moderation — `/product-reviews` (`@Roles(OPERATOR, ADMIN)`; REVIEWER stays KYC-only)
+- `GET /product-reviews?status=PENDING|PUBLISHED|REJECTED|HIDDEN` (default PENDING), `GET
+  /product-reviews/:reviewId`.
+- `POST /product-reviews/:reviewId/approve` `{note?}` — PENDING → **PUBLISHED** (public + aggregate).
+- `POST /product-reviews/:reviewId/reject` `{reason}` — PENDING → **REJECTED**.
+- `POST /product-reviews/:reviewId/hide` `{note?}` — PUBLISHED → **HIDDEN** (removed from aggregate).
+- `POST /product-reviews/:reviewId/unhide` `{note?}` — HIDDEN → **PUBLISHED** (restored).
+Each action records `moderatorId`/`moderatedAt`/`moderationNote`. Wrong-state transitions → 409.
+
+### Public read — `GET /catalog/products/:identifier/reviews?page&limit` (no auth)
+Returns `{product:{id,name,slug,ratingAvg,reviewCount}, reviews:[{id,rating,title,comment,
+verifiedBuyer,author:{id,name},createdAt}], page, limit, total, totalPages}` for a live product. Only
+**PUBLISHED** reviews are returned; PENDING/REJECTED/HIDDEN never appear. Author `name` is derived from
+`User.fullName` (or "Verified customer"); full email is never exposed.

@@ -246,3 +246,36 @@ enriched, not slavishly copied from the prototype. Backend/DB is source of truth
   per-seller order gating changes, courier/delivery-provider integration.
 - For future work the natural next items are: **product reviews/ratings**, **courier-delivering the
   dispatched replacement**, and the **catalog-publishing-web / seller-web UIs**.
+
+## SESSION 21 HANDOFF NOTES (product reviews & ratings)
+- **New module `src/reviews/`** (wired into `app.module.ts`; no new role). Three controllers, do NOT
+  over-restrict: review authoring is `@Controller('reviews') @Roles(CUSTOMER)` (CUSTOMER-role guard, not
+  just JWT), moderation is `@Controller('product-reviews') @Roles(OPERATOR, ADMIN)`, and the public read is
+  `PublicReviewsController @Controller('catalog/products/:identifier/reviews')` (no auth) so it does NOT
+  collide with `catalog.controller` `GET products/:identifier` (Express matches by path segment).
+- **Verified purchase is the core control:** `create` requires the product be APPROVED+LIVE and the caller
+  to have a **DELIVERED** order item for it (query `orderItem.findFirst({productId, order:{userId,
+  status:'DELIVERED'}})`); anything less → 403. One review per product per user via `@@unique([productId,
+  userId])` (409 on duplicate). This is a hard rule — keep it if later enabling pre-delivery "write later".
+- **Only PUBLISHED is public.** Staff approve → PUBLISHED; reject → REJECTED (reason); hide/unhide manage
+  an already-PUBLISHED review's visibility. Customer can edit/delete only their own non-PUBLISHED review
+  (editing a REJECTED/HIDDEN one reopens to PENDING). Never relax the PUBLISHED-only public filter.
+- **Aggregation semantics (product decision, keep consistent):** `recomputeAggregate` sets
+  `Product.ratingAvg`/`reviewCount` = avg/count over PUBLISHED reviews, in the SAME transaction as
+  approve/hide/unhide. Rejecting a **never-published** review does NOT recompute — so a product that has
+  never had an approved review keeps its seeded marketing summary until its first review is approved.
+  Once any review is approved the product shows its true aggregate. If you later add many seeded reviews,
+  seed PUBLISHED rows instead of keeping a parallel marketing number.
+- **Migration discipline:** `20260908200000_product_reviews` applied via `psql -f` + a manual
+  `_prisma_migrations` row (id `20260908200000_product_reviews`, ≤36 chars). 23 migrations total.
+- **Tests/E2E:** `src/reviews/reviews.service.spec.ts` (12) → **20 suites / 193 tests**. Live E2E
+  `scripts/e2e-reviews.mjs` (17/17): `API`/`BUYER`/`BW`/`OP`/`OPW`/`SELLER`/`SPW`/`PRODUCT` env; run
+  against a fresh sandbox API (`PORT=4400 node dist/main.js`). Fixtures: buyer `s12@example.com`/`Test@12345`
+  (has DELIVERED orders), OPERATOR `pfop@example.com`/`Operator@123`, SELLER `seller1@example.com`/`Seller@123`,
+  product `ratlami-sev`. The E2E hard-deletes its review rows and resets the two products' rating summaries
+  to seeded values afterwards.
+- **Not in scope (add only in a new session):** seller onboarding/KYC, catalog publishing, courier /
+  delivery-provider, per-seller order gating, and the review/rating storefront UI + "helpful" votes /
+  photos / Q&A.
+- Natural next items: **courier-deliver the dispatched replacement**, **review storefront UI**,
+  **catalog-publishing/seller UIs**, or a next owner-chosen feature.

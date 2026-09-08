@@ -453,3 +453,26 @@ CUSTOMER `s12@example.com`, ACTIVE category `cmtrvg2j90005usnz1jaaa7mx`.
 | audit | psql `product_status_history` for the approved product: `DRAFT→PENDING_REVIEW→APPROVED` with actorRole SELLER/OPERATOR + reasons (created-as-draft, submitted, approved-by-operator) |
 | cleanup | E2E-created products (`pub-*`) hard-deleted after the run; public catalog clean |
 | `git push origin main` | Session 20 feature + docs committed and pushed (see git log) |
+
+## Session 21 — Product reviews & ratings (2026-09-08, `/home/user/rajrani-web`)
+
+Sandbox-provider API on `:4400` (`PORT=4400 node dist/main.js`) against the same dev DB; reusable driver
+`scripts/e2e-reviews.mjs` → 17 ok steps. Fixtures: buyer CUSTOMER `s12@example.com`/`Test@12345` (DELIVERED
+order `cmtrwegvj000hkvnz466lceg7` contains products `ratlami-sev` + `shahi-kaju-mixture`, both APPROVED+LIVE),
+OPERATOR `pfop@example.com`/`Operator@123`, SELLER `seller1@example.com`/`Seller@123`, plus a freshly registered
+non-buyer CUSTOMER for the 403 negative.
+
+| Check | Result |
+|---|---|
+| migrations | 23 applied, `prisma migrate status` up to date (`20260908200000_product_reviews`); `product_reviews` has moderation cols + unique(productId,userId) + (userId,status) index; `prisma generate` OK; typecheck + `npm run build` clean |
+| unit tests | new `src/reviews/reviews.service.spec.ts` (12) → **20 suites / 193 tests** green |
+| create | buyer `POST /reviews` (`ratlami-sev`, 5★) → PENDING + `verifiedBuyer:true`; in `GET /reviews/me`; public `/catalog/products/ratlami-sev/reviews` shows 0 (not yet approved) |
+| negatives | duplicate review → 409; fresh CUSTOMER with no DELIVERED purchase → 403; SELLER (non-CUSTOMER role) → 403; CUSTOMER on `/product-reviews` → 403 |
+| moderation queue | OPERATOR `GET /product-reviews?status=PENDING` sees it |
+| approve | `POST /product-reviews/:id/approve {note:'looks genuine'}` → PUBLISHED + moderationNote + moderatedAt; public read now returns it; `ratlami-sev` recomputed `ratingAvg 5` / `reviewCount 1` |
+| hide/unhide | hide → HIDDEN, not public, aggregate 0/0; unhide → PUBLISHED restored |
+| reject | second review (`shahi-kaju-mixture`) `POST …/reject {reason:'duplicate content'}` → REJECTED + reason; its product summary untouched (stays 4.9/2450) |
+| edit-after-reject | `PATCH /reviews/:id` on the REJECTED review reopens → PENDING (awaiting re-moderation) |
+| cleanup | E2E `product_reviews` rows deleted; `ratlami-sev`/`shahi-kaju-mixture` rating summaries reset to seeded (4.9/3820, 4.9/2450); throwaway registered CUSTOMERs deleted |
+| RBAC | moderation is OPERATOR/ADMIN only (REVIEWER stays KYC-only); public read is auth-free and PUBLISHED-only |
+| `git push origin main` | Session 21 feature + docs committed and pushed (see git log) |

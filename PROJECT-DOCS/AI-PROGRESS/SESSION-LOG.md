@@ -1113,3 +1113,47 @@ order gating, or courier.
   NOT publicly resolvable (404). RBAC: CUSTOMER denied both the OPERATOR review surface and the SELLER
   authoring surface (403). DB audit for the approved product: `product_status_history`
   `DRAFT→PENDING_REVIEW→APPROVED` (actorRole SELLER/OPERATOR + reasons). E2E test products cleaned up.
+
+## Session 21 — Product reviews & ratings (backend) (2026-09-08, `/home/user/rajrani-web`)
+
+Owner-chosen next scope: **product reviews/ratings (backend)**. NO code was changed for
+onboarding/KYC, catalog publishing, courier/delivery-provider, or storefront UI.
+
+- **Schema/migration `20260908200000_product_reviews`:** `ProductReview` (already modelled from init,
+  `ReviewStatus PENDING/PUBLISHED/REJECTED/HIDDEN`, `verifiedBuyer`) gains moderation fields
+  `moderatorId`/`moderatedAt`/`moderationNote`, a **`@@unique([productId, userId])`** (one review per
+  customer per product) and a `(userId, status)` index (the prior bare `userId` index is dropped). Applied
+  via `psql -f` + manual `_prisma_migrations` row, never `migrate dev/reset`; `prisma generate` OK (23
+  migrations).
+- **New `src/reviews/` module (wired into `app.module.ts`), no new role:**
+  - `ReviewsController @Controller('reviews') @Roles(CUSTOMER)` — POST (create), GET `/me`, GET
+    `/:reviewId`, PATCH `/:reviewId`, DELETE `/:reviewId`. Create requires the product be APPROVED+LIVE
+    and the caller to have a **DELIVERED** order item for it (`verifiedBuyer=true`); duplicate (same
+    product+user) → 409; non-buyer → 403. Update allowed on own PENDING, or a REJECTED/HIDDEN review
+    (reopens to PENDING for re-moderation); PUBLISHED reviews are not customer-editable/removable
+    (must go through moderation). Delete allowed on own non-PUBLISHED review.
+  - `ReviewModerationController @Controller('product-reviews') @Roles(OPERATOR, ADMIN)` (REVIEWER stays
+    onboarding/KYC-only): GET list (default PENDING), GET `/:id`, POST `/:id/approve|reject|hide|unhide`.
+    Approve → PUBLISHED; reject → REJECTED (+reason); hide → PUBLISHED→HIDDEN (drop from aggregate);
+    unhide → HIDDEN→PUBLISHED (restore). Only a PENDING review can be approved/rejected; only PUBLISHED
+    can be hidden; only HIDDEN can be unhidden (409 otherwise). Each action records moderatorId/moderatedAt
+    + moderationNote.
+  - `PublicReviewsController @Controller('catalog/products/:identifier/reviews')` (no auth) returns only
+    **PUBLISHED** reviews (paginated) with product summary; PENDING/REJECTED/HIDDEN never appear.
+  - **Aggregation:** `recomputeAggregate` sets `Product.ratingAvg`/`reviewCount` = avg/count over
+    PUBLISHED reviews, called inside the same tx as approve/hide/unhide. Rejecting a **never-published**
+    PENDING review does NOT recompute (so a product with no approved reviews keeps its seeded marketing
+    summary until its first review is approved). The existing public catalog read path is otherwise
+    untouched.
+- **Tests:** new `src/reviews/reviews.service.spec.ts` (12): create PENDING verified review, non-buyer 403,
+  duplicate 409, non-public product blocked, cannot edit/delete PUBLISHED (409), editing REJECTED reopens
+  to PENDING, approve publishes + recomputes, reject marks REJECTED without recompute, cannot approve
+  non-PENDING (409), public read only PUBLISHED, unknown product 404 → **20 suites / 193 tests** (was 19);
+  typecheck + `npm run build` clean.
+- **Live E2E (`scripts/e2e-reviews.mjs`, 17/17 ok, sandbox API `:4400`):** customer `s12@example.com`
+  (DELIVERED order containing `ratlami-sev`) created a PENDING verified review → showed in `/reviews/me`,
+  not public → OPERATOR `pfop@example.com` approved it (PUBLISHED, moderation note) → now public and
+  `ratlami-sev` recomputed to 5.0/1 → hide (0/0) → unhide (restored) → a second review on
+  `shahi-kaju-mixture` rejected (REJECTED + reason, product summary untouched) → editing the REJECTED
+  review reopened it to PENDING. RBAC negatives (fresh non-buyer 403, SELLER 403, CUSTOMER on moderation
+  403). E2E reviews + product summaries cleaned up to seeded values after the run.
