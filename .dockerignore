@@ -1,3 +1,14 @@
 node_modules
 dist
 .env
+.env.*.local
+.git
+.github
+*.log
+coverage
+PROJECT-DOCS
+landing-page
+customer-storefront
+catalog-console
+scripts
+docs

@@ -1,0 +1,56 @@
+# ---------------------------------------------------------------------------
+# BILOKAT — production-style stack: PostgreSQL + the API container.
+#
+# Usage:
+#   export $(grep -v '^#' .env | xargs)    # load your secrets (or use env_file)
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Put your real values in a .env (never committed). The API reads the same
+# variables listed in src/config/configuration.ts (see .env.example).
+# ---------------------------------------------------------------------------
+name: bilokat-prod
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bilokat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bilokat_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-bilokat}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bilokat} -d ${POSTGRES_DB:-bilokat}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # DB reaches the postgres service on the compose network
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bilokat}:${POSTGRES_PASSWORD:-bilokat_dev}@db:5432/${POSTGRES_DB:-bilokat}?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      PAYMENT_GATEWAY_PROVIDER: ${PAYMENT_GATEWAY_PROVIDER:-sandbox}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      COURIER_PROVIDER: ${COURIER_PROVIDER:-sandbox}
+      COURIER_FEE_PARCEL: ${COURIER_FEE_PARCEL:-35}
+      COURIER_FEE_REPLACEMENT: ${COURIER_FEE_REPLACEMENT:-40}
+    ports:
+      - "${API_PORT:-3000}:3000"
+
+volumes:
+  pgdata:
