@@ -301,3 +301,202 @@ describe('SettlementService', () => {
     });
   });
 });
+
+describe('SettlementService · auto return-debit (Session 13)', () => {
+  let prisma: any;
+  let service: SettlementService;
+  beforeEach(() => {
+    prisma = { $transaction: jest.fn((cb: any) => cb({})) };
+    service = new SettlementService(prisma as any);
+  });
+
+  function payableSliceTx(over: Record<string, any> = {}) {
+    const tx = {
+      sellerOrder: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'so1',
+          seller: { commissionRateBps: 1000 }, // 10%
+          payable: {
+            id: 'p1',
+            status: 'EARNED',
+            netPayable: dec(900),
+            refundAmount: dec(0),
+            adjustmentAmount: dec(0),
+          },
+          ...over,
+        }),
+      },
+      sellerPayableAdjustment: { create: jest.fn() },
+      sellerPayable: { update: jest.fn() },
+    };
+    return tx;
+  }
+
+  it('debits the returned goods net (goods × (1-rate)) from the EARNED payable and records a SYSTEM adjustment', async () => {
+    const tx = payableSliceTx();
+    const out = await service.debitReturnedGoodsForRefund(
+      tx as any,
+      [{ sellerOrderId: 'so1', returnedGoodsValue: 100 }],
+      { refundReference: 'RFD-1', returnRequestId: 'rr1' },
+    );
+    expect(out.applied).toBe(90); // 100 goods, 10% => net 90
+    expect(tx.sellerPayableAdjustment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ amount: -90, actorType: 'SYSTEM', actorId: 'rr1' }),
+      }),
+    );
+    expect(tx.sellerPayable.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ netPayable: 810, refundAmount: 90, adjustmentAmount: -90 }) }),
+    );
+  });
+
+  it('never drives a payable below zero (clamps to remaining net)', async () => {
+    const tx = payableSliceTx({
+      payable: { id: 'p1', status: 'EARNED', netPayable: dec(50), refundAmount: dec(0), adjustmentAmount: dec(0) },
+    });
+    const out = await service.debitReturnedGoodsForRefund(
+      tx as any,
+      [{ sellerOrderId: 'so1', returnedGoodsValue: 100 }], // net 90 but only 50 remains
+      { refundReference: 'RFD-2' },
+    );
+    expect(out.applied).toBe(50);
+    expect(tx.sellerPayable.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ netPayable: 0, refundAmount: 50 }) }),
+    );
+  });
+
+  it('skips slices that are not EARNED (already settled) and those without a payable', async () => {
+    const tx = payableSliceTx({
+      payable: { id: 'p1', status: 'SETTLED', netPayable: dec(900), refundAmount: dec(0), adjustmentAmount: dec(0) },
+    });
+    const out = await service.debitReturnedGoodsForRefund(
+      tx as any,
+      [{ sellerOrderId: 'so1', returnedGoodsValue: 100 }],
+      {},
+    );
+    expect(out.applied).toBe(0);
+    expect(tx.sellerPayableAdjustment.create).not.toHaveBeenCalled();
+  });
+
+  it('treats a 0% seller as debiting the full returned goods value', async () => {
+    const tx = payableSliceTx({ seller: { commissionRateBps: 0 } });
+    const out = await service.debitReturnedGoodsForRefund(
+      tx as any,
+      [{ sellerOrderId: 'so1', returnedGoodsValue: 100 }],
+      {},
+    );
+    expect(out.applied).toBe(100);
+  });
+});
+
+describe('SettlementService · reconciliation + reporting (Session 13)', () => {
+  let prisma: any;
+  let service: SettlementService;
+  beforeEach(() => {
+    prisma = {
+      order: { findMany: jest.fn() },
+      sellerPayableAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      sellerPayable: { groupBy: jest.fn() },
+      seller: { findMany: jest.fn() },
+      $transaction: jest.fn(),
+    };
+    service = new SettlementService(prisma as any);
+  });
+
+  function deliveredOrder(over: Record<string, any> = {}) {
+    return {
+      id: 'o1',
+      status: 'DELIVERED',
+      grandTotal: dec(710.85),
+      sellerOrders: [
+        {
+          id: 'so1',
+          sellerOrderNumber: 'SO-1',
+          status: 'ACCEPTED',
+          deliveredAt: new Date(),
+          grandTotal: dec(396.9),
+          seller: { commissionRateBps: 0 },
+          payable: {
+            id: 'p1',
+            goodsValue: dec(378),
+            commissionAmount: dec(0),
+            netPayable: dec(378),
+            taxAmount: dec(18.9),
+            deliveryAmount: dec(0),
+          },
+        },
+        {
+          id: 'so2',
+          sellerOrderNumber: 'SO-2',
+          status: 'ACCEPTED',
+          deliveredAt: new Date(),
+          grandTotal: dec(313.95),
+          seller: { commissionRateBps: 1000 },
+          payable: {
+            id: 'p2',
+            goodsValue: dec(299),
+            commissionAmount: dec(29.9),
+            netPayable: dec(269.1),
+            taxAmount: dec(14.95),
+            deliveryAmount: dec(0),
+          },
+        },
+      ],
+      refunds: [],
+      ...over,
+    };
+  }
+
+  it('reports ok for a clean ledger (split, refund cap, delivered payables, ledger self-consistency)', async () => {
+    prisma.order.findMany.mockResolvedValue([deliveredOrder()]);
+    const out = await service.runReconciliation();
+    expect(out.ok).toBe(true);
+    expect(out.discrepancyCount).toBe(0);
+    expect(out.checked.deliveredOrders).toBe(1);
+    expect(out.checked.payables).toBe(2);
+  });
+
+  it('flags an order-split mismatch and a delivered slice missing a payable', async () => {
+    prisma.order.findMany.mockResolvedValue([
+      deliveredOrder({
+        grandTotal: dec(700),
+        sellerOrders: [
+          {
+            id: 'so1',
+            sellerOrderNumber: 'SO-1',
+            status: 'ACCEPTED',
+            deliveredAt: new Date(),
+            grandTotal: dec(396.9),
+            payable: null, // missing
+          },
+        ],
+        refunds: [],
+      }),
+    ]);
+    const out = await service.runReconciliation();
+    const kinds = out.discrepancies.map((d: any) => d.kind);
+    expect(kinds).toContain('order_split_mismatch');
+    expect(kinds).toContain('delivered_slice_missing_payable');
+    expect(out.ok).toBe(false);
+  });
+
+  it('flags a payable whose net disagrees with goods - commission + Σadjustments', async () => {
+    const order = deliveredOrder();
+    order.sellerOrders[0].payable.netPayable = dec(300); // should be 378
+    prisma.order.findMany.mockResolvedValue([order]);
+    const out = await service.runReconciliation();
+    expect(out.discrepancies.map((d: any) => d.kind)).toContain('payable_ledger_mismatch');
+  });
+
+  it('reportTotals groups by seller and returns grand totals', async () => {
+    prisma.sellerPayable.groupBy.mockResolvedValue([
+      { sellerId: 'seller-legacy', _count: { _all: 2 }, _sum: { grossAmount: dec(700), discountAmount: dec(0), goodsValue: dec(700), commissionAmount: dec(0), taxAmount: dec(35), deliveryAmount: dec(0), refundAmount: dec(0), adjustmentAmount: dec(0), netPayable: dec(700) } },
+    ]);
+    prisma.seller.findMany.mockResolvedValue([{ id: 'seller-legacy', sellerCode: 'SELL-BILOKAT', displayName: 'Bilokat Kitchens' }]);
+    const out = await service.reportTotals({});
+    expect(out.perSeller).toHaveLength(1);
+    expect(out.perSeller[0].netPayable).toBe(700);
+    expect(out.totals.netPayable).toBe(700);
+    expect(out.totals.commissionAmount).toBe(0);
+  });
+});

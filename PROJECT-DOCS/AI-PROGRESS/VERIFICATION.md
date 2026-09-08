@@ -304,3 +304,21 @@
 | seller2 (Rajrani) `GET /seller/payables` + `/seller/settlements` | sees own payable (₹259.10 SETTLED) + settlement STL-445969B3 RECONCILED ₹259.10 |
 | 2nd order `BK-MTRWFK4Z`: Rajrani REJECTED → operator resolve-reject → delivered | only the delivered ACCEPTED Bilokat slice earned a payable **₹189.00**; the CANCELLED Rajrani slice has **no** payable (₹0 earned) — Session-11 rejected/cancelled slice contributes nothing |
 | `git push origin main` | schema+backend+tests pushed (Session 12 commit) |
+
+## Session 13 — Finance reconciliation + reporting (auto return-debit) (2026-09-08, `/home/user/rajrani-web`)
+
+| Command / check | Result |
+|---|---|
+| migrations | none new; 14 applied, `prisma migrate deploy` clean (no pending) |
+| `npm run typecheck` / `build` | exit 0 |
+| `npm test` | 13 suites / **110 tests** PASS (settlement.service.spec +9; returns.service.spec +1) |
+| returns auto-debit | `ReturnsService.completeRefund` now calls `SettlementService.debitReturnedGoodsForRefund` inside its own `$transaction` |
+| customer return on delivered slice of `BK-MTRWFK4Z` | full item-level return (Bilokat ratlami-sev ₹189) → approve → pickup → picked-up → inspection **PASS** → initiate refund `RFD-MTRX0MTT-PB39` ₹217.43 (PENDING) → complete → return **COMPLETED** |
+| auto-debit effect on payable `cmtrwfv3…` (Bilokat EARNED ₹189) | **net ₹189 → ₹0**, `refundAmount` ₹0 → ₹189, stored signed `adjustmentAmount` → **−₹189**; audited append-only `seller_payable_adjustments` row `actorType: SYSTEM`, `amount: −189`, `actorId` = returnRequestId, reason references the return + `RFD-MTRX0MTT-PB39` |
+| `GET /finance/reconciliation/summary` | returns `{ ok, discrepancyCount, checked {deliveredOrders:3, payables:3} }`; flags **only** the pre-existing historical `delivered_slice_missing_payable` (pre-settlement E2E order `cmtrvm3r9…`, slice `SO-MTRVM3RO-9049`); **no** discrepancy from the auto-debit (net 0 = goods 189 − 0 − 189) |
+| `GET /finance/report/totals` | per-seller + grand totals — Bilokat goods ₹567 / refund ₹189 / adj −₹189 / net ₹378; Rajrani goods ₹299 / adj −₹10 / net ₹259.10; grand net ₹637.10, refund ₹189, adj −₹199 |
+| `GET /finance/report/totals?sellerId=seller-legacy` | returns only Bilokat (net ₹378) — filter DTO-whitelisted |
+| date filter `?from=…&to=…` | valid ISO range accepted |
+| RBAC | CUSTOMER → **403** on `/finance/reconciliation/summary` and `/finance/report/totals`; no token → **401** |
+| seller self-service | `seller1` (Bilokat) `GET /seller/payables` → own two payables (EARNED net ₹0 refund ₹189; EARNED net ₹378); scoped to own org |
+| `git push origin main` | deferred — waiting on owner-rotated GitHub token |

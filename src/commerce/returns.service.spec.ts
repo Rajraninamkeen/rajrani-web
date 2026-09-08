@@ -66,6 +66,7 @@ const line = (over: Record<string, any> = {}) => ({
 describe('ReturnsService (item-level)', () => {
   let prisma: any;
   let tx: any;
+  let settlement: any;
   let service: ReturnsService;
 
   function freshTx() {
@@ -95,7 +96,8 @@ describe('ReturnsService (item-level)', () => {
 
   beforeEach(() => {
     freshTx();
-    service = new ReturnsService(prisma);
+    settlement = { debitReturnedGoodsForRefund: jest.fn().mockResolvedValue({ applied: 0, debits: [] }) };
+    service = new ReturnsService(prisma, settlement);
   });
 
   // ---- request ----
@@ -241,6 +243,37 @@ describe('ReturnsService (item-level)', () => {
     expect(txRow).toMatchObject({ refundId: 'ref1', status: 'SUCCESS' });
     expect(txRow.amount.toNumber()).toBe(200);
     expect(tx.order.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'o1' }, data: { status: 'REFUNDED', paymentStatus: 'REFUNDED' } }));
+  });
+
+  it('auto-debits the delivered seller slice payable for refunded goods on completeRefund', async () => {
+    const refundedLine = line({
+      refundAmount: dec(200),
+      orderItem: {
+        id: 'oiA',
+        sellerOrderId: 'soX',
+        unitPrice: dec(200),
+        quantity: 1,
+        lineTotal: dec(200),
+        productNameSnapshot: 'Item A',
+      },
+    });
+    prisma.returnRequest.findUnique.mockResolvedValue(
+      rr({
+        status: 'APPROVED_FOR_REFUND',
+        order: order(),
+        items: [refundedLine],
+        refund: { id: 'ref1', status: 'PENDING', paymentId: null, orderId: 'o1', returnRequestId: 'rr1', refundReference: 'RFD-x', amount: dec(200), currency: 'INR', method: 'GATEWAY', gatewayRef: null, initiatedAt: new Date(), completedAt: null, gatewayProvider: 'sandbox' },
+      }),
+    );
+    tx.refund.aggregate.mockResolvedValue({ _sum: { amount: dec(0) } }); // partial -> stays DELIVERED
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(rr({ status: 'COMPLETED', completedAt: new Date(), items: [refundedLine] }));
+    await service.completeRefund('op1', 'rr1');
+    // 200 goods * qty1 returned, grouped under seller slice soX.
+    expect(settlement.debitReturnedGoodsForRefund).toHaveBeenCalledWith(
+      expect.anything(),
+      [{ sellerOrderId: 'soX', returnedGoodsValue: 200 }],
+      { refundReference: 'RFD-x', returnRequestId: 'rr1' },
+    );
   });
 
   it('does not complete a non-pending refund twice', async () => {

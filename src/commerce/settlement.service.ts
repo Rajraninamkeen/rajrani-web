@@ -8,8 +8,10 @@ import {
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  OrderStatus,
   PayableStatus,
   Prisma,
+  RefundState,
   SellerOrderStatus,
   SettlementStatus,
 } from '../generated/prisma/client';
@@ -460,6 +462,246 @@ export class SettlementService {
     });
     if (!s) throw new NotFoundException('Settlement not found');
     return this.toPublicSettlement(s);
+  }
+
+  // ---------------- Session 13: auto return-debit, reconciliation, reporting ----------------
+
+  /**
+   * Auto-debit delivered seller payables when a customer return/refund completes.
+   * Owner-selected rule (net-zero on full return): the seller keeps nothing for
+   * returned goods, so debit the returned goods' NET earnings =
+   * returnedGoodsValue × (1 − sellerCommissionRate), floored at the payable's
+   * remaining net (a payable is never driven below zero). Recorded as an audited,
+   * append-only SellerPayableAdjustment (actorType SYSTEM). Only EARNED payables
+   * are auto-debited — a payable already in a settlement/paid is out of this path
+   * and surfaced by reconciliation instead.
+   * Returns the total seller-borne debit applied across the returned slices.
+   */
+  async debitReturnedGoodsForRefund(
+    tx: Tx,
+    slices: { sellerOrderId: string; returnedGoodsValue: number }[],
+    context: { refundReference?: string; returnRequestId?: string },
+  ): Promise<{ applied: number; debits: { sellerOrderId: string; amount: number }[] }> {
+    const debits: { sellerOrderId: string; amount: number }[] = [];
+    for (const s of slices) {
+      if (!s.returnedGoodsValue || s.returnedGoodsValue <= 0) continue;
+      const sellerOrder = await tx.sellerOrder.findUnique({
+        where: { id: s.sellerOrderId },
+        include: { seller: true, payable: true },
+      });
+      if (!sellerOrder?.payable) continue; // no earned payable for this slice
+      const payable = sellerOrder.payable;
+      if (payable.status !== PayableStatus.EARNED) continue; // already settled/in settlement
+      const rateBps = sellerOrder.seller.commissionRateBps || 0;
+      const grossPaise = Math.round(s.returnedGoodsValue * 100);
+      const netPaise = Math.round((grossPaise * (10000 - rateBps)) / 10000);
+      const debit = netPaise / 100;
+      const remainingPaise = Math.round(payable.netPayable.toNumber() * 100);
+      const appliedPaise = Math.max(0, Math.min(Math.round(debit * 100), remainingPaise));
+      if (appliedPaise <= 0) continue;
+      const applied = appliedPaise / 100;
+      const reason = `Seller return debit for ${context.returnRequestId ?? 'return'} (${context.refundReference ?? 'refund'})`;
+      await tx.sellerPayableAdjustment.create({
+        data: {
+          sellerPayableId: payable.id,
+          amount: -applied,
+          reason,
+          actorType: 'SYSTEM',
+          actorId: context.returnRequestId ?? context.refundReference ?? null,
+        },
+      });
+      await tx.sellerPayable.update({
+        where: { id: payable.id },
+        data: {
+          refundAmount: payable.refundAmount.toNumber() + applied,
+          adjustmentAmount:
+            Math.round((payable.adjustmentAmount.toNumber() - applied) * 100) / 100,
+          netPayable: (remainingPaise - appliedPaise) / 100,
+        },
+      });
+      debits.push({ sellerOrderId: s.sellerOrderId, amount: applied });
+    }
+    return { applied: debits.reduce((a, d) => a + d.amount, 0), debits };
+  }
+
+  // ---------------- Reconciliation (read-only integrity checks) ----------------
+
+  /**
+   * Run ledger-integrity reconciliation across the finance domain. Read-only; never
+   * mutates. Reports any discrepancies against the documented invariants. Query
+   * shape returned is { checked, discrepancies: [{ kind, orderId?, payableId?, sellerId?,
+   * detail }], totals: {...} }.
+   */
+  async runReconciliation() {
+    const discrepancies: any[] = [];
+    // Load the finance domain in one pass (dev scale; bounded by delivered orders).
+    const orders = await this.prisma.order.findMany({
+      where: { status: { in: [OrderStatus.DELIVERED, OrderStatus.REFUNDED] } },
+      include: { sellerOrders: { include: { seller: true, payable: true, items: true } }, refunds: true },
+    });
+
+    let splitChecked = 0;
+    let payableChecked = 0;
+
+    for (const order of orders) {
+      // 1. Order split invariant: SUM(seller_orders.grandTotal) == order.grandTotal.
+      splitChecked++;
+      const sumSlices = order.sellerOrders.reduce((a: number, so: any) => a + so.grandTotal.toNumber(), 0);
+      if (Math.abs(sumSlices - order.grandTotal.toNumber()) > 0.005) {
+        discrepancies.push({
+          kind: 'order_split_mismatch',
+          orderId: order.id,
+          detail: `Σ seller_orders (${sumSlices.toFixed(2)}) != order.grandTotal (${order.grandTotal.toNumber().toFixed(2)})`,
+        });
+      }
+
+      // 2. Refund cap: cumulative completed refunds never exceed order.grandTotal.
+      const refunded = order.refunds.reduce((a: number, rf: any) => {
+        return rf.status === RefundState.COMPLETED ? a + rf.amount.toNumber() : a;
+      }, 0);
+      if (refunded > order.grandTotal.toNumber() + 0.005) {
+        discrepancies.push({
+          kind: 'over_refund',
+          orderId: order.id,
+          detail: `completed refunds ₹${refunded.toFixed(2)} > order grand ₹${order.grandTotal.toNumber().toFixed(2)}`,
+        });
+      }
+
+      // 3. Every ACCEPTED+delivered slice has a payable; every CANCELLED/rejected slice has none.
+      for (const so of order.sellerOrders) {
+        const delivered = !!so.deliveredAt;
+        const acceptedDelivered = so.status === SellerOrderStatus.ACCEPTED && delivered;
+        if (acceptedDelivered && !so.payable) {
+          discrepancies.push({
+            kind: 'delivered_slice_missing_payable',
+            orderId: order.id,
+            sellerOrderId: so.id,
+            detail: `ACCEPTED+delivered slice ${so.sellerOrderNumber} has no seller payable`,
+          });
+        }
+        if (so.status === SellerOrderStatus.CANCELLED && so.payable) {
+          discrepancies.push({
+            kind: 'payable_on_cancelled_slice',
+            orderId: order.id,
+            sellerOrderId: so.id,
+            detail: `cancelled slice ${so.sellerOrderNumber} has a payable`,
+          });
+        }
+
+        // 4. Payable net never negative; 5. ledger self-consistency recomputed from the
+        // append-only adjustment ledger: net == goodsValue - commission + Σ(adjustments).
+        if (so.payable) {
+          payableChecked++;
+          const p = so.payable;
+          if (p.netPayable.toNumber() < -0.005) {
+            discrepancies.push({
+              kind: 'negative_payable',
+              orderId: order.id,
+              sellerOrderId: so.id,
+              payableId: p.id,
+              detail: `payable net ₹${p.netPayable.toNumber().toFixed(2)} < 0`,
+            });
+          }
+          const adjustments = await this.prisma.sellerPayableAdjustment.findMany({
+            where: { sellerPayableId: p.id },
+          });
+          const adjSum = adjustments.reduce((a: number, ad: any) => a + ad.amount.toNumber(), 0);
+          const expected = Math.round((p.goodsValue.toNumber() - p.commissionAmount.toNumber() + adjSum) * 100) / 100;
+          const actual = p.netPayable.toNumber();
+          if (Math.abs(expected - actual) > 0.005) {
+            discrepancies.push({
+              kind: 'payable_ledger_mismatch',
+              orderId: order.id,
+              sellerOrderId: so.id,
+              payableId: p.id,
+              detail: `net ${actual.toFixed(2)} != goods ${p.goodsValue.toNumber().toFixed(2)} - comm ${p.commissionAmount.toNumber().toFixed(2)} + Σadj ${adjSum.toFixed(2)} = ${expected.toFixed(2)}`,
+            });
+          }
+        }
+      }
+    }
+
+    return {
+      checked: { deliveredOrders: splitChecked, payables: payableChecked },
+      discrepancies,
+      discrepancyCount: discrepancies.length,
+      ok: discrepancies.length === 0,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /** Per-seller finance totals over payables earned in [from, to] (reporting). */
+  async reportTotals(query: { from?: string; to?: string; sellerId?: string }) {
+    const where: Prisma.SellerPayableWhereInput = {};
+    if (query.sellerId) where.sellerId = query.sellerId;
+    if (query.from || query.to) {
+      where.earnedAt = {};
+      if (query.from) where.earnedAt.gte = new Date(query.from);
+      if (query.to) where.earnedAt.lte = new Date(query.to);
+    }
+    const rows = await this.prisma.sellerPayable.groupBy({
+      by: ['sellerId'],
+      where,
+      _sum: {
+        grossAmount: true,
+        discountAmount: true,
+        goodsValue: true,
+        commissionAmount: true,
+        taxAmount: true,
+        deliveryAmount: true,
+        refundAmount: true,
+        adjustmentAmount: true,
+        netPayable: true,
+      },
+      _count: { _all: true },
+    });
+    const sellers = await this.prisma.seller.findMany({
+      where: { id: { in: rows.map((r: any) => r.sellerId) } },
+    });
+    const byId = new Map(sellers.map((s) => [s.id, s]));
+    const perSeller = rows.map((r: any) => ({
+      sellerId: r.sellerId,
+      sellerCode: byId.get(r.sellerId)?.sellerCode,
+      sellerName: byId.get(r.sellerId)?.displayName,
+      payables: r._count._all,
+      grossAmount: Number(r._sum.grossAmount ?? 0),
+      discountAmount: Number(r._sum.discountAmount ?? 0),
+      goodsValue: Number(r._sum.goodsValue ?? 0),
+      commissionAmount: Number(r._sum.commissionAmount ?? 0),
+      taxAmount: Number(r._sum.taxAmount ?? 0),
+      deliveryAmount: Number(r._sum.deliveryAmount ?? 0),
+      refundAmount: Number(r._sum.refundAmount ?? 0),
+      adjustmentAmount: Number(r._sum.adjustmentAmount ?? 0),
+      netPayable: Number(r._sum.netPayable ?? 0),
+    }));
+    const totals = perSeller.reduce(
+      (a, x) => {
+        a.payables += x.payables;
+        a.grossAmount += x.grossAmount;
+        a.discountAmount += x.discountAmount;
+        a.goodsValue += x.goodsValue;
+        a.commissionAmount += x.commissionAmount;
+        a.taxAmount += x.taxAmount;
+        a.deliveryAmount += x.deliveryAmount;
+        a.refundAmount += x.refundAmount;
+        a.adjustmentAmount += x.adjustmentAmount;
+        a.netPayable += x.netPayable;
+        return a;
+      },
+      {
+        payables: 0,
+        grossAmount: 0,
+        discountAmount: 0,
+        goodsValue: 0,
+        commissionAmount: 0,
+        taxAmount: 0,
+        deliveryAmount: 0,
+        refundAmount: 0,
+        adjustmentAmount: 0,
+        netPayable: 0,
+      },
+    );
+    return { perSeller, totals, generatedAt: new Date().toISOString() };
   }
 
   // ---------------- Mappers ----------------

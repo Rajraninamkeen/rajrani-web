@@ -18,6 +18,7 @@ import {
   ReturnStatus,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettlementService } from './settlement.service';
 import {
   CreateReturnDto,
   InspectionDto,
@@ -48,7 +49,10 @@ type Full = any;
 
 @Injectable()
 export class ReturnsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settlement: SettlementService,
+  ) {}
 
   // ================= CUSTOMER =================
 
@@ -321,6 +325,29 @@ export class ReturnsService {
         data: { status: ReturnStatus.COMPLETED, completedAt: new Date() },
       });
       await this.eventTx(tx, returnRequestId, ReturnEventType.REFUND_COMPLETED, ReturnActorType.OPERATOR, operatorId, `Refund ₹${refund.amount.toNumber().toFixed(2)} completed`);
+
+      // Session 13: auto-debit the delivered sellers' earned payables for the goods
+      // that were returned & refunded (net-zero rule; only EARNED payables). Group the
+      // refunded return lines (those that actually got a refund) by their seller slice.
+      const refundedBySlice = new Map<string, number>();
+      for (const item of r.items ?? []) {
+        const refundable = item.refundAmount && item.refundAmount.toNumber() > 0;
+        if (!refundable || !item.orderItem) continue;
+        const sellerOrderId = item.orderItem.sellerOrderId as string | undefined;
+        if (!sellerOrderId) continue;
+        const goods = item.orderItem.unitPrice.toNumber() * item.quantity;
+        refundedBySlice.set(sellerOrderId, (refundedBySlice.get(sellerOrderId) ?? 0) + goods);
+      }
+      if (refundedBySlice.size > 0) {
+        await this.settlement.debitReturnedGoodsForRefund(
+          tx,
+          [...refundedBySlice.entries()].map(([sellerOrderId, returnedGoodsValue]) => ({
+            sellerOrderId,
+            returnedGoodsValue,
+          })),
+          { refundReference: refund.refundReference, returnRequestId },
+        );
+      }
 
       // Aggregate: if the order is now fully refunded mark it terminal.
       const agg = await tx.refund.aggregate({

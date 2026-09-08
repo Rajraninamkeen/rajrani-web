@@ -85,3 +85,17 @@ export class AmountQuery {
   @Min(0)
   limit?: number;
 }
+
+export class ReconciliationReportQuery {
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  @IsOptional()
+  @IsString()
+  to?: string;
+
+  @IsOptional()
+  @IsString()
+  sellerId?: string;
+}

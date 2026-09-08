@@ -7,6 +7,7 @@ import { CurrentUserId } from '../auth/decorators/current-user.decorator';
 import {
   PayableAdjustmentDto,
   PayableListQuery,
+  ReconciliationReportQuery,
   SettlementAdvanceDto,
   SettlementCreateDto,
   SettlementListQuery,
@@ -66,6 +67,18 @@ export class FinanceOpsController {
     @Body() dto: SettlementAdvanceDto,
   ) {
     return this.svc.advanceSettlement(userId, id, dto.toStatus, dto.reason);
+  }
+
+  @Get('reconciliation/summary')
+  @Roles('OPERATOR', 'ADMIN')
+  async reconciliation() {
+    return this.svc.runReconciliation();
+  }
+
+  @Get('report/totals')
+  @Roles('OPERATOR', 'ADMIN')
+  async reportTotals(@Query() query: ReconciliationReportQuery) {
+    return this.svc.reportTotals(query);
   }
 }
 

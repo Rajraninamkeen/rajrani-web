@@ -676,3 +676,62 @@ Live E2E run — see VERIFICATION Session 05 table.
   sees own payable+settlement. Second order `BK-MTRWFK4Z`: Rajrani slice REJECTED then
   resolve-reject (Session 11), delivered → only the accepted Bilokat slice earned
   ₹189.00, the CANCELLED Rajrani slice earned **₹0**. See VERIFICATION Session 12.
+
+## Session 13 — Finance reconciliation + reporting (auto return-debit)
+- **Date:** 2026-09-08
+- **Objective (owner-selected):** put read-only integrity checks and finance reporting
+  on top of the Session 12 seller-payables/settlements ledger, and close the last
+  finance loop — a **completed customer refund now automatically debits the delivered
+  seller's earned payable** for the returned goods. Owner decision (sub-rule):
+  **net-zero on full return** — the seller keeps nothing for returned goods, so the
+  debit = `returnedGoodsValue × (1 − sellerCommissionRate)`, floored at the payable's
+  remaining net (never driven below zero), recorded as an audited append-only
+  `seller_payable_adjustments` row with `actorType: SYSTEM` (actor = returnRequestId).
+- **No schema/migration in this session** (14 migrations still applied; `migrate
+  deploy` clean). All changes are service/controller/DTO/test logic.
+- **Auto return-debit (`SettlementService.debitReturnedGoodsForRefund`, called from
+  `ReturnsService.completeRefund` inside the refund's own `$transaction`):** the
+  completed-refund step maps each refunded return item back to its delivered slice via
+  `orderItem.sellerOrderId` and passes the returned **goods** value
+  (`unitPrice × quantity`) to the debit. The debit applies only to an **EARNED**
+  payable (a payable already IN_SETTLEMENT/SETTLED is intentionally left alone and
+  surfaced by reconciliation); updates the payable's `refundAmount` and `netPayable`
+  and keeps the stored signed `adjustmentAmount` aggregate consistent with the ledger
+  (matching the manual `addAdjustment` semantics). A full return drives that slice's
+  payable to ₹0.
+- **Reconciliation (`GET /finance/reconciliation/summary`, OPERATOR/ADMIN; read-only):**
+  `SettlementService.runReconciliation` checks over DELIVERED/REFUNDED orders —
+  order-split invariant (Σ `seller_orders.grandTotal == order.grandTotal`), refund cap
+  (completed refunds ≤ order grand), every ACCEPTED+delivered slice has a payable and
+  no CANCELLED slice has one, no negative payable, and each payable's net is recomputed
+  from its append-only adjustment ledger (`net == goodsValue − commission +
+  Σ adjustments`). Returns `{ checked, discrepancies[], discrepancyCount, ok,
+  generatedAt }`. On the live DB it correctly flags exactly one **pre-existing
+  historical** discrepancy (`delivered_slice_missing_payable` in the pre-settlement
+  E2E order `cmtrvm3r9…`) and none from the auto-debit.
+- **Reporting (`GET /finance/report/totals`, OPERATOR/ADMIN):**
+  `SettlementService.reportTotals` groupBy seller over payables with optional `from`/
+  `to` (earnedAt) + `sellerId` filters (DTO-whitelisted), returning per-seller and
+  grand totals for gross/discount/goods/commission/tax/delivery/refund/adjustment/net +
+  payable count.
+- **Controller/DTO:** new routes on `settlement-ops.controller.ts` (`reconciliation/
+  summary`, `report/totals`); `ReconciliationReportQuery` gains optional
+  `sellerId`/`from`/`to`. ReturnsService now injects SettlementService (wiring added,
+  spec mock updated). RBAC unchanged — no new FINANCE role (OPERATOR/ADMIN read; seller
+  self-service reads unchanged).
+- **Tests:** settlement spec +9 (debit maths incl. commission, floor-at-remaining-net
+  clamp, skip non-EARNED/settled + missing payable, 0% seller full-goods debit,
+  stored-adjustment-aggregate update; reconciliation clean/order-split/missing-payable/
+  ledger-mismatch; reportTotals grouping) and returns spec +1 asserting
+  `completeRefund` calls the debit with the refunded slice grouped by goods. Full suite
+  **13 suites / 110 tests** (was 101); typecheck + build clean.
+- **Live E2E (`:4000`):** customer full item-level return on the delivered Bilokat slice
+  of `BK-MTRWFK4Z` (₹189 EARNED payable `cmtrwfv3…`) → approve → pickup → picked-up →
+  inspection PASS → initiate `RFD-MTRX0MTT-PB39` ₹217.43 → complete → payable auto-
+  debited to **net ₹0** (refund ₹189) with audited SYSTEM `−189` adjustment; the
+  reconciliation endpoint returns the checks (only the one pre-existing historical
+  discrepancy), and the report totals return per-seller + grand totals (Bilokat net
+  ₹378 / refund ₹189 / adj −₹189; Rajrani adj −₹10 net ₹259.10; grand net ₹637.10);
+  `?sellerId=` and date filters verified; CUSTOMER→403 / no-token→401 on the finance
+  routes; seller self-service `/seller/payables` scoped to own org. See VERIFICATION
+  Session 13.
