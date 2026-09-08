@@ -1,6 +1,6 @@
 import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
 import { ReturnsService } from './returns.service';
-import { InspectionDto, ReturnDecisionDto } from './dto/returns.dto';
+import { EvidenceUploadDto, InspectionDto, ReturnDecisionDto } from './dto/returns.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -47,6 +47,17 @@ export class ReturnOpsController {
     @Body() dto: InspectionDto,
   ) {
     return this.returns.inspect(operatorId, id, dto);
+  }
+
+  /** Operator attaches evidence to a return request on the customer's behalf. */
+  @Post('return-requests/:returnRequestId/evidence')
+  @Roles('OPERATOR', 'ADMIN')
+  uploadEvidence(
+    @CurrentUserId() operatorId: string,
+    @Param('returnRequestId') id: string,
+    @Body() dto: EvidenceUploadDto,
+  ) {
+    return this.returns.uploadEvidenceOperator(operatorId, id, dto);
   }
 
   /** Create the (server-amounted) refund for an APPROVED_FOR_REFUND return. */

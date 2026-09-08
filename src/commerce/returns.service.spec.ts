@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ReturnsService } from './returns.service';
+import { ReturnActorType } from '../generated/prisma/client';
 
 const dec = (n: number) => ({ toNumber: () => n });
 
@@ -81,6 +82,8 @@ describe('ReturnsService (item-level)', () => {
       returnItem: { update: jest.fn() },
       returnInspection: { upsert: jest.fn() },
       returnEvent: { create: jest.fn() },
+      returnEvidence: { create: jest.fn() },
+      replacement: { create: jest.fn() },
       refund: { create: jest.fn(), update: jest.fn(), aggregate: jest.fn() },
       refundTransaction: { create: jest.fn() },
     };
@@ -283,5 +286,146 @@ describe('ReturnsService (item-level)', () => {
         refund: { id: 'ref1', status: 'COMPLETED', paymentId: null, orderId: 'o1', returnRequestId: 'rr1', refundReference: 'RFD-x', amount: dec(10), currency: 'INR', method: 'GATEWAY', gatewayRef: 'g', initiatedAt: new Date(), completedAt: new Date(), gatewayProvider: 'sandbox' } }),
     );
     await expect(service.completeRefund('op1', 'rr1')).rejects.toThrow(ConflictException);
+  });
+
+  // ---- Session 16: replacement resolution & evidence ----
+
+  it('request() stores a REPLACEMENT resolution + evidenceRequired + replacementRequested items + evidence', async () => {
+    prisma.order.findUnique.mockResolvedValue(order());
+    prisma.returnItem.findMany.mockResolvedValue([]);
+    const created = rr({
+      status: 'REQUESTED',
+      resolution: 'REPLACEMENT',
+      items: [line({ replacementRequested: true })],
+      evidence: [
+        { id: 'ev1', returnRequestId: 'rr1', storageObjectId: 'obj-1', fileName: 'photo.jpg', mimeType: 'image/jpeg', sizeBytes: 1024, kind: 'IMAGE', uploadedBy: 'u1', uploadedAt: new Date() },
+      ],
+    });
+    tx.returnRequest.create.mockResolvedValue(created);
+    const res = await service.request('u1', 'o1', {
+      reasonCode: 'DEFECTIVE',
+      resolution: 'REPLACEMENT' as any,
+      evidence: [{ storageObjectId: 'obj-1', fileName: 'photo.jpg' }],
+    } as any);
+    const data = tx.returnRequest.create.mock.calls[0][0].data;
+    expect(data.resolution).toBe('REPLACEMENT');
+    expect(data.evidenceRequired).toBe(true);
+    expect(data.items.create[0].replacementRequested).toBe(true);
+    expect(data.evidence.create).toHaveLength(1);
+    expect(res.resolution).toBe('REPLACEMENT');
+    expect(res.evidence).toHaveLength(1);
+  });
+
+  it('request() defaults to REFUND resolution and does not require evidence', async () => {
+    prisma.order.findUnique.mockResolvedValue(order());
+    prisma.returnItem.findMany.mockResolvedValue([]);
+    tx.returnRequest.create.mockResolvedValue(rr({ status: 'REQUESTED', items: [line()] }));
+    await service.request('u1', 'o1', { reasonCode: 'DEFECTIVE' } as any);
+    const data = tx.returnRequest.create.mock.calls[0][0].data;
+    expect(data.resolution).toBe('REFUND');
+    expect(data.evidenceRequired).toBe(false);
+    expect(data.items.create[0].replacementRequested).toBe(false);
+  });
+
+  it('inspect() on a REPLACEMENT resolution issues a terminal Replacement (no refund, no seller debit)', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(
+      rr({ status: 'PICKED_UP', resolution: 'REPLACEMENT', order: order(), items: [line()] }),
+    );
+    const refreshed = rr({
+      status: 'PICKED_UP',
+      resolution: 'REPLACEMENT',
+      order: order(),
+      items: [line({ inspectionResult: 'PASS' })],
+    });
+    const finalised = rr({
+      status: 'REPLACEMENT_ISSUED',
+      resolution: 'REPLACEMENT',
+      order: order(),
+      items: [line({ inspectionResult: 'PASS' })],
+      replacement: {
+        id: 'rpl1', returnRequestId: 'rr1', orderId: 'o1', sellerOrderId: null,
+        replacementReference: 'RPL-X', status: 'PENDING_DISPATCH', quantityTotal: 1,
+        issuedBy: 'op1', issuedAt: new Date(), dispatchedAt: null, completedAt: null,
+      },
+    });
+    tx.returnRequest.findUniqueOrThrow
+      .mockResolvedValueOnce(refreshed)
+      .mockResolvedValueOnce(finalised);
+    const res = await service.inspect('op1', 'rr1', { items: [{ returnItemId: 'ri1', result: 'PASS' as any }] });
+    expect(res.status).toBe('REPLACEMENT_ISSUED');
+    expect(res.replacement?.quantityTotal).toBe(1);
+    // Replacement row created, NOT a Refund; return items only record inspection,
+    // never a refundAmount allocation.
+    expect(tx.replacement.create).toHaveBeenCalled();
+    expect(tx.refund.create).not.toHaveBeenCalled();
+    for (const call of tx.returnItem.update.mock.calls) {
+      expect(call[0].data).not.toHaveProperty('refundAmount');
+    }
+    expect(tx.returnRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'REPLACEMENT_ISSUED' }) }),
+    );
+    expect(settlement.debitReturnedGoodsForRefund).not.toHaveBeenCalled();
+    const rplData = tx.replacement.create.mock.calls[0][0].data;
+    expect(rplData.quantityTotal).toBe(1);
+    expect(rplData.status).toBe('PENDING_DISPATCH');
+  });
+
+  it('inspect() throws when a REPLACEMENT request has no passing item', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(
+      rr({ status: 'PICKED_UP', resolution: 'REPLACEMENT', order: order(), items: [line()] }),
+    );
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValueOnce(
+      rr({ status: 'PICKED_UP', resolution: 'REPLACEMENT', order: order(), items: [line({ inspectionResult: 'FAIL' })] }),
+    );
+    await expect(service.inspect('op1', 'rr1', { items: [{ returnItemId: 'ri1', result: 'FAIL' as any }] })).rejects.toThrow(BadRequestException);
+    expect(tx.replacement.create).not.toHaveBeenCalled();
+    expect(tx.returnRequest.update).not.toHaveBeenCalled();
+  });
+
+  it('cannot initiate a refund for a REPLACEMENT_ISSUED request', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(
+      rr({ status: 'REPLACEMENT_ISSUED', resolution: 'REPLACEMENT', order: order(), items: [line()] }),
+    );
+    await expect(service.initiateRefund('op1', 'rr1')).rejects.toThrow(ConflictException);
+    expect(tx.refund.create).not.toHaveBeenCalled();
+  });
+
+  it('customer uploads evidence to their own return request (CUSTOMER actor event)', async () => {
+    prisma.order.findUnique.mockResolvedValue(order());
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'PICKED_UP', items: [line()] }));
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(
+      rr({ status: 'PICKED_UP', items: [line()], evidence: [{ id: 'ev1', storageObjectId: 'obj-9', fileName: 'p.jpg', mimeType: 'image/jpeg', sizeBytes: 10, kind: 'IMAGE', uploadedBy: 'u1', uploadedAt: new Date() }] }),
+    );
+    await service.uploadEvidenceCustomer('u1', 'o1', 'rr1', { storageObjectId: 'obj-9' });
+    expect(tx.returnEvidence.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ returnRequestId: 'rr1', storageObjectId: 'obj-9', uploadedBy: 'u1' }) }),
+    );
+    const eventArgs = tx.returnEvent.create.mock.calls.at(-1)[0].data;
+    expect(eventArgs.actorType).toBe(ReturnActorType.CUSTOMER);
+    expect(eventArgs.actorId).toBe('u1');
+  });
+
+  it('operator uploads evidence on the customer behalf (OPERATOR actor event)', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'APPROVED', items: [line()] }));
+    tx.returnRequest.findUniqueOrThrow.mockResolvedValue(
+      rr({ status: 'APPROVED', items: [line()], evidence: [] }),
+    );
+    await service.uploadEvidenceOperator('op1', 'rr1', { storageObjectId: 'obj-10', kind: 'VIDEO' });
+    const data = tx.returnEvidence.create.mock.calls[0][0].data;
+    expect(data.kind).toBe('VIDEO');
+    const eventArgs = tx.returnEvent.create.mock.calls.at(-1)[0].data;
+    expect(eventArgs.actorType).toBe(ReturnActorType.OPERATOR);
+    expect(eventArgs.actorId).toBe('op1');
+  });
+
+  it('blocks evidence upload on a terminal (COMPLETED) request', async () => {
+    prisma.returnRequest.findUnique.mockResolvedValue(rr({ status: 'COMPLETED', items: [line()] }));
+    await expect(service.uploadEvidenceOperator('op1', 'rr1', { storageObjectId: 'x' })).rejects.toThrow(ConflictException);
+    expect(tx.returnEvidence.create).not.toHaveBeenCalled();
+  });
+
+  it('404 when customer uploads evidence to another user\'s order', async () => {
+    prisma.order.findUnique.mockResolvedValue(order({ userId: 'else' }));
+    await expect(service.uploadEvidenceCustomer('u1', 'o1', 'rr1', { storageObjectId: 'x' })).rejects.toThrow(NotFoundException);
   });
 });

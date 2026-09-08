@@ -417,6 +417,7 @@ model Order {
   codVerification CodVerification?
   returnRequests ReturnRequest[]
   refunds Refund[]
+  replacements Replacement[] // Session 16
   payables SellerPayable[]
 
   @@index([userId])
@@ -598,6 +599,13 @@ enum ReturnStatus {
   APPROVED_FOR_REFUND
   COMPLETED
   CANCELLED
+  REPLACEMENT_ISSUED // Session 16: terminal state when a return is resolved as a replacement
+}
+
+// Session 16: the remedy a customer wants for a return.
+enum ReturnResolution {
+  REFUND
+  REPLACEMENT
 }
 
 enum ReturnReasonCode {
@@ -622,6 +630,8 @@ enum ReturnEventType {
   APPROVED_FOR_REFUND
   REFUND_INITIATED
   REFUND_COMPLETED
+  REPLACEMENT_ISSUED // Session 16
+  EVIDENCE_UPLOADED // Session 16
   CANCELLED
 }
 
@@ -657,6 +667,7 @@ model ReturnRequest {
   orderId               String
   order                 Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
   status                ReturnStatus       @default(REQUESTED)
+  resolution            ReturnResolution?  // Session 16: requested remedy (REFUND default; REPLACEMENT for exchange)
   reasonCode            ReturnReasonCode
   reasonNote            String?
   evidenceRequired      Boolean            @default(false)
@@ -677,6 +688,8 @@ model ReturnRequest {
   items    ReturnItem[]
   events   ReturnEvent[]
   refund   Refund?
+  evidence ReturnEvidence[]
+  replacement Replacement?
 
   @@index([orderId])
   @@map("return_requests")
@@ -734,6 +747,59 @@ model ReturnInspection {
   createdAt         DateTime         @default(now())
 
   @@map("return_inspections")
+}
+
+// Session 16: customer-supplied evidence (photos/videos) on a return request.
+// Storage-intent only — stores an object reference, never the binary. Usually
+// required for REPLACEMENT / defect-related returns.
+model ReturnEvidence {
+  id              String   @id @default(cuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  storageObjectId String   @unique
+  fileName        String
+  mimeType        String?
+  sizeBytes       Int?
+  kind            String   @default("IMAGE") // IMAGE | VIDEO
+  uploadedBy      String?
+  uploadedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([returnRequestId])
+  @@map("return_evidence")
+}
+
+// Session 16: a replacement (exchange) resolved from a return. No money refund is
+// created for a REPLACEMENT-resolution return; the replacement captures the units
+// to be re-supplied (outbound dispatch is a later fulfilment concern).
+enum ReplacementStatus {
+  PENDING_DISPATCH
+  DISPATCHED
+  COMPLETED
+  CANCELLED
+}
+
+model Replacement {
+  id                 String            @id @default(cuid())
+  returnRequestId    String            @unique
+  returnRequest      ReturnRequest     @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  orderId            String
+  order              Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sellerOrderId      String?           // slice the returned/replacement goods belong to
+  replacementReference String          @unique // RPL-XXXX
+  status             ReplacementStatus @default(PENDING_DISPATCH)
+  quantityTotal      Int
+  issuedBy           String?
+  issuedAt           DateTime          @default(now())
+  dispatchedAt       DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([orderId])
+  @@index([returnRequestId])
+  @@map("replacements")
 }
 
 // Server-authoritative refund. amount is derived from approved return items and

@@ -13,19 +13,24 @@ import {
   Prisma,
   RefundMethod,
   RefundState,
+  ReplacementStatus,
   ReturnActorType,
   ReturnEventType,
+  ReturnResolution,
   ReturnStatus,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettlementService } from './settlement.service';
 import {
   CreateReturnDto,
+  EvidenceUploadDto,
   InspectionDto,
   ReturnDecisionDto,
 } from './dto/returns.dto';
 import {
   RefundPublic,
+  ReplacementPublic,
+  ReturnEvidencePublic,
   ReturnItemPublic,
   ReturnRequestPublic,
 } from './commerce.types';
@@ -42,6 +47,8 @@ const RETURN_INCLUDE = {
     include: { orderItem: true, inspection: true },
   },
   refund: true,
+  evidence: { orderBy: { uploadedAt: 'asc' as const } },
+  replacement: true,
   order: { include: { items: true } },
 } as const;
 
@@ -102,22 +109,39 @@ export class ReturnsService {
       throw new BadRequestException('There is nothing left to return for this order');
     }
 
+    // Session 16: customer may ask for a refund (default) or a replacement/exchange.
+    // A REPLACEMENT resolution requires the customer to attach photo evidence.
+    const resolution = dto.resolution ?? ReturnResolution.REFUND;
+    const isReplacement = resolution === ReturnResolution.REPLACEMENT;
+    const evidenceInput = (dto.evidence ?? []).map((e) => ({
+      storageObjectId: e.storageObjectId,
+      fileName: e.fileName ?? e.storageObjectId,
+      mimeType: e.mimeType ?? null,
+      sizeBytes: e.sizeBytes ?? null,
+      kind: e.kind ?? 'IMAGE',
+      uploadedBy: userId,
+    }));
+
     return this.prisma.$transaction(async (tx) => {
       const rr = await tx.returnRequest.create({
         data: {
           orderId,
           reasonCode: dto.reasonCode,
           reasonNote: dto.note,
+          resolution,
+          evidenceRequired: isReplacement,
           items: {
             create: picks.map((p) => ({
               orderItemId: p.orderItem.id,
               quantity: p.quantity,
+              replacementRequested: isReplacement,
             })),
           },
+          ...(evidenceInput.length > 0 ? { evidence: { create: evidenceInput } } : {}),
         },
         include: RETURN_INCLUDE,
       });
-      await this.eventTx(tx, rr.id, ReturnEventType.REQUESTED, ReturnActorType.CUSTOMER, userId, `Return requested (${dto.reasonCode})`);
+      await this.eventTx(tx, rr.id, ReturnEventType.REQUESTED, ReturnActorType.CUSTOMER, userId, `Return requested (${dto.reasonCode}, remedy ${resolution.toLowerCase()})`);
       return this.toPublic(rr);
     });
   }
@@ -132,6 +156,62 @@ export class ReturnsService {
       include: RETURN_INCLUDE,
     });
     return rows.map((r) => this.toPublic(r));
+  }
+
+  // ================= EVIDENCE (Session 16) =================
+
+  /** Customer attaches evidence (photo/video) to their own return request. */
+  async uploadEvidenceCustomer(
+    userId: string,
+    orderId: string,
+    returnRequestId: string,
+    dto: EvidenceUploadDto,
+  ): Promise<ReturnRequestPublic> {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order || order.userId !== userId) throw new NotFoundException('Order not found');
+    const rr = await this.prisma.returnRequest.findUnique({
+      where: { id: returnRequestId, orderId },
+    });
+    if (!rr) throw new NotFoundException('Return request not found');
+    this.assertEvidenceOpen(rr.status);
+    return this.addEvidence(ReturnActorType.CUSTOMER, userId, returnRequestId, dto);
+  }
+
+  /** Operator attaches evidence on the customer's behalf (e.g. photographed at the
+   *  warehouse / forwarded from the customer). */
+  async uploadEvidenceOperator(
+    operatorId: string,
+    returnRequestId: string,
+    dto: EvidenceUploadDto,
+  ): Promise<ReturnRequestPublic> {
+    const rr = await this.prisma.returnRequest.findUnique({ where: { id: returnRequestId } });
+    if (!rr) throw new NotFoundException('Return request not found');
+    this.assertEvidenceOpen(rr.status);
+    return this.addEvidence(ReturnActorType.OPERATOR, operatorId, returnRequestId, dto);
+  }
+
+  private async addEvidence(
+    actorType: ReturnActorType,
+    actorId: string,
+    returnRequestId: string,
+    dto: EvidenceUploadDto,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.returnEvidence.create({
+        data: {
+          returnRequestId,
+          storageObjectId: dto.storageObjectId,
+          fileName: dto.fileName ?? dto.storageObjectId,
+          mimeType: dto.mimeType ?? null,
+          sizeBytes: dto.sizeBytes ?? null,
+          kind: dto.kind ?? 'IMAGE',
+          uploadedBy: actorId,
+        },
+      });
+      await this.eventTx(tx, returnRequestId, ReturnEventType.EVIDENCE_UPLOADED, actorType, actorId, 'Evidence uploaded');
+      const updated = await tx.returnRequest.findUniqueOrThrow({ where: { id: returnRequestId }, include: RETURN_INCLUDE });
+      return this.toPublic(updated);
+    });
   }
 
   // ================= OPERATOR: decision / pickup =================
@@ -217,17 +297,48 @@ export class ReturnsService {
       });
       const allInspected = refreshed.items.every((i: any) => i.inspectionResult);
       let status = refreshed.status;
+      const isReplacement = refreshed.resolution === ReturnResolution.REPLACEMENT;
       if (allInspected) {
-        status = ReturnStatus.APPROVED_FOR_REFUND;
-        for (const it of refreshed.items) {
-          const amount = this.finalizeItemRefund(it, refreshed.order);
-          await tx.returnItem.update({ where: { id: it.id }, data: { refundAmount: amount } });
+        if (isReplacement) {
+          // Session 16: a REPLACEMENT resolution finalises terminal REPLACEMENT_ISSUED.
+          // No Refund is created and no seller payable is auto-debited. Only items that
+          // passed inspection (PASS / PARTIAL_PASS) count toward the replacement qty.
+          const eligible = refreshed.items.filter(
+            (i: any) => i.inspectionResult !== InspectionResult.FAIL,
+          );
+          const qty = eligible.reduce((s: number, i: any) => s + i.quantity, 0);
+          if (qty <= 0) {
+            throw new BadRequestException('No return item qualified for a replacement (all failed inspection)');
+          }
+          const replacementReference = `RPL-${RND()}`;
+          await tx.returnRequest.update({
+            where: { id: returnRequestId },
+            data: { status: ReturnStatus.REPLACEMENT_ISSUED, inspectedAt: new Date() },
+          });
+          await tx.replacement.create({
+            data: {
+              returnRequestId,
+              orderId: refreshed.orderId,
+              sellerOrderId: eligible[0]?.orderItem?.sellerOrderId ?? null,
+              replacementReference,
+              status: ReplacementStatus.PENDING_DISPATCH,
+              quantityTotal: qty,
+              issuedBy: operatorId,
+            },
+          });
+          await this.eventTx(tx, returnRequestId, ReturnEventType.REPLACEMENT_ISSUED, ReturnActorType.OPERATOR, operatorId, `Replacement issued for ${qty} unit(s)`);
+        } else {
+          status = ReturnStatus.APPROVED_FOR_REFUND;
+          for (const it of refreshed.items) {
+            const amount = this.finalizeItemRefund(it, refreshed.order);
+            await tx.returnItem.update({ where: { id: it.id }, data: { refundAmount: amount } });
+          }
+          await tx.returnRequest.update({
+            where: { id: returnRequestId },
+            data: { status, inspectedAt: new Date(), approvedForRefundAt: new Date() },
+          });
+          await this.eventTx(tx, returnRequestId, ReturnEventType.APPROVED_FOR_REFUND, ReturnActorType.OPERATOR, operatorId, 'Inspection complete');
         }
-        await tx.returnRequest.update({
-          where: { id: returnRequestId },
-          data: { status, inspectedAt: new Date(), approvedForRefundAt: new Date() },
-        });
-        await this.eventTx(tx, returnRequestId, ReturnEventType.APPROVED_FOR_REFUND, ReturnActorType.OPERATOR, operatorId, 'Inspection complete');
       } else {
         await tx.returnRequest.update({
           where: { id: returnRequestId },
@@ -383,6 +494,18 @@ export class ReturnsService {
     }
   }
 
+  /** Evidence may be added while a request is still resolvable (not yet terminal). */
+  private assertEvidenceOpen(status: ReturnStatus) {
+    const closed: ReturnStatus[] = [
+      ReturnStatus.REPLACEMENT_ISSUED,
+      ReturnStatus.COMPLETED,
+      ReturnStatus.CANCELLED,
+    ];
+    if (closed.includes(status)) {
+      throw new ConflictException(`Cannot attach evidence to a ${status} return request`);
+    }
+  }
+
   private async loadStatus(returnRequestId: string, expected: ReturnStatus): Promise<Full> {
     const r = await this.prisma.returnRequest.findUnique({
       where: { id: returnRequestId },
@@ -464,13 +587,37 @@ export class ReturnsService {
       refundAmount: it.refundAmount ? it.refundAmount.toNumber() : null,
       replacementRequested: it.replacementRequested,
     }));
+    const evidence: ReturnEvidencePublic[] = (r.evidence ?? []).map((e: any) => ({
+      id: e.id,
+      storageObjectId: e.storageObjectId,
+      fileName: e.fileName ?? null,
+      mimeType: e.mimeType ?? null,
+      sizeBytes: e.sizeBytes ?? null,
+      kind: e.kind,
+      uploadedBy: e.uploadedBy ?? null,
+      uploadedAt: e.uploadedAt.toISOString(),
+    }));
+    const replacement: ReplacementPublic | null = r.replacement
+      ? {
+          id: r.replacement.id,
+          replacementReference: r.replacement.replacementReference,
+          status: r.replacement.status,
+          quantityTotal: r.replacement.quantityTotal,
+          issuedBy: r.replacement.issuedBy ?? null,
+          issuedAt: r.replacement.issuedAt.toISOString(),
+          dispatchedAt: r.replacement.dispatchedAt ? r.replacement.dispatchedAt.toISOString() : null,
+          completedAt: r.replacement.completedAt ? r.replacement.completedAt.toISOString() : null,
+        }
+      : null;
     return {
       id: r.id,
       orderId: r.orderId,
       orderNumber: r.order?.orderNumber,
       status: r.status,
+      resolution: r.resolution ?? ReturnResolution.REFUND,
       reasonCode: r.reasonCode,
       reasonNote: r.reasonNote,
+      evidenceRequired: r.evidenceRequired ?? false,
       requestedAt: r.requestedAt.toISOString(),
       approvedAt: r.approvedAt ? r.approvedAt.toISOString() : null,
       rejectedAt: r.rejectedAt ? r.rejectedAt.toISOString() : null,
@@ -482,6 +629,8 @@ export class ReturnsService {
       completedAt: r.completedAt ? r.completedAt.toISOString() : null,
       cancelledAt: r.cancelledAt ? r.cancelledAt.toISOString() : null,
       items,
+      evidence,
+      replacement,
       refund,
     };
   }

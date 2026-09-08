@@ -1,6 +1,6 @@
 import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { InspectionResult, ReturnReasonCode } from '../../generated/prisma/client';
+import { InspectionResult, ReturnReasonCode, ReturnResolution } from '../../generated/prisma/client';
 
 export class ReturnRequestItemDto {
   @IsString()
@@ -11,9 +11,38 @@ export class ReturnRequestItemDto {
   quantity!: number;
 }
 
+/** A customer-supplied evidence object reference (photo/video). Storage-intent
+ *  only: an object key/id, never the raw file bytes (backend stores no binary). */
+export class EvidenceUploadDto {
+  @IsString()
+  storageObjectId!: string;
+
+  @IsOptional()
+  @IsString()
+  fileName?: string;
+
+  @IsOptional()
+  @IsString()
+  mimeType?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sizeBytes?: number;
+
+  @IsOptional()
+  @IsString()
+  kind?: string; // IMAGE | VIDEO (defaults IMAGE)
+}
+
 export class CreateReturnDto {
   @IsEnum(ReturnReasonCode)
   reasonCode!: ReturnReasonCode;
+
+  /** Desired remedy: REFUND (default) or REPLACEMENT (exchange). */
+  @IsOptional()
+  @IsEnum(ReturnResolution)
+  resolution?: ReturnResolution;
 
   @IsOptional()
   @IsString()
@@ -26,6 +55,13 @@ export class CreateReturnDto {
   @ValidateNested({ each: true })
   @Type(() => ReturnRequestItemDto)
   items?: ReturnRequestItemDto[];
+
+  /** Evidence (photos) supplied alongside the request. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EvidenceUploadDto)
+  evidence?: EvidenceUploadDto[];
 }
 
 export class ReturnDecisionDto {

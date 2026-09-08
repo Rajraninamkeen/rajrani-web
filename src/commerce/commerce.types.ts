@@ -139,13 +139,37 @@ export interface RefundPublic {
   completedAt?: string | null;
 }
 
+export interface ReturnEvidencePublic {
+  id: string;
+  storageObjectId: string;
+  fileName?: string | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  kind: string;
+  uploadedBy?: string | null;
+  uploadedAt: string;
+}
+
+export interface ReplacementPublic {
+  id: string;
+  replacementReference: string;
+  status: string;
+  quantityTotal: number;
+  issuedBy?: string | null;
+  issuedAt: string;
+  dispatchedAt?: string | null;
+  completedAt?: string | null;
+}
+
 export interface ReturnRequestPublic {
   id: string;
   orderId: string;
   orderNumber?: string;
   status: string;
+  resolution: string; // REFUND | REPLACEMENT (Session 16)
   reasonCode: string;
   reasonNote?: string | null;
+  evidenceRequired: boolean;
   requestedAt: string;
   approvedAt?: string | null;
   rejectedAt?: string | null;
@@ -157,6 +181,8 @@ export interface ReturnRequestPublic {
   completedAt?: string | null;
   cancelledAt?: string | null;
   items: ReturnItemPublic[];
+  evidence: ReturnEvidencePublic[];
+  replacement?: ReplacementPublic | null;
   refund?: RefundPublic | null;
 }
 

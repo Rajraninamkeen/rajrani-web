@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "ReturnEventType" ADD VALUE 'EVIDENCE_UPLOADED';
+

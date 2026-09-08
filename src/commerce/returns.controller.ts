@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ReturnsService } from './returns.service';
-import { CreateReturnDto } from './dto/returns.dto';
+import { CreateReturnDto, EvidenceUploadDto } from './dto/returns.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUserId } from '../auth/decorators/current-user.decorator';
 
@@ -24,5 +24,16 @@ export class ReturnsController {
   @Get()
   status(@CurrentUserId() userId: string, @Param('orderId') orderId: string) {
     return this.returns.getForOrder(userId, orderId);
+  }
+
+  /** Customer attaches photo/video evidence to their return request (Session 16). */
+  @Post(':returnRequestId/evidence')
+  uploadEvidence(
+    @CurrentUserId() userId: string,
+    @Param('orderId') orderId: string,
+    @Param('returnRequestId') returnRequestId: string,
+    @Body() dto: EvidenceUploadDto,
+  ) {
+    return this.returns.uploadEvidenceCustomer(userId, orderId, returnRequestId, dto);
   }
 }
